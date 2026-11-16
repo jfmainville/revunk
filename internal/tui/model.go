@@ -440,7 +440,11 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case is(key, k.Cancel):
 		m.anchor = -1
 	case is(key, k.Viewed):
-		return m, m.toggleViewed()
+		cmd := m.toggleViewed()
+		if m.focus == focusFiles && cmd != nil && !m.viewed[m.currentPath()] {
+			m.selectNextUnreviewed()
+		}
+		return m, cmd
 	case is(key, k.FileComment):
 		return m, m.openEditor(review.Comment{Commit: m.commitSHA(), Path: m.currentPath()})
 	case is(key, k.Send):
@@ -1333,6 +1337,28 @@ func (m Model) fileOrder() []int {
 		}
 	}
 	return append(order, reviewed...)
+}
+
+func (m *Model) selectNextUnreviewed() {
+	var before, after []int
+	seen := false
+	for _, i := range m.fileOrder() {
+		switch {
+		case i == m.fileCursor:
+			seen = true
+		case m.viewed[m.files[i].Path]:
+		case seen:
+			after = append(after, i)
+		default:
+			before = append(before, i)
+		}
+	}
+	switch {
+	case len(after) > 0:
+		m.selectFile(after[0])
+	case len(before) > 0:
+		m.selectFile(before[len(before)-1])
+	}
 }
 
 func (m *Model) stepFile(step int) {

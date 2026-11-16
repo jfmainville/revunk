@@ -571,6 +571,10 @@ func TestMarkViewedCollapsesFileUntilItChanges(t *testing.T) {
 		t.Fatal("viewed state not stored")
 	}
 
+	m, _ = press(t, m, "j")
+	if m.fileCursor != 1 {
+		t.Fatalf("j should reach the reviewed file, got %d", m.fileCursor)
+	}
 	m, cmd = press(t, m, "-")
 	m = run(t, m, cmd)
 	if !strings.Contains(screen(m), "func a() {}") {
@@ -1665,5 +1669,40 @@ func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	m, _ = click(t, m, 5, 11)
 	if m.fileCursor != 1 {
 		t.Fatalf("clicking a reviewed file should select it, got %d", m.fileCursor)
+	}
+}
+
+func TestMarkingReviewedInExplorerSelectsNextFile(t *testing.T) {
+	m, st := loaded(t)
+	m, cmd := press(t, m, "-")
+	if m.fileCursor != 1 {
+		t.Fatalf("should move to the next file in the tree, got %d", m.fileCursor)
+	}
+	m = run(t, m, cmd)
+	if st.viewed["README.md"] == "" || m.fileCursor != 1 {
+		t.Fatalf("README.md should be reviewed and a/main.go selected: %v %d", st.viewed, m.fileCursor)
+	}
+	m, _ = press(t, m, "j")
+	m, cmd = press(t, m, "-")
+	m = run(t, m, cmd)
+	if m.fileCursor != 1 {
+		t.Fatalf("the last file in the tree should fall back to the one above, got %d", m.fileCursor)
+	}
+	m, cmd = press(t, m, "-")
+	m = run(t, m, cmd)
+	if m.fileCursor != 1 || len(st.viewed) != 3 {
+		t.Fatalf("with nothing left to review the selection should stay, got %d", m.fileCursor)
+	}
+	m, cmd = press(t, m, "-")
+	m = run(t, m, cmd)
+	if m.fileCursor != 1 || st.viewed["a/main.go"] != "" {
+		t.Fatalf("unmarking should keep the selection, got %d", m.fileCursor)
+	}
+
+	d, _ := loaded(t)
+	d, _ = press(t, d, "l", "j")
+	before := d.cursor
+	if d, _ = press(t, d, "-"); d.cursor != before || d.fileCursor != 0 {
+		t.Fatal("marking from the diff should not move the selection")
 	}
 }
