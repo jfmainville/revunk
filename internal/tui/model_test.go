@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"reflect"
 	"slices"
 	"strings"
@@ -487,6 +488,9 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	if commentKinds[m.editor.kind] != "note" {
 		t.Fatalf("shift+tab kind = %s", commentKinds[m.editor.kind])
 	}
+	if m.editor.area.Value() != "first\nsecond" {
+		t.Fatalf("leaving suggestion should remove the block: %q", m.editor.area.Value())
+	}
 	m, _ = press(t, m, "esc")
 	if m.editing || len(st.comments) != 0 {
 		t.Fatal("esc should close the editor without saving")
@@ -706,10 +710,10 @@ func TestSmallHelpers(t *testing.T) {
 	if got := ansi.Strip(fit("ab", 4, lipgloss.NewStyle())); got != "ab  " {
 		t.Fatalf("fit pad = %q", got)
 	}
-	if box("t", "", nil, 3, 5, false) != "" {
+	if box("t", "", nil, 3, 5, nil) != "" {
 		t.Fatal("box too narrow should render nothing")
 	}
-	if got := ansi.Strip(box("a-very-long-title", "right", nil, 12, 2, true)); strings.Contains(got, "right") {
+	if got := ansi.Strip(box("a-very-long-title", "right", nil, 12, 2, colorPrimary)); strings.Contains(got, "right") {
 		t.Fatalf("right label should be dropped when it does not fit: %q", got)
 	}
 	if got := ansi.Strip(renderFileHeader(review.File{Path: strings.Repeat("x", 50)}, false, false, 20)); lipgloss.Width(got) != 20 {
@@ -805,7 +809,7 @@ func TestCommentsAndEditorAreDrawnInBorderedBoxes(t *testing.T) {
 		t.Fatalf("comment box missing:\n%s", out)
 	}
 	m, _ = press(t, m, "C")
-	if out := screen(m); !strings.Contains(out, "╭─ comment") || !strings.Contains(out, "^s save") {
+	if out := screen(m); !strings.Contains(out, "╭─ ◆ comment") || !strings.Contains(out, "^s save") {
 		t.Fatalf("editor box missing:\n%s", out)
 	}
 }
@@ -1302,14 +1306,6 @@ func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
 	}
 }
 
-func TestCommentBoxesUseAccentBorder(t *testing.T) {
-	accent, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(colorPrimary).Render("x"), "x")
-	out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80)
-	if len(out) < 3 || !strings.Contains(out[0], accent+"╭") || !strings.Contains(out[1], accent+"│") || !strings.Contains(out[len(out)-1], accent+"╰") {
-		t.Fatalf("saved comment border should use the accent color:\n%q", out)
-	}
-}
-
 func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 	m, _ := loaded(t)
 	m, _ = press(t, m, "e")
@@ -1496,5 +1492,59 @@ func TestExplorerShowsLineCounts(t *testing.T) {
 	row = row[:strings.Index(row, "\n")]
 	if !strings.Contains(row, "n +12 -3") || !strings.Contains(out, "+12 -3 · 1/1") {
 		t.Fatalf("long names should be cut before the counts:\n%s", out)
+	}
+}
+
+func TestLeavingSuggestionRemovesOnlyTheBlock(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	for _, tc := range []struct{ body, want string }{
+		{"keep\n\n```suggestion\nfunc x() {}\n```\nafter", "keep\nafter"},
+		{"```suggestion\nfunc x() {}", ""},
+		{"no block here", "no block here"},
+	} {
+		m.editor.kind = slices.Index(commentKinds, "suggestion")
+		m.editor.area.SetValue(tc.body)
+		m, _ = press(t, m, "tab")
+		if got := m.editor.area.Value(); got != tc.want || commentKinds[m.editor.kind] != "comment" {
+			t.Errorf("%q: got %q kind %s, want %q", tc.body, got, commentKinds[m.editor.kind], tc.want)
+		}
+	}
+}
+
+func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
+	seen := map[color.Color]bool{}
+	for _, k := range commentKinds {
+		seen[kindColor(k)] = true
+	}
+	if len(seen) != len(commentKinds) || kindColor("question") != colorPrimary {
+		t.Fatal("each kind needs its own color, with old kinds falling back to the accent")
+	}
+	prefix := func(c color.Color) string {
+		p, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(c).Render("x"), "x")
+		return p
+	}
+	if out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorNote)+"╭") || !strings.Contains(out[0], prefix(colorNote)+"◆ note") {
+		t.Fatalf("note box should use the note color: %q", out[0])
+	}
+
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	for _, k := range []string{"comment", "note", "suggestion"} {
+		box := strings.Join(m.diffLines(), "\n")
+		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, "◆ "+k) {
+			t.Fatalf("editor border should follow the %s type", k)
+		}
+		m, _ = press(t, m, "tab")
+	}
+
+	l, _ := listModel(t)
+	l, _ = press(t, l, "n")
+	if !strings.Contains(strings.Join(l.listLines(), ""), prefix(colorAdd)) {
+		t.Fatal("comments pane should color suggestions")
 	}
 }

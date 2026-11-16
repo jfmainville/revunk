@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"path"
 	"reflect"
 	"strings"
@@ -511,6 +512,9 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "shift+tab" {
 			step = len(commentKinds) - 1
 		}
+		if commentKinds[m.editor.kind] == "suggestion" {
+			m.removeSuggestion()
+		}
 		m.editor.kind = (m.editor.kind + step) % len(commentKinds)
 		if commentKinds[m.editor.kind] == "suggestion" {
 			m.injectSuggestion()
@@ -522,6 +526,20 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.relayout()
 	m.revealEditor()
 	return m, cmd
+}
+
+func (m *Model) removeSuggestion() {
+	body := m.editor.area.Value()
+	start := strings.Index(body, "```suggestion")
+	if start < 0 {
+		return
+	}
+	rest := body[start+len("```suggestion"):]
+	end := len(rest)
+	if i := strings.Index(rest, "\n```"); i >= 0 {
+		end = i + len("\n```")
+	}
+	m.editor.area.SetValue(strings.TrimRight(body[:start], "\n") + rest[end:])
 }
 
 func (m *Model) injectSuggestion() {
@@ -1075,12 +1093,12 @@ func (m *Model) addEditor(file int) {
 	for i, k := range commentKinds {
 		chips[i] = dimStyle.Render(k)
 		if i == m.editor.kind {
-			chips[i] = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render(k)
+			chips[i] = lipgloss.NewStyle().Background(kindColor(k)).Foreground(colorOnPrimary).Render(k)
 		}
 	}
 	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(m.editor.area.View(), "\n")...)
 	lines = append(lines, hints(editorHints...))
-	for _, l := range commentBox("comment", lineLabel(m.editor.target), lines, m.diffWidth()) {
+	for _, l := range commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth()) {
 		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
 	}
 	m.rows = append(m.rows, row{kind: rowText, file: file})
@@ -1134,7 +1152,7 @@ func (m Model) listLines() []string {
 		if i == cursor {
 			base = base.Background(colorCursorline)
 		}
-		line := base.Foreground(colorPrimary).Render(fmt.Sprintf(" ◆ %-10s ", c.Kind)) + base.Foreground(colorForeground).Render(where) + base.Foreground(colorDim).Render("  "+commentState(c)+"  "+first)
+		line := base.Foreground(kindColor(c.Kind)).Render(fmt.Sprintf(" ◆ %-10s ", c.Kind)) + base.Foreground(colorForeground).Render(where) + base.Foreground(colorDim).Render("  "+commentState(c)+"  "+first)
 		lines[i] = fit(line, m.width-2, base)
 	}
 	return lines[max(cursor-(m.listHeight()-2)+1, 0):]
@@ -1161,21 +1179,21 @@ func (m Model) render() string {
 	}
 	var panes string
 	if m.help {
-		panes = box("help · esc closes", "", helpLines(), m.width, m.panesHeight(), true)
+		panes = box("help · esc closes", "", helpLines(), m.width, m.panesHeight(), colorPrimary)
 	} else {
-		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), m.focus == focusDiff)
+		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), focusColor(m.focus == focusDiff))
 		if !m.hideTree {
 			files, _ := m.fileLines()
 			left := lipgloss.JoinVertical(lipgloss.Left,
-				box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), m.focus == focusCommits),
-				box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), m.focus == focusFiles),
+				box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), focusColor(m.focus == focusCommits)),
+				box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), focusColor(m.focus == focusFiles)),
 			)
 			panes = lipgloss.JoinHorizontal(lipgloss.Top, left, panes)
 		}
 	}
 	parts := []string{m.tabBar(), panes}
 	if m.showList && !m.help {
-		parts = append(parts, box("comments", fmt.Sprintf("%d", len(m.comments)), m.listLines(), m.width, m.listHeight(), m.focus == focusComments))
+		parts = append(parts, box("comments", fmt.Sprintf("%d", len(m.comments)), m.listLines(), m.width, m.listHeight(), focusColor(m.focus == focusComments)))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, append(parts, m.statusLine(), ansiFit(m.footer(), m.width))...)
 }
@@ -1184,13 +1202,20 @@ func ansiFit(s string, width int) string {
 	return fit(s, width, lipgloss.NewStyle())
 }
 
-func box(title, right string, lines []string, width, height int, focused bool) string {
+func focusColor(focused bool) color.Color {
+	if focused {
+		return colorPrimary
+	}
+	return nil
+}
+
+func box(title, right string, lines []string, width, height int, accent color.Color) string {
 	if width < 4 || height < 2 {
 		return ""
 	}
 	border, titleStyle := lipgloss.NewStyle().Foreground(colorRule), dimStyle
-	if focused {
-		border, titleStyle = lipgloss.NewStyle().Foreground(colorPrimary), primaryStyle
+	if accent != nil {
+		border, titleStyle = lipgloss.NewStyle().Foreground(accent), lipgloss.NewStyle().Foreground(accent)
 	}
 	inner := width - 2
 	head := border.Render("╭─ ") + titleStyle.Render(title) + " "

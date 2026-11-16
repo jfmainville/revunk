@@ -30,6 +30,7 @@ var (
 	colorAddBg      = lipgloss.Color("#292519")
 	colorDelBg      = lipgloss.Color("#34231d")
 	colorError      = lipgloss.Color("#fdae95")
+	colorNote       = lipgloss.Color("#8fb8de")
 
 	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle = lipgloss.NewStyle().Foreground(colorPrimary)
@@ -289,13 +290,23 @@ func commentWidth(width int) int {
 	return width - gutterWidth + 1
 }
 
-func commentBox(title, right string, lines []string, width int) []string {
+func kindColor(kind string) color.Color {
+	switch kind {
+	case "note":
+		return colorNote
+	case "suggestion":
+		return colorAdd
+	}
+	return colorPrimary
+}
+
+func commentBox(kind, right string, lines []string, width int) []string {
 	padded := make([]string, len(lines))
 	for i, l := range lines {
 		padded[i] = " " + l
 	}
 	indent := strings.Repeat(" ", gutterWidth-2)
-	out := strings.Split(box(title, right, padded, commentWidth(width), len(lines)+2, true), "\n")
+	out := strings.Split(box("◆ "+kind, right, padded, commentWidth(width), len(lines)+2, kindColor(kind)), "\n")
 	for i, l := range out {
 		out[i] = indent + l
 	}
@@ -309,7 +320,7 @@ func renderComment(c review.Comment, original []string, width int) []string {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render("↳ agent reply"))
 		lines = append(lines, renderMarkdown(r, wrap)...)
 	}
-	return commentBox(primaryStyle.Render("◆ "+c.Kind), lineLabel(c)+" · "+commentState(c), lines, width)
+	return commentBox(c.Kind, lineLabel(c)+" · "+commentState(c), lines, width)
 }
 
 func commentState(c review.Comment) string {

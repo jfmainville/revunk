@@ -67,12 +67,12 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 
 ### Comment editor
 
-| Key                | Action                                                                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `ctrl+s`           | Save the comment                                                                                                             |
-| `enter`            | Insert a newline                                                                                                             |
-| `tab`, `shift+tab` | Cycle the type (comment, note, suggestion). Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit |
-| `esc`              | Cancel                                                                                                                       |
+| Key                | Action                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctrl+s`           | Save the comment                                                                                                                                                                            |
+| `enter`            | Insert a newline                                                                                                                                                                            |
+| `tab`, `shift+tab` | Cycle the type (comment, note, suggestion), each drawn in its own color. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
+| `esc`              | Cancel                                                                                                                                                                                      |
 
 ## CLI
 
