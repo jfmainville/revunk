@@ -6,7 +6,7 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 
 - Go 1.26 or later
 - `git`
-- [herdr](https://herdr.dev), only to send comments to Claude Code or opencode with `S`
+- `claude` (Claude Code), and optionally [herdr](https://herdr.dev) or `tmux`, only to send comments with `S`
 
 ## Commands
 
@@ -30,7 +30,11 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 Comments and viewed state are saved per branch in `.git/revunk.json`.
 
-`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its file, lines, commit, and the commented code. Sending looks up the session with `herdr agent list`, picking the first Claude Code or opencode pane whose directory is inside the repository, and submits the text with `herdr agent prompt`.
+`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its file, lines, commit, and the commented code. `S` picks the first Claude Code or opencode session whose directory is inside the repository, skipping the pane Revunk runs in, and tries these in order.
+
+1. A `herdr` pane listed by `herdr agent list`, prompted with `herdr agent prompt`.
+2. A `tmux` pane running `claude` or `opencode`, pasted into with `tmux paste-buffer` and submitted with `Enter`.
+3. With no session open, a new Claude Code session that gets the comments as its first message, in a new `herdr` pane when Revunk runs in `herdr`, a new `tmux` window when it runs in `tmux`, and otherwise in the background with `claude --bg` (list it with `claude agents`).
 
 ### Keys
 
@@ -80,6 +84,6 @@ revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
 | `cmd/revunk`            | CLI entry point and dependency wiring                                                                                                           |
 | `internal/review`       | Review domain types, diff line parsing, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
 | `internal/provider/git` | Local git provider implementing `review.Source` for the commits on the current branch. Code hosts such as GitHub go in sibling packages.        |
-| `internal/agent/herdr`  | Sends prompts to a Claude Code or opencode session running in a `herdr` pane, implementing `review.Agent`                                       |
+| `internal/agent`        | Sends prompts to a Claude Code or opencode session through `herdr` or `tmux`, or starts a new Claude Code session, implementing `review.Agent`  |
 | `internal/store`        | JSON file store implementing `review.Store`                                                                                                     |
 | `internal/tui`          | Bubble Tea presentation layer, with `chroma` for syntax highlighting and `glamour` for Markdown comments                                        |
