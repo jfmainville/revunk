@@ -52,6 +52,7 @@ type editorState struct {
 }
 
 type loadedMsg struct {
+	pruned   int
 	commits  []review.Commit
 	files    []review.File
 	viewed   map[string]bool
@@ -85,6 +86,7 @@ type actionMsg struct {
 type tickMsg struct{}
 
 type polledMsg struct {
+	pruned   int
 	commits  []review.Commit
 	commit   string
 	files    []review.File
@@ -162,6 +164,9 @@ func (m Model) Init() tea.Cmd {
 		if msg.viewed, msg.err = svc.Viewed(ctx); msg.err != nil {
 			return msg
 		}
+		if msg.pruned, msg.err = svc.PruneComments(ctx); msg.err != nil {
+			return msg
+		}
 		msg.comments, msg.err = svc.Comments(ctx)
 		return msg
 	}
@@ -178,6 +183,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.relayout()
 	case loadedMsg:
 		m.loading, m.err = false, msg.err
+		if msg.pruned > 0 {
+			m.notice = prunedNotice(msg.pruned)
+		}
 		m.commits = msg.commits
 		if msg.viewed != nil {
 			m.viewed = msg.viewed
@@ -271,12 +279,22 @@ func (m Model) poll() tea.Cmd {
 		if msg.viewed, msg.err = svc.Viewed(ctx); msg.err != nil {
 			return msg
 		}
+		if msg.pruned, msg.err = svc.PruneComments(ctx); msg.err != nil {
+			return msg
+		}
 		msg.comments, msg.err = svc.Comments(ctx)
 		return msg
 	}
 }
 
+func prunedNotice(n int) string {
+	return fmt.Sprintf("removed %d comments on deleted files", n)
+}
+
 func (m *Model) applyPoll(msg polledMsg) {
+	if msg.pruned > 0 {
+		m.notice = prunedNotice(msg.pruned)
+	}
 	sha := m.commitSHA()
 	m.commits, m.commit = msg.commits, 0
 	for i, c := range msg.commits {

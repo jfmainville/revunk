@@ -112,5 +112,9 @@ func service(ctx context.Context, dir, base string) (*review.Service, string, st
 	}
 	svc := review.NewService(git.Source{Dir: root, Base: base}, st, agent.Agent{Dir: root}, branch)
 	svc.ReplyCommand, _ = os.Executable()
+	svc.Exists = func(path string) bool {
+		_, err := os.Lstat(filepath.Join(root, path))
+		return err == nil
+	}
 	return svc, root, base, nil
 }

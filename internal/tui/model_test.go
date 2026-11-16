@@ -1548,3 +1548,33 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 		t.Fatal("comments pane should color suggestions")
 	}
 }
+
+func TestCommentsOnDeletedFilesArePruned(t *testing.T) {
+	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{
+		{ID: "a", Path: "README.md", Body: "keep"},
+		{ID: "b", Path: "gone.go", Body: "drop"},
+	}}
+	svc := review.NewService(sample, st, nil, "feature")
+	svc.Exists = func(path string) bool { return path != "gone.go" }
+	m := New(svc, "revunk", "main")
+	m = update(t, m, m.Init()())
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	if len(m.comments) != 1 || m.comments[0].ID != "a" || !strings.Contains(screen(m), "removed 1 comments on deleted files") {
+		t.Fatalf("load should prune: %+v\n%s", m.comments, screen(m))
+	}
+
+	st.comments = append(st.comments, review.Comment{ID: "c", Path: "gone.go", Body: "late"})
+	m = update(t, m, m.poll()())
+	if len(m.comments) != 1 || !strings.Contains(screen(m), "removed 1 comments") {
+		t.Fatalf("poll should prune: %+v", m.comments)
+	}
+
+	st.err = errors.New("disk full")
+	st.comments = append(st.comments, review.Comment{ID: "d", Path: "gone.go", Body: "stuck"})
+	if msg := m.poll()().(polledMsg); msg.err == nil {
+		t.Fatal("prune errors should fail the poll")
+	}
+	if msg := m.Init()().(loadedMsg); msg.err == nil {
+		t.Fatal("prune errors should fail the load")
+	}
+}

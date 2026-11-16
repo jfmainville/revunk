@@ -465,3 +465,77 @@ func TestReplyAddsToTheComment(t *testing.T) {
 		t.Fatalf("store error = %v", err)
 	}
 }
+
+func TestPruneCommentsDeletesCommentsOnDeletedFiles(t *testing.T) {
+	ctx := context.Background()
+	src := &fakeSource{files: map[string][]review.File{"": {
+		{Path: "kept.go", Status: review.StatusModified},
+		{Path: "dropped.go", Status: review.StatusRemoved},
+	}}}
+	st := newStore(t)
+	svc := review.NewService(src, st, nil, "feature")
+	for _, c := range []review.Comment{
+		{Path: "kept.go", Side: review.SideRight, Start: 1, End: 1, Body: "exists"},
+		{Path: "gone.go", Side: review.SideRight, Start: 1, End: 1, Body: "added then deleted"},
+		{Path: "gone.go", Commit: "abc", Body: "commit comment on deleted file"},
+		{Path: "dropped.go", Side: review.SideRight, Start: 2, End: 2, Body: "lines no longer exist"},
+		{Path: "dropped.go", Side: review.SideLeft, Start: 2, End: 2, Body: "why remove this"},
+		{Path: "dropped.go", Body: "why delete the file"},
+	} {
+		if err := svc.AddComment(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if n, err := svc.PruneComments(ctx); n != 0 || err != nil {
+		t.Fatalf("without Exists nothing should be pruned, got %d %v", n, err)
+	}
+	svc.Exists = func(path string) bool { return path == "kept.go" }
+	n, err := svc.PruneComments(ctx)
+	if err != nil || n != 3 {
+		t.Fatalf("pruned %d, err %v", n, err)
+	}
+	comments, _ := svc.Comments(ctx)
+	var bodies []string
+	for _, c := range comments {
+		bodies = append(bodies, c.Body)
+	}
+	if want := []string{"exists", "why remove this", "why delete the file"}; !reflect.DeepEqual(bodies, want) {
+		t.Fatalf("kept %v, want %v", bodies, want)
+	}
+	if n, err := svc.PruneComments(ctx); n != 0 || err != nil {
+		t.Fatalf("second prune should find nothing, got %d %v", n, err)
+	}
+}
+
+func TestPruneCommentsErrors(t *testing.T) {
+	ctx := context.Background()
+	never := func(string) bool { return false }
+
+	empty := review.NewService(&fakeSource{err: errors.New("git broke")}, newStore(t), nil, "b")
+	empty.Exists = never
+	if n, err := empty.PruneComments(ctx); n != 0 || err != nil {
+		t.Fatalf("no comments should skip the diff, got %d %v", n, err)
+	}
+
+	broken := review.NewService(&fakeSource{}, failingStore{viewedErr: errors.New("read failed")}, nil, "b")
+	broken.Exists = never
+	if _, err := broken.PruneComments(ctx); err == nil || !strings.Contains(err.Error(), "read failed") {
+		t.Fatalf("comment read error not returned: %v", err)
+	}
+
+	st := newStore(t)
+	src := &fakeSource{}
+	svc := review.NewService(src, st, nil, "b")
+	svc.Exists = never
+	if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	src.err = errors.New("git broke")
+	if _, err := svc.PruneComments(ctx); err == nil || !strings.Contains(err.Error(), "git broke") {
+		t.Fatalf("diff error not returned: %v", err)
+	}
+	if comments, _ := svc.Comments(ctx); len(comments) != 1 {
+		t.Fatal("comments should be kept when the diff fails")
+	}
+}

@@ -136,6 +136,7 @@ type Service struct {
 	agent        Agent
 	branch       string
 	ReplyCommand string
+	Exists       func(path string) bool
 }
 
 func NewService(source Source, store Store, agent Agent, branch string) *Service {
@@ -228,6 +229,36 @@ func (s *Service) DeleteAllComments(ctx context.Context) error {
 		return err
 	}
 	return s.store.DeleteComments(ctx, s.branch, ids(comments))
+}
+
+func (s *Service) PruneComments(ctx context.Context) (int, error) {
+	if s.Exists == nil {
+		return 0, nil
+	}
+	comments, err := s.Comments(ctx)
+	if err != nil || len(comments) == 0 {
+		return 0, err
+	}
+	files, err := s.Files(ctx, "")
+	if err != nil {
+		return 0, err
+	}
+	removed := map[string]bool{}
+	for _, f := range files {
+		if f.Status == StatusRemoved {
+			removed[f.Path] = true
+		}
+	}
+	var stale []Comment
+	for _, c := range comments {
+		if !s.Exists(c.Path) && !(removed[c.Path] && (c.Side == SideLeft || c.FileLevel())) {
+			stale = append(stale, c)
+		}
+	}
+	if len(stale) == 0 {
+		return 0, nil
+	}
+	return len(stale), s.store.DeleteComments(ctx, s.branch, ids(stale))
 }
 
 func ids(comments []Comment) []string {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -74,6 +75,12 @@ func TestRunReplyAddsReplyToComment(t *testing.T) {
 	}
 	if svc.ReplyCommand == "" {
 		t.Fatal("reply command not set to the running binary")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "here.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.Exists("here.txt") || svc.Exists("gone.txt") {
+		t.Fatal("Exists should check files in the repository root")
 	}
 	if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: "why?"}); err != nil {
 		t.Fatal(err)
