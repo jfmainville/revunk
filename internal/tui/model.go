@@ -562,17 +562,17 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case is(key, k.Open):
 		m.searching = false
 		return m, nil
+	case is(key, k.DeleteChar):
+		runes := []rune(m.query)
+		m.query = string(runes[:max(len(runes)-1, 0)])
+	case msg.Text != "":
+		m.query += msg.Text
 	case is(key, k.NextMatch):
 		m.nextMatch(1)
 		return m, nil
 	case is(key, k.PrevMatch):
 		m.nextMatch(-1)
 		return m, nil
-	case is(key, k.DeleteChar):
-		runes := []rune(m.query)
-		m.query = string(runes[:max(len(runes)-1, 0)])
-	case msg.Text != "":
-		m.query += msg.Text
 	default:
 		return m, nil
 	}

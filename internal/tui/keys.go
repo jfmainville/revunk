@@ -84,7 +84,7 @@ func defaultKeys() keyMap {
 		Delete:      bind("d d"),
 		DeleteAll:   bind("D D"),
 		Viewed:      bind("-"),
-		Comments:    bind("n"),
+		Comments:    bind("t"),
 		Explorer:    bind("e"),
 		Send:        bind("S"),
 		Copy:        bind("y"),
@@ -93,8 +93,8 @@ func defaultKeys() keyMap {
 		NextKind:    bind("tab"),
 		PrevKind:    bind("shift+tab"),
 		Search:      bind("/"),
-		NextMatch:   bind("ctrl+n"),
-		PrevMatch:   bind("ctrl+p"),
+		NextMatch:   bind("n", "ctrl+n"),
+		PrevMatch:   bind("N", "ctrl+p"),
 		DeleteChar:  bind("backspace"),
 		OpenFile:    bind("g f"),
 	}
@@ -217,8 +217,7 @@ func (k keyMap) editorHints() []hint {
 
 func (k keyMap) searchHints() []hint {
 	return []hint{
-		{desc: "confirm", keys: []key.Binding{k.Open}},
-		{desc: "next / previous", keys: []key.Binding{k.NextMatch, k.PrevMatch}},
+		{desc: "confirm, then n N to step", keys: []key.Binding{k.Open}},
 		{desc: "cancel", keys: []key.Binding{k.Cancel}},
 	}
 }

@@ -1039,7 +1039,7 @@ func TestCommentsPaneIsHiddenUntilToggled(t *testing.T) {
 		t.Fatal("comments pane should start hidden")
 	}
 
-	m, _ = press(t, m, "n")
+	m, _ = press(t, m, "t")
 
 	out := screen(m)
 	for _, want := range []string{"╭─ comments", "◆ note", "a/main.go L3  draft  second func", "README.md file", "a/main.go L2 @2222222  sent  rename only"} {
@@ -1058,13 +1058,13 @@ func TestCommentsPaneIsHiddenUntilToggled(t *testing.T) {
 	if m.focus != focusComments {
 		t.Fatalf("shift+tab should come back to comments, got %d", m.focus)
 	}
-	m, _ = press(t, m, "n")
+	m, _ = press(t, m, "t")
 	if strings.Contains(screen(m), "╭─ comments") || m.focus != focusDiff {
-		t.Fatal("n should hide the pane and return to the diff")
+		t.Fatal("t should hide the pane and return to the diff")
 	}
 
 	empty, _ := loaded(t)
-	empty, _ = press(t, empty, "n")
+	empty, _ = press(t, empty, "t")
 	if !strings.Contains(screen(empty), "no comments, press c on a line") {
 		t.Fatal("empty pane should explain how to add a comment")
 	}
@@ -1078,7 +1078,7 @@ func TestCommentsPaneIsHiddenUntilToggled(t *testing.T) {
 
 func TestCommentsPaneNavigatesToComments(t *testing.T) {
 	m, _ := listModel(t)
-	m, _ = press(t, m, "n", "j", "k", "k", "enter")
+	m, _ = press(t, m, "t", "j", "k", "k", "enter")
 	if m.focus != focusDiff || m.cursor != rowOf(t, m, rowLine, 1, 4) {
 		t.Fatalf("enter did not jump to the line comment: focus=%d cursor=%d", m.focus, m.cursor)
 	}
@@ -1112,7 +1112,7 @@ func TestCommentsPaneHandlesMissingTargetsAndDeletes(t *testing.T) {
 	m, st := listModel(t)
 	st.comments = append(st.comments, review.Comment{ID: "d", Commit: "gone", Path: "x.go", Body: "old"}, review.Comment{ID: "e", Path: "gone.go", Body: "moved"})
 	m = update(t, m, m.Init()())
-	m, _ = press(t, m, "n", "j", "j", "j")
+	m, _ = press(t, m, "t", "j", "j", "j")
 
 	m, cmd := press(t, m, "enter")
 	if cmd != nil || !strings.Contains(screen(m), "no longer on the branch") {
@@ -1233,7 +1233,7 @@ func TestClickOnBordersOnlyFocuses(t *testing.T) {
 
 func TestClickCommentsPaneGoesToComment(t *testing.T) {
 	m, _ := listModel(t)
-	m, _ = press(t, m, "n")
+	m, _ = press(t, m, "t")
 	top := 1 + m.panesHeight()
 	m, _ = click(t, m, 10, top)
 	if m.focus != focusComments {
@@ -1282,7 +1282,7 @@ func TestWheelScrollsPaneUnderPointer(t *testing.T) {
 	}
 
 	l, _ := listModel(t)
-	l, _ = press(t, l, "n")
+	l, _ = press(t, l, "t")
 	y := 2 + l.panesHeight()
 	for range 5 {
 		l, _ = wheel(t, l, 10, y, tea.MouseWheelDown)
@@ -1334,14 +1334,14 @@ func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 	if m, _ = press(t, m, "tab"); m.focus != focusDiff {
 		t.Fatalf("tab should stay on the diff, got %d", m.focus)
 	}
-	m, _ = press(t, m, "n", "tab")
+	m, _ = press(t, m, "t", "tab")
 	if m.focus != focusDiff {
 		t.Fatalf("tab from comments should skip hidden panes, got %d", m.focus)
 	}
 	if m, _ = press(t, m, "shift+tab"); m.focus != focusComments {
 		t.Fatalf("shift+tab should go back to comments, got %d", m.focus)
 	}
-	m, _ = press(t, m, "n")
+	m, _ = press(t, m, "t")
 	target := rowOf(t, m, rowLine, 0, 1)
 	if m, _ = click(t, m, 5, 2+target-m.offset); m.focus != focusDiff || m.cursor != target {
 		t.Fatalf("left clicks should hit the diff, focus=%d cursor=%d", m.focus, m.cursor)
@@ -1555,7 +1555,7 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 	}
 
 	l, _ := listModel(t)
-	l, _ = press(t, l, "n")
+	l, _ = press(t, l, "t")
 	if !strings.Contains(strings.Join(l.listLines(), ""), prefix(colorAdd)) {
 		t.Fatal("comments pane should color suggestions")
 	}
@@ -1754,7 +1754,7 @@ func TestScrollingTheDiffFocusesIt(t *testing.T) {
 	if p.focus != focusDiff || p.cursor != 0 {
 		t.Fatalf("ctrl+u should scroll back up, cursor=%d", p.cursor)
 	}
-	p, _ = press(t, p, "n", "pgup")
+	p, _ = press(t, p, "t", "pgup")
 	if p.focus != focusDiff {
 		t.Fatalf("page keys from the comments pane should focus the diff, got %d", p.focus)
 	}
@@ -1991,5 +1991,30 @@ func TestOpenFileWithGF(t *testing.T) {
 	empty := newModel(t, fakeSource{}, &fakeStore{viewed: map[string]string{}})
 	if _, cmd := press(t, empty, "g", "f"); cmd != nil {
 		t.Fatal("gf with no files should do nothing")
+	}
+}
+
+func TestNAndShiftNStepThroughMatches(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "/")
+	m = typeText(t, m, "fun")
+	m, _ = press(t, m, "n")
+	if m.query != "funn" || !m.searching {
+		t.Fatalf("n should type while the prompt is open, query=%q", m.query)
+	}
+	m, _ = press(t, m, "backspace", "enter")
+	var positions []int
+	for _, k := range []string{"n", "n", "n", "N", "N"} {
+		m, _ = press(t, m, k)
+		positions = append(positions, m.matchPosition())
+	}
+	if !reflect.DeepEqual(positions, []int{2, 3, 1, 3, 2}) {
+		t.Fatalf("n and N should step and wrap like vim, got %v", positions)
+	}
+	if m.showList {
+		t.Fatal("n should no longer open the comments pane")
+	}
+	if m, _ = press(t, m, "t"); !m.showList || m.focus != focusComments {
+		t.Fatal("t should open the comments pane")
 	}
 }
