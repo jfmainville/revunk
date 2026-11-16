@@ -85,7 +85,7 @@ func TestEveryBindingIsDocumented(t *testing.T) {
 			}
 		}
 	}
-	hidden := map[string]bool{"ctrl+c": true, "esc,?,q": true, "shift+tab": true}
+	hidden := map[string]bool{"ctrl+c": true, "esc,?,q": true, "shift+tab": true, "backspace": true}
 	for _, b := range k.all() {
 		if keys := strings.Join(b.Keys(), ","); !documented[keys] && !hidden[keys] {
 			t.Errorf("binding %q is missing from the help or hints", keys)

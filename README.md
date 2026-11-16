@@ -49,6 +49,8 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `pgdn`, `pgup`/`b`       | Move a page down or up in the diff, focusing it                              |
 | `f`, `F` (or `]f`, `[f`) | Next or previous file                                                        |
 | `h`, `H` (or `}`, `{`)   | Next or previous hunk                                                        |
+| `/`                      | Search every file in the diff, showing the current match and the total       |
+| `ctrl+n`, `ctrl+p`       | Next or previous match                                                       |
 | `v`, `V`                 | Start or stop selecting a range of lines                                     |
 | `c`                      | Comment on the current line, the range, or file header                       |
 | `C`                      | Comment on the whole file                                                    |
@@ -60,7 +62,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `S`                      | Send unsent comments to the agent                                            |
 | `y`                      | Copy unsent comments to the clipboard                                        |
 | `?`                      | Show every key                                                               |
-| `esc`                    | Stop selecting or close the help                                             |
+| `esc`                    | Stop selecting, clear the search, or close the help                          |
 | `q`, `ctrl+c`            | Quit                                                                         |
 
 Clicking a comment in the comments pane jumps to it like `enter`. While mouse support is on, most terminals select text with `shift` held down.

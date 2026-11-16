@@ -127,6 +127,9 @@ type Model struct {
 	prefix     string
 	help       bool
 	showList   bool
+	searching  bool
+	query      string
+	matches    []int
 	keys       keyMap
 	hideTree   bool
 	listCursor int
@@ -248,6 +251,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		if m.editing {
 			return m.updateEditor(msg)
+		}
+		if m.searching {
+			return m.updateSearch(msg)
 		}
 		return m.updateKey(msg)
 	}
@@ -436,7 +442,16 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case is(key, k.FocusDiff):
 		m.focus = focusDiff
 	case is(key, k.Cancel):
+		if m.anchor < 0 {
+			m.query, m.matches = "", nil
+		}
 		m.anchor = -1
+	case is(key, k.Search):
+		m.searching, m.query, m.matches = true, "", nil
+	case is(key, k.NextMatch):
+		m.nextMatch(1)
+	case is(key, k.PrevMatch):
+		m.nextMatch(-1)
 	case is(key, k.Viewed):
 		cmd := m.toggleViewed()
 		if m.focus == focusFiles && cmd != nil && !m.viewed[m.currentPath()] {
@@ -516,6 +531,137 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key, k := msg.String(), m.keys
+	switch {
+	case is(key, k.ForceQuit):
+		return m, tea.Quit
+	case is(key, k.Cancel):
+		m.searching, m.query, m.matches = false, "", nil
+		return m, nil
+	case is(key, k.Open):
+		m.searching = false
+		return m, nil
+	case is(key, k.NextMatch):
+		m.nextMatch(1)
+		return m, nil
+	case is(key, k.PrevMatch):
+		m.nextMatch(-1)
+		return m, nil
+	case is(key, k.DeleteChar):
+		runes := []rune(m.query)
+		m.query = string(runes[:max(len(runes)-1, 0)])
+	case msg.Text != "":
+		m.query += msg.Text
+	default:
+		return m, nil
+	}
+	m.findMatches()
+	if m.cursor > 0 {
+		m.cursor--
+	}
+	m.nextMatch(1)
+	return m, nil
+}
+
+func lineText(tokens []token) string {
+	var b strings.Builder
+	for _, t := range tokens {
+		b.WriteString(t.text)
+	}
+	return b.String()
+}
+
+func matchCase(text, query string) (string, string) {
+	if strings.ToLower(query) == query {
+		return strings.ToLower(text), query
+	}
+	return text, query
+}
+
+func (m *Model) findMatches() {
+	m.matches = nil
+	if m.query == "" {
+		return
+	}
+	for i, r := range m.rows {
+		if r.kind != rowLine {
+			continue
+		}
+		if text, q := matchCase(lineText(m.tokens[r.file][r.line]), m.query); strings.Contains(text, q) {
+			m.matches = append(m.matches, i)
+		}
+	}
+}
+
+func (m *Model) nextMatch(step int) {
+	if len(m.matches) == 0 {
+		return
+	}
+	target := m.matches[0]
+	if step < 0 {
+		target = m.matches[len(m.matches)-1]
+	}
+	for i := range m.matches {
+		r := m.matches[i]
+		if step < 0 {
+			r = m.matches[len(m.matches)-1-i]
+		}
+		if (step > 0 && r > m.cursor) || (step < 0 && r < m.cursor) {
+			target = r
+			break
+		}
+	}
+	m.cursor, m.focus, m.anchor = target, focusDiff, -1
+	m.syncFile()
+}
+
+func (m Model) matchPosition() int {
+	n := 0
+	for _, r := range m.matches {
+		if r <= m.cursor {
+			n++
+		}
+	}
+	return n
+}
+
+func markMatches(tokens []token, query string) []token {
+	text := lineText(tokens)
+	lower, q := matchCase(text, query)
+	if query == "" || len(lower) != len(text) {
+		return tokens
+	}
+	hit := make([]bool, len(text))
+	for from := 0; ; {
+		i := strings.Index(lower[from:], q)
+		if i < 0 {
+			break
+		}
+		for j := from + i; j < from+i+len(q); j++ {
+			hit[j] = true
+		}
+		from += i + len(q)
+	}
+	var out []token
+	pos := 0
+	for _, t := range tokens {
+		start := 0
+		for j := 1; j <= len(t.text); j++ {
+			if j == len(t.text) || hit[pos+j] != hit[pos+start] {
+				style := t.style
+				if hit[pos+start] {
+					style = style.Background(colorPrimary).Foreground(colorOnPrimary)
+				}
+				out = append(out, token{text: t.text[start:j], style: style})
+				start = j
+			}
+		}
+		pos += len(t.text)
+	}
+	return out
 }
 
 func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1105,6 +1251,7 @@ func (m *Model) layout() {
 			}
 		}
 	}
+	m.findMatches()
 }
 
 func (m Model) anchored(c review.Comment, file int) bool {
@@ -1445,7 +1592,7 @@ func (m Model) diffLines() []string {
 		if r.part > 0 {
 			line := i - r.part
 			selected := line >= from && line <= to && r.file == m.rows[m.cursor].file
-			lines = append(lines, renderLine(m.lines[r.file][r.line], m.tokens[r.file][r.line], width, r.part, line == m.cursor && m.focus == focusDiff, selected))
+			lines = append(lines, renderLine(m.lines[r.file][r.line], markMatches(m.tokens[r.file][r.line], m.query), width, r.part, line == m.cursor && m.focus == focusDiff, selected))
 			continue
 		}
 		switch r.kind {
@@ -1455,7 +1602,7 @@ func (m Model) diffLines() []string {
 			lines = append(lines, renderHunk(m.lines[r.file][r.line].Text, width, cursor))
 		case rowLine:
 			selected := i >= from && i <= to && r.file == m.rows[m.cursor].file
-			lines = append(lines, renderLine(m.lines[r.file][r.line], m.tokens[r.file][r.line], width, 0, cursor, selected))
+			lines = append(lines, renderLine(m.lines[r.file][r.line], markMatches(m.tokens[r.file][r.line], m.query), width, 0, cursor, selected))
 		default:
 			lines = append(lines, r.text)
 		}
@@ -1468,10 +1615,23 @@ func (m Model) statusLine() string {
 	switch {
 	case m.editing:
 		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorAdd).Render(" INSERT ")
+	case m.searching:
+		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorNote).Render(" SEARCH ")
 	case m.anchor >= 0:
 		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorThread).Render(" VISUAL ")
 	}
 	message := dimStyle.Render(label(m.keys.Help) + " shows every key")
+	if m.searching || m.query != "" {
+		count := dimStyle.Render(fmt.Sprintf("  %d/%d", m.matchPosition(), len(m.matches)))
+		if len(m.matches) == 0 && m.query != "" {
+			count = errorStyle.Render("  no matches")
+		}
+		cursor := ""
+		if m.searching {
+			cursor = primaryStyle.Render("▌")
+		}
+		message = primaryStyle.Render(label(m.keys.Search)) + m.query + cursor + count
+	}
 	switch {
 	case m.err != nil:
 		message = errorStyle.Render(m.err.Error())
@@ -1496,6 +1656,8 @@ func (m Model) footer() string {
 	switch {
 	case m.editing:
 		return hints(m.keys.editorHints())
+	case m.searching:
+		return hints(m.keys.searchHints())
 	case m.anchor >= 0:
 		return hints(m.keys.rangeHints())
 	case m.focus == focusComments:

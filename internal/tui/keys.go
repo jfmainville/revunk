@@ -44,6 +44,10 @@ type keyMap struct {
 	Newline     key.Binding
 	NextKind    key.Binding
 	PrevKind    key.Binding
+	Search      key.Binding
+	NextMatch   key.Binding
+	PrevMatch   key.Binding
+	DeleteChar  key.Binding
 }
 
 func bind(keys ...string) key.Binding {
@@ -87,6 +91,10 @@ func defaultKeys() keyMap {
 		Newline:     bind("enter"),
 		NextKind:    bind("tab"),
 		PrevKind:    bind("shift+tab"),
+		Search:      bind("/"),
+		NextMatch:   bind("ctrl+n"),
+		PrevMatch:   bind("ctrl+p"),
+		DeleteChar:  bind("backspace"),
 	}
 }
 
@@ -165,6 +173,8 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "next / previous file", keys: []key.Binding{k.NextFile, k.PrevFile}},
 			{desc: "next / previous hunk", keys: []key.Binding{k.NextHunk, k.PrevHunk}},
 			{desc: "cycle focus, focus diff", keys: []key.Binding{k.NextFocus, k.FocusDiff}},
+			{desc: "search every file in the diff", keys: []key.Binding{k.Search}},
+			{desc: "next / previous match", keys: []key.Binding{k.NextMatch, k.PrevMatch}},
 			{desc: "focus a pane and select the row", label: "click"},
 			{desc: "focus and scroll the pane under the pointer", label: "wheel"},
 		}},
@@ -202,6 +212,14 @@ func (k keyMap) editorHints() []hint {
 	}
 }
 
+func (k keyMap) searchHints() []hint {
+	return []hint{
+		{desc: "confirm", keys: []key.Binding{k.Open}},
+		{desc: "next / previous", keys: []key.Binding{k.NextMatch, k.PrevMatch}},
+		{desc: "cancel", keys: []key.Binding{k.Cancel}},
+	}
+}
+
 func (k keyMap) rangeHints() []hint {
 	return []hint{
 		{desc: "comment range", keys: []key.Binding{k.Comment}},
@@ -224,6 +242,7 @@ func (k keyMap) mainHints() []hint {
 	return []hint{
 		{desc: "file", keys: []key.Binding{k.NextFile, k.PrevFile}},
 		{desc: "hunk", keys: []key.Binding{k.NextHunk, k.PrevHunk}},
+		{desc: "search", keys: []key.Binding{k.Search}},
 		{desc: "comments", keys: []key.Binding{k.Comments}},
 		{desc: "explorer", keys: []key.Binding{k.Explorer}},
 		{desc: "comment", keys: []key.Binding{k.Comment}},

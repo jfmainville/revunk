@@ -126,6 +126,9 @@ var specialKeys = map[string]tea.KeyPressMsg{
 	"ctrl+d":    {Code: 'd', Mod: tea.ModCtrl},
 	"ctrl+u":    {Code: 'u', Mod: tea.ModCtrl},
 	"ctrl+s":    {Code: 's', Mod: tea.ModCtrl},
+	"ctrl+n":    {Code: 'n', Mod: tea.ModCtrl},
+	"ctrl+p":    {Code: 'p', Mod: tea.ModCtrl},
+	"backspace": {Code: tea.KeyBackspace},
 }
 
 func press(t *testing.T, m Model, keys ...string) (Model, tea.Cmd) {
@@ -1752,5 +1755,147 @@ func TestScrollingTheDiffFocusesIt(t *testing.T) {
 	p, _ = press(t, p, "n", "pgup")
 	if p.focus != focusDiff {
 		t.Fatalf("page keys from the comments pane should focus the diff, got %d", p.focus)
+	}
+}
+
+func TestSearchFindsMatchesAcrossFiles(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "/")
+	if !m.searching || !strings.Contains(screen(m), "SEARCH") || !strings.Contains(screen(m), "confirm") {
+		t.Fatalf("/ should open the search prompt:\n%s", screen(m))
+	}
+	m = typeText(t, m, "func")
+	first := rowOf(t, m, rowLine, 1, 2)
+	if len(m.matches) != 3 || m.cursor != first || m.focus != focusDiff {
+		t.Fatalf("matches=%v cursor=%d want %d", m.matches, m.cursor, first)
+	}
+	if out := screen(m); !strings.Contains(out, "/func▌  1/3") {
+		t.Fatalf("status should show the query and position:\n%s", out)
+	}
+	var positions []int
+	for _, k := range []string{"ctrl+n", "ctrl+n", "ctrl+n", "ctrl+p"} {
+		m, _ = press(t, m, k)
+		positions = append(positions, m.matchPosition())
+	}
+	if !reflect.DeepEqual(positions, []int{2, 3, 1, 3}) {
+		t.Fatalf("ctrl+n and ctrl+p should step and wrap, got %v", positions)
+	}
+
+	m, _ = press(t, m, "enter")
+	if m.searching || !strings.Contains(screen(m), "/func  3/3") {
+		t.Fatalf("enter should keep the results:\n%s", screen(m))
+	}
+	m, _ = press(t, m, "ctrl+n")
+	if m.matchPosition() != 1 {
+		t.Fatalf("ctrl+n should work after confirming, got %d", m.matchPosition())
+	}
+	if m, _ = press(t, m, "k"); m.matchPosition() != 0 || !strings.Contains(screen(m), "0/3") {
+		t.Fatal("moving above the first match should count no matches")
+	}
+	m, _ = press(t, m, "esc")
+	if m.query != "" || m.matches != nil || strings.Contains(screen(m), "/func") {
+		t.Fatal("esc should clear the search")
+	}
+}
+
+func TestSearchEditingAndSmartCase(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "/")
+	m = typeText(t, m, "FUNC")
+	if len(m.matches) != 0 || !strings.Contains(screen(m), "no matches") {
+		t.Fatalf("an uppercase query should match case: %v", m.matches)
+	}
+	for range 4 {
+		m, _ = press(t, m, "backspace")
+	}
+	m = typeText(t, m, "Title")
+	if len(m.matches) != 1 || m.cursor != rowOf(t, m, rowLine, 0, 1) {
+		t.Fatalf("matches=%v cursor=%d", m.matches, m.cursor)
+	}
+	m, _ = press(t, m, "backspace", "backspace", "backspace", "backspace", "backspace", "backspace")
+	if m.query != "" || len(m.matches) != 0 || !strings.Contains(screen(m), "/▌  0/0") {
+		t.Fatalf("backspace past the start should leave an empty query: %q", m.query)
+	}
+	if m, _ = press(t, m, "up"); !m.searching || m.query != "" {
+		t.Fatal("keys without text should be ignored while searching")
+	}
+	m = typeText(t, m, "text")
+	m, _ = press(t, m, "esc")
+	if m.searching || m.query != "" || len(m.matches) != 0 {
+		t.Fatal("esc should cancel the search")
+	}
+	if _, cmd := press(t, m, "/", "ctrl+c"); cmd == nil {
+		t.Fatal("ctrl+c should still quit while searching")
+	}
+}
+
+func TestSearchSkipsReviewedFilesAndFollowsLayout(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "/")
+	m = typeText(t, m, "func")
+	m, _ = press(t, m, "enter", "-")
+	m = update(t, m, viewedMsg{viewed: map[string]bool{"a/main.go": true}})
+	if len(m.matches) != 0 || !strings.Contains(screen(m), "no matches") {
+		t.Fatalf("collapsed files should not be searched: %v", m.matches)
+	}
+	if m, _ = press(t, m, "ctrl+n"); m.matchPosition() != 0 {
+		t.Fatal("ctrl+n with no matches should do nothing")
+	}
+	m = update(t, m, viewedMsg{viewed: map[string]bool{}})
+	if len(m.matches) != 3 {
+		t.Fatalf("matches should come back when the file expands: %v", m.matches)
+	}
+}
+
+func TestEscClearsRangeBeforeSearch(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "/")
+	m = typeText(t, m, "func")
+	m, _ = press(t, m, "enter", "v", "esc")
+	if m.anchor >= 0 || m.query != "func" {
+		t.Fatal("first esc should only stop the range")
+	}
+	if m, _ = press(t, m, "esc"); m.query != "" {
+		t.Fatal("second esc should clear the search")
+	}
+}
+
+func TestMatchesAreHighlighted(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "/")
+	m = typeText(t, m, "old")
+	hl := "48;2;235;175;57"
+	found := false
+	for _, l := range m.diffLines() {
+		if strings.Contains(ansi.Strip(l), "func old") && strings.Contains(l, hl) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the matching text should be highlighted")
+	}
+}
+
+func TestMarkMatchesSplitsTokens(t *testing.T) {
+	a, b := lipgloss.NewStyle().Foreground(colorAdd), lipgloss.NewStyle().Foreground(colorDel)
+	out := markMatches([]token{{text: "foo(", style: a}, {text: "bar) foo", style: b}}, "o(b")
+	var texts []string
+	var hits []bool
+	for _, t := range out {
+		texts = append(texts, t.text)
+		hits = append(hits, t.style.GetBackground() != nil && t.style.GetBackground() != lipgloss.NoColor{})
+	}
+	if !reflect.DeepEqual(texts, []string{"fo", "o(", "b", "ar) foo"}) || !reflect.DeepEqual(hits, []bool{false, true, true, false}) {
+		t.Fatalf("texts=%q hits=%v", texts, hits)
+	}
+	if got := markMatches([]token{{text: "aXa aXa"}}, "x"); len(got) != 5 {
+		t.Fatalf("every match should be marked: %+v", got)
+	}
+	tokens := []token{{text: "İstanbul"}}
+	if got := markMatches(tokens, "stan"); !reflect.DeepEqual(got, tokens) {
+		t.Fatal("lines whose lowercase changes length should be left alone")
+	}
+	if got := markMatches(tokens, ""); !reflect.DeepEqual(got, tokens) {
+		t.Fatal("an empty query should change nothing")
 	}
 }
