@@ -23,9 +23,23 @@ func (f fakeSource) Files(context.Context, review.PullRequest) ([]review.File, e
 	return f.files, f.err
 }
 
+type fakeAgent struct {
+	answer string
+	err    error
+}
+
+func (a fakeAgent) Run(_ context.Context, prompt string) (string, error) {
+	return a.answer + "\n" + prompt, a.err
+}
+
 func loadedModel(t *testing.T, source review.Source) Model {
 	t.Helper()
-	m := New(review.NewService(source, store.NewMemory()), review.PullRequest{Owner: "o", Repo: "r", Number: 1})
+	return loadedModelWithAgent(t, source, fakeAgent{answer: "Looks good."})
+}
+
+func loadedModelWithAgent(t *testing.T, source review.Source, agent review.Agent) Model {
+	t.Helper()
+	m := New(review.NewService(source, store.NewMemory(), agent), review.PullRequest{Owner: "o", Repo: "r", Number: 1})
 	m = update(t, m, m.Init()())
 	return update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 }
@@ -62,7 +76,7 @@ func TestViewFitsTerminalAfterResize(t *testing.T) {
 }
 
 func TestRenderIsEmptyBeforeFirstWindowSize(t *testing.T) {
-	m := New(review.NewService(github.SampleSource{}, store.NewMemory()), review.PullRequest{})
+	m := New(review.NewService(github.SampleSource{}, store.NewMemory(), nil), review.PullRequest{})
 	if out := m.render(); out != "" {
 		t.Fatalf("expected empty render before sizing, got %q", out)
 	}
@@ -155,7 +169,7 @@ func TestLoadShowsPreviouslyViewedFiles(t *testing.T) {
 	if err := mem.SetViewed(context.Background(), pr, "README.md", true); err != nil {
 		t.Fatal(err)
 	}
-	m := New(review.NewService(github.SampleSource{}, mem), pr)
+	m := New(review.NewService(github.SampleSource{}, mem, nil), pr)
 	m = update(t, m, m.Init()())
 
 	if !strings.Contains(m.renderFiles(), "✓ README.md") {
@@ -205,12 +219,155 @@ func TestHelpListsEveryKeyBinding(t *testing.T) {
 	if len(full) != 1 || len(full[0]) != len(short) {
 		t.Fatalf("FullHelp should contain the ShortHelp bindings, got %v", full)
 	}
-	if len(short) != 6 {
-		t.Fatalf("expected 6 bindings in help, got %d", len(short))
+	if len(short) != 7 {
+		t.Fatalf("expected 7 bindings in help, got %d", len(short))
 	}
 	for _, b := range short {
 		if b.Help().Key == "" || b.Help().Desc == "" {
 			t.Errorf("binding %v has no help text", b.Keys())
 		}
+	}
+}
+
+func typeText(t *testing.T, m Model, text string) Model {
+	t.Helper()
+	for _, r := range text {
+		m = update(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	return m
+}
+
+func submit(t *testing.T, m Model) (Model, tea.Cmd) {
+	t.Helper()
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	return updated.(Model), cmd
+}
+
+func TestCommentAsksClaudeAboutSelectedFileAndShowsAnswer(t *testing.T) {
+	m := loadedModel(t, github.SampleSource{})
+	m, _ = press(t, m, "j")
+
+	m, _ = press(t, m, "c")
+	if !m.input.Focused() {
+		t.Fatal("c did not open the question input")
+	}
+	m = typeText(t, m, "why rename?")
+	if m.input.Value() != "why rename?" || !strings.Contains(m.render(), "Ask Claude:") {
+		t.Fatalf("question input not shown in footer:\n%s", m.render())
+	}
+
+	m, cmd := submit(t, m)
+	if cmd == nil {
+		t.Fatal("enter did not return a command")
+	}
+	if m.input.Focused() || m.input.Value() != "" {
+		t.Fatal("input stayed open or kept its value after submit")
+	}
+	if !strings.Contains(m.render(), "Asking Claude about README.md") {
+		t.Fatalf("pending status not shown:\n%s", m.render())
+	}
+
+	m = update(t, m, cmd())
+	if m.pending != "" {
+		t.Fatal("pending state not cleared after the answer")
+	}
+	got := m.answers["README.md"]
+	for _, want := range []string{"Looks good.", "+# Revunk", "Question: why rename?"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("answer for README.md missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(m.diff.View(), "Looks good.") {
+		t.Fatalf("answer not shown under the diff:\n%s", m.diff.View())
+	}
+
+	m, _ = press(t, m, "k")
+	if strings.Contains(m.diff.View(), "Looks good.") {
+		t.Fatal("answer shown on a file it does not belong to")
+	}
+}
+
+func TestCommentInputCapturesKeysUntilEscape(t *testing.T) {
+	m := loadedModel(t, github.SampleSource{})
+	m, _ = press(t, m, "c")
+
+	m, cmd := press(t, m, "q")
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatal("q quit while typing a question")
+		}
+	}
+	m = typeText(t, m, "j")
+	if m.cursor != 0 || m.input.Value() != "qj" {
+		t.Fatalf("keys not routed to input: cursor=%d value=%q", m.cursor, m.input.Value())
+	}
+
+	m = update(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.input.Focused() || m.input.Value() != "" {
+		t.Fatal("escape did not close and clear the input")
+	}
+	if !strings.Contains(m.render(), "ask claude") {
+		t.Fatalf("help footer not restored after escape:\n%s", m.render())
+	}
+}
+
+func TestCtrlCQuitsWhileTypingQuestion(t *testing.T) {
+	m := loadedModel(t, github.SampleSource{})
+	m, _ = press(t, m, "c")
+
+	_, cmd := press(t, m, "ctrl+c")
+
+	if cmd == nil {
+		t.Fatal("ctrl+c returned no command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("ctrl+c did not quit while typing")
+	}
+}
+
+func TestEmptyQuestionIsNotSent(t *testing.T) {
+	m := loadedModel(t, github.SampleSource{})
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "   ")
+
+	m, cmd := submit(t, m)
+
+	if cmd != nil || m.pending != "" {
+		t.Fatal("blank question was sent to the agent")
+	}
+	if m.input.Focused() {
+		t.Fatal("input stayed open after submitting a blank question")
+	}
+}
+
+func TestCommentIsIgnoredWithoutFilesOrWhilePending(t *testing.T) {
+	m := loadedModel(t, fakeSource{})
+	if m, _ = press(t, m, "c"); m.input.Focused() {
+		t.Fatal("input opened with no files")
+	}
+
+	m = loadedModel(t, github.SampleSource{})
+	m.pending = "README.md"
+	if m, _ = press(t, m, "c"); m.input.Focused() {
+		t.Fatal("input opened while a question is pending")
+	}
+}
+
+func TestAgentErrorIsShownWithoutAnswer(t *testing.T) {
+	m := loadedModelWithAgent(t, github.SampleSource{}, fakeAgent{err: errors.New("not logged in")})
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "ok?")
+	m, cmd := submit(t, m)
+
+	m = update(t, m, cmd())
+
+	if !strings.Contains(m.render(), "not logged in") {
+		t.Fatalf("agent error not shown:\n%s", m.render())
+	}
+	if _, ok := m.answers["cmd/revunk/main.go"]; ok {
+		t.Fatal("answer stored despite the error")
+	}
+	if m.pending != "" {
+		t.Fatal("pending state not cleared after the error")
 	}
 }

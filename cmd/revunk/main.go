@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/jfmainville/revunk/internal/agent/claude"
 	"github.com/jfmainville/revunk/internal/provider/github"
 	"github.com/jfmainville/revunk/internal/review"
 	"github.com/jfmainville/revunk/internal/store"
@@ -32,7 +33,7 @@ func run(args []string) error {
 	}
 	switch command {
 	case "tui":
-		svc := review.NewService(github.SampleSource{}, store.NewMemory())
+		svc := review.NewService(github.SampleSource{}, store.NewMemory(), claude.CLI{Path: "claude"})
 		pr := review.PullRequest{Owner: "jfmainville", Repo: "revunk", Number: 1}
 		_, err := tea.NewProgram(tui.New(svc, pr)).Run()
 		return err

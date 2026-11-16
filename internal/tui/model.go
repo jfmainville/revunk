@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -21,14 +22,15 @@ var (
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 	mutedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	answerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 )
 
 type keyMap struct {
-	Up, Down, PageUp, PageDown, ToggleViewed, Quit key.Binding
+	Up, Down, PageUp, PageDown, ToggleViewed, Comment, Quit key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.ToggleViewed, k.Quit, k.PageUp, k.PageDown}
+	return []key.Binding{k.Up, k.Down, k.ToggleViewed, k.Comment, k.Quit, k.PageUp, k.PageDown}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding { return [][]key.Binding{k.ShortHelp()} }
@@ -39,6 +41,7 @@ var keys = keyMap{
 	PageUp:       key.NewBinding(key.WithKeys("pgup", "b"), key.WithHelp("pgup/b", "scroll up")),
 	PageDown:     key.NewBinding(key.WithKeys("pgdown", "f"), key.WithHelp("pgdn/f", "scroll down")),
 	ToggleViewed: key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "toggle viewed")),
+	Comment:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "ask claude")),
 	Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 
@@ -54,23 +57,36 @@ type viewedToggledMsg struct {
 	err    error
 }
 
-type Model struct {
-	svc    *review.Service
-	pr     review.PullRequest
-	files  []review.File
-	viewed map[string]bool
-	cursor int
+type answeredMsg struct {
+	path   string
+	answer string
 	err    error
-	width  int
-	height int
-	diff   viewport.Model
-	help   help.Model
+}
+
+type Model struct {
+	svc     *review.Service
+	pr      review.PullRequest
+	files   []review.File
+	viewed  map[string]bool
+	cursor  int
+	err     error
+	answers map[string]string
+	pending string
+	input   textinput.Model
+	width   int
+	height  int
+	diff    viewport.Model
+	help    help.Model
 }
 
 func New(svc *review.Service, pr review.PullRequest) Model {
 	diff := viewport.New()
 	diff.KeyMap = viewport.KeyMap{PageUp: keys.PageUp, PageDown: keys.PageDown}
-	return Model{svc: svc, pr: pr, viewed: map[string]bool{}, diff: diff, help: help.New()}
+	diff.SoftWrap = true
+	input := textinput.New()
+	input.Prompt = "Ask Claude: "
+	input.Placeholder = "question about this file's diff"
+	return Model{svc: svc, pr: pr, viewed: map[string]bool{}, answers: map[string]string{}, diff: diff, input: input, help: help.New()}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -101,7 +117,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.viewed[msg.path] = msg.viewed
 		}
+	case answeredMsg:
+		m.pending, m.err = "", msg.err
+		if msg.err == nil {
+			m.answers[msg.path] = msg.answer
+			if len(m.files) > 0 && m.files[m.cursor].Path == msg.path {
+				m.showSelected()
+				m.diff.GotoBottom()
+			}
+		}
 	case tea.KeyPressMsg:
+		if m.input.Focused() {
+			return m.updateInput(msg)
+		}
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
@@ -111,10 +139,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveCursor(1)
 		case key.Matches(msg, keys.ToggleViewed):
 			return m, m.toggleViewed()
+		case key.Matches(msg, keys.Comment):
+			if len(m.files) == 0 || m.pending != "" {
+				return m, nil
+			}
+			return m, m.input.Focus()
 		}
 	}
 	var cmd tea.Cmd
 	m.diff, cmd = m.diff.Update(msg)
+	return m, cmd
+}
+
+func (m Model) updateInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.input.Blur()
+		m.input.Reset()
+		return m, nil
+	case "enter":
+		question := strings.TrimSpace(m.input.Value())
+		m.input.Blur()
+		m.input.Reset()
+		if question == "" {
+			return m, nil
+		}
+		file := m.files[m.cursor]
+		m.pending = file.Path
+		return m, func() tea.Msg {
+			answer, err := m.svc.Ask(context.Background(), m.pr, file, question)
+			return answeredMsg{path: file.Path, answer: answer, err: err}
+		}
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
 	return m, cmd
 }
 
@@ -131,7 +191,12 @@ func (m *Model) showSelected() {
 		m.diff.SetContent(mutedStyle.Render("No files to review."))
 		return
 	}
-	m.diff.SetContent(m.files[m.cursor].Patch)
+	file := m.files[m.cursor]
+	content := file.Patch
+	if answer, ok := m.answers[file.Path]; ok {
+		content += "\n\n" + answerStyle.Render("Claude:") + "\n" + answer
+	}
+	m.diff.SetContent(content)
 	m.diff.GotoTop()
 }
 
@@ -151,6 +216,7 @@ func (m *Model) resize() {
 	m.diff.SetWidth(max(m.width-fileListWidth-2*frameW, 0))
 	m.diff.SetHeight(max(m.paneHeight()-frameH, 0))
 	m.help.SetWidth(m.width)
+	m.input.SetWidth(max(m.width-lipgloss.Width(m.input.Prompt)-1, 0))
 }
 
 func (m Model) paneHeight() int {
@@ -175,10 +241,17 @@ func (m Model) render() string {
 
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, paneStyle.Render(fileList), paneStyle.Render(diff))
 	status := mutedStyle.Render(m.pr.String())
+	if m.pending != "" {
+		status = mutedStyle.Render("Asking Claude about " + m.pending + "…")
+	}
 	if m.err != nil {
 		status = errorStyle.Render(m.err.Error())
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, status, panes, m.help.View(keys))
+	footer := m.help.View(keys)
+	if m.input.Focused() {
+		footer = m.input.View()
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, status, panes, footer)
 }
 
 func (m Model) renderFiles() string {
