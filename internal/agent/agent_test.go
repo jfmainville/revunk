@@ -39,7 +39,7 @@ func prompt(t *testing.T) (string, error) {
 	return Agent{Dir: "/repo"}.Prompt(context.Background(), "fix it")
 }
 
-func TestPromptWaitsOnFirstSessionInRepo(t *testing.T) {
+func TestPromptSendsToFirstSessionInRepo(t *testing.T) {
 	log := fakeHerdr(t, listing(`{"agent":"codex","cwd":"/repo","pane_id":"p1"},
 {"agent":"claude","cwd":"/repo-other","pane_id":"p2"},
 {"agent":"claude","cwd":"/repo","pane_id":"self"},
@@ -52,7 +52,7 @@ func TestPromptWaitsOnFirstSessionInRepo(t *testing.T) {
 	if err != nil || name != "opencode" {
 		t.Fatalf("Prompt = %q, %v", name, err)
 	}
-	if got := calls(t, log); got[len(got)-1] != "agent prompt p4 fix it --wait --until idle --until done" {
+	if got := calls(t, log); got[len(got)-1] != "agent prompt p4 fix it" {
 		t.Fatalf("calls = %q", got)
 	}
 }
@@ -91,7 +91,7 @@ func TestPromptStartsNewPaneInsideHerdr(t *testing.T) {
 	if err != nil || name != "a new Claude Code pane" {
 		t.Fatalf("Prompt = %q, %v", name, err)
 	}
-	want := []string{"agent list", "pane split --current --direction right --cwd /repo --no-focus", "agent start revunk-w1-p9 --kind claude --pane w1:p9", "agent prompt w1:p9 fix it --wait --until idle --until done"}
+	want := []string{"agent list", "pane split --current --direction right --cwd /repo --no-focus", "agent start revunk-w1-p9 --kind claude --pane w1:p9", "agent prompt w1:p9 fix it"}
 	if got := calls(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls = %q", got)
 	}

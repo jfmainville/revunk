@@ -71,8 +71,6 @@ type commentsMsg struct {
 	err      error
 }
 
-type sentMsg commentsMsg
-
 type actionMsg struct {
 	notice    string
 	clipboard string
@@ -106,7 +104,6 @@ type Model struct {
 	loading    bool
 	err        error
 	notice     string
-	sending    int
 	width      int
 	height     int
 }
@@ -182,9 +179,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
-	case sentMsg:
-		m.sending = 0
-		return m.Update(commentsMsg(msg))
 	case actionMsg:
 		m.err, m.notice = msg.err, msg.notice
 		if msg.clipboard != "" {
@@ -589,24 +583,20 @@ func (m *Model) deleteComment() tea.Cmd {
 }
 
 func (m *Model) sendComments() tea.Cmd {
-	switch {
-	case m.sending > 0:
-		m.notice = "still waiting for the agent"
-		return nil
-	case len(m.comments) == 0:
+	if len(m.comments) == 0 {
 		m.notice = "no comments to send"
 		return nil
 	}
 	svc, n := m.svc, len(m.comments)
-	m.sending = n
+	m.notice = fmt.Sprintf("sending %d comments…", n)
 	return func() tea.Msg {
 		ctx := context.Background()
 		agent, err := svc.SendComments(ctx)
 		if err != nil {
-			return sentMsg{err: err}
+			return commentsMsg{err: err}
 		}
 		comments, err := svc.Comments(ctx)
-		return sentMsg{comments: comments, notice: fmt.Sprintf("%s finished, removed %d comments", agent, n), err: err}
+		return commentsMsg{comments: comments, notice: fmt.Sprintf("sent %d comments to %s", n, agent), err: err}
 	}
 }
 
@@ -978,8 +968,6 @@ func (m Model) statusLine() string {
 		message = errorStyle.Render(m.err.Error())
 	case m.notice != "":
 		message = primaryStyle.Render(m.notice)
-	case m.sending > 0:
-		message = primaryStyle.Render(fmt.Sprintf("the agent is working on %d comments…", m.sending))
 	}
 	viewed := 0
 	for _, f := range m.files {
@@ -1022,7 +1010,7 @@ func helpLines() []string {
 		{"dd", "delete comment under cursor"},
 		{"DD", "delete every comment"},
 		{"r", "mark file viewed until it changes"},
-		{"S", "send every comment to the agent, removed when it finishes"},
+		{"S", "send every comment to the agent and remove them"},
 		{"y", "copy every comment"},
 		{"", ""},
 		{"comment editor", ""},

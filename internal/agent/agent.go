@@ -30,7 +30,7 @@ func (a Agent) Prompt(ctx context.Context, text string) (string, error) {
 		}
 		name = "a new Claude Code pane"
 	}
-	_, err = run(ctx, "agent", "prompt", pane, text, "--wait", "--until", "idle", "--until", "done")
+	_, err = run(ctx, "agent", "prompt", pane, text)
 	return name, err
 }
 

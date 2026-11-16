@@ -715,18 +715,15 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	m := withComment(t, agent)
 
 	m, cmd := press(t, m, "S")
-	if !strings.Contains(screen(m), "the agent is working on 1 comments") {
-		t.Fatal("no waiting status")
-	}
-	if again, again2 := press(t, m, "S"); again2 != nil || !strings.Contains(screen(again), "still waiting for the agent") {
-		t.Fatal("S while waiting should not send twice")
+	if !strings.Contains(screen(m), "sending 1 comments") {
+		t.Fatal("no sending notice")
 	}
 	m = run(t, m, cmd)
 
 	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
 		t.Fatalf("prompts = %q", agent.prompts)
 	}
-	if out := screen(m); !strings.Contains(out, "opencode finished, removed 1 comments") || strings.Contains(out, "◆ nit") || len(m.comments) != 0 {
+	if out := screen(m); !strings.Contains(out, "sent 1 comments to opencode") || strings.Contains(out, "◆ nit") || len(m.comments) != 0 {
 		t.Fatalf("sent comments not removed:\n%s", out)
 	}
 
