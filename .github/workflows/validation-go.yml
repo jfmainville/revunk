@@ -1,0 +1,35 @@
+name: Complete the validations for a Go project
+on:
+  workflow_call:
+    inputs:
+      go-version-file:
+        description: "The file that defines the Go version to use"
+        type: string
+        required: false
+        default: "go.mod"
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout the current git repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+      - name: Run the gofmt command
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not formatted, run gofmt -w . to fix them"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Run the go vet command
+        run: |
+          go vet ./...
+      - name: Run the go test command
+        run: |
+          go test ./...

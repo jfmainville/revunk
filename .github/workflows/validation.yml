@@ -1,0 +1,26 @@
+name: Complete the validations for Revunk
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - main
+    paths:
+      - "**"
+      - "!**/*.md"
+  push:
+    branches:
+      - main
+    paths:
+      - "**"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+jobs:
+  validation:
+    uses: ./.github/workflows/validation-go.yml
