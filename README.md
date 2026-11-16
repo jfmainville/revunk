@@ -36,27 +36,27 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 
 ### Keys
 
-| Key                    | Action                                                 |
-| ---------------------- | ------------------------------------------------------ |
-| `tab`, `shift+tab`     | Cycle focus between commits, files, and diff           |
-| `h`, `l`               | Focus the files or the diff                            |
-| `j`/`↓`, `k`/`↑`       | Move down or up                                        |
-| `gg`, `G`              | Go to the top or bottom of the diff                    |
-| `ctrl+d`, `ctrl+u`     | Move half a page down or up                            |
-| `pgdn`/`f`, `pgup`/`b` | Move a page down or up                                 |
-| `]f`, `[f`             | Next or previous file                                  |
-| `}`, `{`               | Next or previous hunk                                  |
-| `v`, `V`               | Start or stop selecting a range of lines               |
-| `c`                    | Comment on the current line, the range, or file header |
-| `C`                    | Comment on the whole file                              |
-| `dd`                   | Delete or resolve the comment under the cursor         |
-| `DD`                   | Delete every comment on the branch                     |
-| `r`                    | Toggle the file's viewed state                         |
-| `S`                    | Send unsent comments to the agent                      |
-| `y`                    | Copy unsent comments to the clipboard                  |
-| `?`                    | Show every key                                         |
-| `esc`                  | Stop selecting or close the help                       |
-| `q`, `ctrl+c`          | Quit                                                   |
+| Key                      | Action                                                 |
+| ------------------------ | ------------------------------------------------------ |
+| `tab`, `shift+tab`       | Cycle focus between commits, files, and diff           |
+| `l`                      | Focus the diff                                         |
+| `j`/`↓`, `k`/`↑`         | Move down or up                                        |
+| `gg`, `G`                | Go to the top or bottom of the diff                    |
+| `ctrl+d`, `ctrl+u`       | Move half a page down or up                            |
+| `pgdn`, `pgup`/`b`       | Move a page down or up                                 |
+| `f`, `F` (or `]f`, `[f`) | Next or previous file                                  |
+| `h`, `H` (or `}`, `{`)   | Next or previous hunk                                  |
+| `v`, `V`                 | Start or stop selecting a range of lines               |
+| `c`                      | Comment on the current line, the range, or file header |
+| `C`                      | Comment on the whole file                              |
+| `dd`                     | Delete or resolve the comment under the cursor         |
+| `DD`                     | Delete every comment on the branch                     |
+| `r`                      | Toggle the file's viewed state                         |
+| `S`                      | Send unsent comments to the agent                      |
+| `y`                      | Copy unsent comments to the clipboard                  |
+| `?`                      | Show every key                                         |
+| `esc`                    | Stop selecting or close the help                       |
+| `q`, `ctrl+c`            | Quit                                                   |
 
 ### Comment editor
 

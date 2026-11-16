@@ -360,8 +360,14 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focus = (m.focus + 1) % 3
 	case "shift+tab":
 		m.focus = (m.focus + 2) % 3
+	case "f":
+		m.jump(rowFile, 1)
+	case "F":
+		m.jump(rowFile, -1)
 	case "h":
-		m.focus = focusFiles
+		m.jump(rowHunk, 1)
+	case "H":
+		m.jump(rowHunk, -1)
 	case "l":
 		m.focus = focusDiff
 	case "esc":
@@ -405,7 +411,7 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.move(page / 2)
 		case "ctrl+u":
 			m.move(-page / 2)
-		case "pgdown", "f":
+		case "pgdown":
 			m.move(page)
 		case "pgup", "b":
 			m.move(-page)
@@ -1110,7 +1116,7 @@ func (m Model) footer() string {
 	case m.anchor >= 0:
 		return hints("c", "comment range", "j k", "extend", "esc", "cancel")
 	}
-	return hints("c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
+	return hints("f F", "file", "h H", "hunk", "c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
 }
 
 func helpLines() []string {
@@ -1119,9 +1125,9 @@ func helpLines() []string {
 		{"j k", "down / up"},
 		{"gg G", "top / bottom"},
 		{"C-d C-u", "half page"},
-		{"]f [f", "next / previous file"},
-		{"} {", "next / previous hunk"},
-		{"tab h l", "cycle focus, focus files, focus diff"},
+		{"f F  ]f [f", "next / previous file"},
+		{"h H  } {", "next / previous hunk"},
+		{"tab l", "cycle focus, focus diff"},
 		{"", ""},
 		{"review", ""},
 		{"v V", "visual range"},

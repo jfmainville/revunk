@@ -253,9 +253,9 @@ func TestTabCyclesFocusAndHLJump(t *testing.T) {
 	if m.focus != focusDiff {
 		t.Fatal("l did not focus the diff")
 	}
-	m, _ = press(t, m, "h")
+	m, _ = press(t, m, "tab", "tab")
 	if m.focus != focusFiles {
-		t.Fatal("h did not focus the files")
+		t.Fatal("tab did not cycle back to the files")
 	}
 	m, _ = press(t, m, "enter")
 	if m.focus != focusDiff {
@@ -962,5 +962,43 @@ func TestRefreshAppliesViewedStateAndIgnoresErrors(t *testing.T) {
 	m, next := pollOnce(t, m)
 	if next == nil || m.err != nil || len(m.files) != 3 {
 		t.Fatalf("poll error should be ignored and polling continue, err=%v files=%d", m.err, len(m.files))
+	}
+}
+
+func TestFileAndHunkKeysJumpForwardAndBackward(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+
+	m, _ = press(t, m, "f")
+	if m.cursor != rowOf(t, m, rowFile, 1, 0) || m.fileCursor != 1 {
+		t.Fatalf("f moved to row %d", m.cursor)
+	}
+	m, _ = press(t, m, "h")
+	if m.cursor != rowOf(t, m, rowHunk, 1, 0) {
+		t.Fatalf("h moved to row %d", m.cursor)
+	}
+	m, _ = press(t, m, "H")
+	if m.cursor != rowOf(t, m, rowHunk, 0, 0) {
+		t.Fatalf("H moved to row %d", m.cursor)
+	}
+	m, _ = press(t, m, "f", "f", "F")
+	if m.cursor != rowOf(t, m, rowFile, 1, 0) {
+		t.Fatalf("F moved to row %d", m.cursor)
+	}
+	before := m.cursor
+	m, _ = press(t, m, "f", "f", "f")
+	if m.fileCursor != 2 || m.cursor == before {
+		t.Fatalf("f past the last file should stay on it, fileCursor=%d", m.fileCursor)
+	}
+
+	files, _ := loaded(t)
+	files, _ = press(t, files, "f")
+	if files.focus != focusFiles || files.fileCursor != 1 {
+		t.Fatalf("f from the files pane should move the file selection, fileCursor=%d", files.fileCursor)
+	}
+	paged, _ := loaded(t)
+	paged, _ = press(t, paged, "l", "pgdown")
+	if paged.cursor == 0 {
+		t.Fatal("pgdown no longer pages")
 	}
 }
