@@ -1618,7 +1618,7 @@ func TestWrapTokensKeepsShortLinesWhole(t *testing.T) {
 
 func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	m, _ := loaded(t)
-	if strings.Contains(screen(m), " review ") {
+	if strings.Contains(screen(m), "Reviewed") {
 		t.Fatal("review section should only show once a file is reviewed")
 	}
 	m.viewed = map[string]bool{"a/main.go": true}
@@ -1627,7 +1627,7 @@ func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	for _, l := range lines {
 		text = append(text, strings.TrimRight(ansi.Strip(l), " "))
 	}
-	want := []string{" A README.md              +2 -0", " M img.png                +0 -0", "", " review", " M a/main.go              +2 -1 ✓"}
+	want := []string{" A README.md              +2 -0", " M img.png                +0 -0", "", " Reviewed", " M a/main.go              +2 -1 ✓"}
 	if !reflect.DeepEqual(text, want) {
 		t.Fatalf("explorer = %q", text)
 	}

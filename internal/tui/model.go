@@ -1359,7 +1359,7 @@ func (m Model) fileLines() ([]string, []int) {
 		switch {
 		case m.viewed[f.Path]:
 			if !inReview {
-				lines = append(lines, "", " "+primaryStyle.Render("review"))
+				lines = append(lines, "", " "+primaryStyle.Render("Reviewed"))
 				files = append(files, -1, -1)
 				inReview = true
 			}
