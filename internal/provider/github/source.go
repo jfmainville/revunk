@@ -1,4 +1,3 @@
-// Package github is the GitHub provider implementing review.Source.
 package github
 
 import (
@@ -7,7 +6,6 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
-// SampleSource returns fixed data until the GitHub API client is implemented.
 type SampleSource struct{}
 
 func (SampleSource) Files(_ context.Context, _ review.PullRequest) ([]review.File, error) {

@@ -1,4 +1,3 @@
-// Package review holds the client-agnostic review domain shared by every Revunk frontend.
 package review
 
 import (
@@ -33,12 +32,10 @@ type File struct {
 	Patch     string
 }
 
-// Source fetches pull request data, e.g. from GitHub.
 type Source interface {
 	Files(ctx context.Context, pr PullRequest) ([]File, error)
 }
 
-// Store persists reviewer state between sessions.
 type Store interface {
 	SetViewed(ctx context.Context, pr PullRequest, path string, viewed bool) error
 	Viewed(ctx context.Context, pr PullRequest) (map[string]bool, error)

@@ -1,4 +1,3 @@
-// Package store provides review.Store implementations.
 package store
 
 import (
@@ -9,7 +8,6 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
-// Memory is a non-durable review.Store used until a database is introduced.
 type Memory struct {
 	mu     sync.Mutex
 	viewed map[review.PullRequest]map[string]bool

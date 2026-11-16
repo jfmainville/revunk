@@ -1,4 +1,3 @@
-// Package tui renders the review service in the terminal with Bubble Tea.
 package tui
 
 import (
