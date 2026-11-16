@@ -107,7 +107,6 @@ func tick() tea.Cmd {
 
 type Model struct {
 	svc        *review.Service
-	repo       string
 	base       string
 	commits    []review.Commit
 	commit     int
@@ -139,10 +138,9 @@ type Model struct {
 	height     int
 }
 
-func New(svc *review.Service, repo, base string) Model {
+func New(svc *review.Service, base string) Model {
 	return Model{
 		svc:      svc,
-		repo:     repo,
 		base:     base,
 		viewed:   map[string]bool{},
 		rendered: map[int][]string{},
@@ -1285,7 +1283,7 @@ func box(title, right string, lines []string, width, height int, accent color.Co
 
 func (m Model) tabBar() string {
 	tab := lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render(" Agent ")
-	left := tab + "  " + dimStyle.Render(m.repo+" · local changes on "+m.svc.Branch())
+	left := tab + "  " + dimStyle.Render("local changes on "+m.svc.Branch())
 	right := dimStyle.Render("▌ ") + "revunk"
 	if gap := m.width - lipgloss.Width(left) - lipgloss.Width(right); gap > 0 {
 		return left + strings.Repeat(" ", gap) + right

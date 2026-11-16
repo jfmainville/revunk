@@ -65,7 +65,7 @@ func TestSetupWiresBranchAndBase(t *testing.T) {
 		}
 		updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 		out := ansi.Strip(updated.View().Content)
-		if !strings.Contains(out, want) || !strings.Contains(out, filepath.Base(dir)) {
+		if !strings.Contains(out, want) || strings.Contains(out, filepath.Base(dir)+" ·") {
 			t.Fatalf("base %q: view missing %q or repo name:\n%s", base, want, out)
 		}
 	}
@@ -75,7 +75,7 @@ func TestRunReplyAddsReplyToComment(t *testing.T) {
 	ctx := context.Background()
 	dir := gitRepo(t)
 	t.Chdir(dir)
-	svc, _, _, err := service(ctx, ".", "")
+	svc, _, err := service(ctx, ".", "")
 	if err != nil {
 		t.Fatal(err)
 	}

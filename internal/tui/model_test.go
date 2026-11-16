@@ -96,7 +96,7 @@ var sample = fakeSource{
 
 func newModel(t *testing.T, source review.Source, st *fakeStore) Model {
 	t.Helper()
-	m := New(review.NewService(source, st, nil, "feature"), "revunk", "main")
+	m := New(review.NewService(source, st, nil, "feature"), "main")
 	m = update(t, m, m.Init()())
 	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 }
@@ -178,7 +178,7 @@ func TestLoadedScreenMatchesDesignLayout(t *testing.T) {
 	m, _ := loaded(t)
 	out := screen(m)
 
-	for _, want := range []string{"Agent", "revunk · local changes on feature", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
+	for _, want := range []string{"Agent", "Agent   local changes on feature", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
 		}
@@ -203,7 +203,7 @@ func TestViewFitsTerminalAfterResize(t *testing.T) {
 }
 
 func TestRenderIsEmptyBeforeFirstWindowSizeAndUsesAltScreen(t *testing.T) {
-	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "revunk", "main")
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "main")
 	if out := m.render(); out != "" {
 		t.Fatalf("expected empty render before sizing, got %q", out)
 	}
@@ -738,7 +738,7 @@ func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
 func withComment(t *testing.T, agent review.Agent) Model {
 	t.Helper()
 	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{ID: "c1", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename"}}}
-	m := New(review.NewService(sample, st, agent, "feature"), "revunk", "main")
+	m := New(review.NewService(sample, st, agent, "feature"), "main")
 	m = update(t, m, m.Init()())
 	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 }
@@ -1560,7 +1560,7 @@ func TestCommentsOnDeletedFilesArePruned(t *testing.T) {
 	}}
 	svc := review.NewService(sample, st, nil, "feature")
 	svc.Exists = func(path string) bool { return path != "gone.go" }
-	m := New(svc, "revunk", "main")
+	m := New(svc, "main")
 	m = update(t, m, m.Init()())
 	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if len(m.comments) != 1 || m.comments[0].ID != "a" || !strings.Contains(screen(m), "removed 1 comments on deleted files") {
