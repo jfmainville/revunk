@@ -15,9 +15,8 @@ Run format, vet, and tests before every commit. All must pass. CI runs the same 
 
 ## Architecture
 
-- `internal/review` holds the domain types, the `Source`, `Store`, and `Agent` interfaces, and `Service`. It must never import UI, provider, agent, or storage packages.
-- `internal/provider/<host>` implements `review.Source` for one code host (GitHub now, GitLab later).
-- `internal/agent/<name>` implements `review.Agent` for one AI agent (Claude Code CLI now).
+- `internal/review` holds the domain types, the `Source` and `Store` interfaces, and `Service`. It must never import UI, provider, or storage packages.
+- `internal/provider/<name>` implements `review.Source` for one source of changes (local git now, code hosts such as GitHub later).
 - `internal/store` implements `review.Store`.
 - `internal/tui` is the only package allowed to import Charm libraries (`bubbletea`, `bubbles`, `lipgloss`).
 - `cmd/revunk` only parses arguments and wires dependencies together.
@@ -38,7 +37,7 @@ Always choose the simplest solution that fully meets the requirement.
 - Every function gets a unit test, written in the same change as the function.
 - Tests must check behavior and fail when the behavior breaks. No tests that only restate the implementation or assert that code runs.
 - Cover error paths and edge cases (empty input, boundaries, failing dependencies), not only the happy path.
-- Use small hand-written fakes for `review.Source`, `review.Store`, and `review.Agent`. No mocking libraries.
+- Use small hand-written fakes for `review.Source` and `review.Store`. No mocking libraries.
 - Test the TUI by sending messages to `Model.Update` and checking the model state or rendered output.
 - Only code that needs a real terminal, such as `main()` and starting the Bubble Tea program, may go untested.
 

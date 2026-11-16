@@ -1,11 +1,11 @@
 # Revunk
 
-Revunk is a pull request review tool with a Bubble Tea terminal interface. The review logic lives apart from the terminal UI so a future web or mobile client can reuse the same review service.
+Revunk is a pull request review tool with a Bubble Tea terminal interface. It reviews the commits on the current git branch, such as changes made by a coding agent, as one continuous diff with inline comments. The review logic lives apart from the terminal UI so a future web or mobile client can reuse the same review service.
 
 ## Requirements
 
 - Go 1.26 or later
-- [Claude Code](https://claude.com/claude-code) CLI (`claude`) on your `PATH` and logged in, to ask questions about a diff
+- `git`
 
 ## Commands
 
@@ -17,33 +17,63 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. The r
 | Vet         | `go vet ./...`                              |
 | Test        | `go test ./...`                             |
 
-### TUI keys
+## Agent tab
 
-| Key                    | Action                           |
-| ---------------------- | -------------------------------- |
-| `↑`/`k`, `↓`/`j`       | Select the previous or next file |
-| `pgup`/`b`, `pgdn`/`f` | Scroll the diff                  |
-| `v`                    | Toggle the file's viewed state   |
-| `c`                    | Ask Claude about the file's diff |
-| `q`, `ctrl+c`          | Quit                             |
+Run Revunk from inside a git repository. The **Agent** tab compares the current branch with its base branch (`base...HEAD`).
 
-### Asking Claude
+- **commits** lists `all commits` and each commit on the branch. Selecting one shows only that commit's diff.
+- **files** lists the changed files grouped by directory. Selecting a file scrolls the diff to it.
+- **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, both line numbers are shown, and code is syntax highlighted.
+- Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
+- A file marked viewed collapses and stays viewed until its diff changes.
 
-Press `c` to type a question about the selected file. `enter` sends it, and `esc` cancels. Revunk sends the question, the pull request, and the file's patch to `claude -p`. The answer shows below the file's diff and stays there while the app runs.
+Comments and viewed state are saved per branch in `.git/revunk.json`.
+
+### Keys
+
+| Key                    | Action                                                 |
+| ---------------------- | ------------------------------------------------------ |
+| `tab`, `shift+tab`     | Cycle focus between commits, files, and diff           |
+| `h`, `l`               | Focus the files or the diff                            |
+| `j`/`↓`, `k`/`↑`       | Move down or up                                        |
+| `gg`, `G`              | Go to the top or bottom of the diff                    |
+| `ctrl+d`, `ctrl+u`     | Move half a page down or up                            |
+| `pgdn`/`f`, `pgup`/`b` | Move a page down or up                                 |
+| `]f`, `[f`             | Next or previous file                                  |
+| `}`, `{`               | Next or previous hunk                                  |
+| `v`, `V`               | Start or stop selecting a range of lines               |
+| `c`                    | Comment on the current line, the range, or file header |
+| `C`                    | Comment on the whole file                              |
+| `dd`                   | Delete the comment under the cursor                    |
+| `r`                    | Toggle the file's viewed state                         |
+| `?`                    | Show every key                                         |
+| `esc`                  | Stop selecting or close the help                       |
+| `q`, `ctrl+c`          | Quit                                                   |
+
+### Comment editor
+
+| Key                     | Action                                                             |
+| ----------------------- | ------------------------------------------------------------------ |
+| `enter`                 | Save the comment                                                   |
+| `shift+enter`, `ctrl+j` | Insert a newline                                                   |
+| `tab`, `shift+tab`      | Cycle the type (comment, issue, suggestion, nit, question, praise) |
+| `ctrl+g`                | Insert a ` ```suggestion ` block with the commented lines          |
+| `esc`                   | Cancel                                                             |
 
 ## CLI
 
 ```
-revunk [tui]   Launch the terminal review interface (default)
+revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
 ```
+
+`-base` sets the branch to compare against. It defaults to the remote's default branch (`origin/HEAD`), or `main` when there is none.
 
 ## Project layout
 
-| Package                    | Responsibility                                                                                                                         |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `cmd/revunk`               | CLI entry point and dependency wiring                                                                                                  |
-| `internal/review`          | Review domain types, the `Source`, `Store`, and `Agent` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
-| `internal/provider/github` | GitHub provider implementing `review.Source`. Other hosts such as GitLab go in sibling packages.                                       |
-| `internal/agent/claude`    | Claude Code CLI agent implementing `review.Agent`. It runs `claude -p` with the prompt on stdin.                                       |
-| `internal/store`           | Persistence boundary implementing `review.Store`                                                                                       |
-| `internal/tui`             | Bubble Tea presentation layer                                                                                                          |
+| Package                 | Responsibility                                                                                                                                  |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmd/revunk`            | CLI entry point and dependency wiring                                                                                                           |
+| `internal/review`       | Review domain types, diff line parsing, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
+| `internal/provider/git` | Local git provider implementing `review.Source` for the commits on the current branch. Code hosts such as GitHub go in sibling packages.        |
+| `internal/store`        | JSON file store implementing `review.Store`                                                                                                     |
+| `internal/tui`          | Bubble Tea presentation layer, with `chroma` for syntax highlighting and `glamour` for Markdown comments                                        |

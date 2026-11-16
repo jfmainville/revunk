@@ -3,45 +3,91 @@ package tui
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
-	"github.com/jfmainville/revunk/internal/provider/github"
 	"github.com/jfmainville/revunk/internal/review"
-	"github.com/jfmainville/revunk/internal/store"
 )
 
 type fakeSource struct {
-	files []review.File
-	err   error
+	commits []review.Commit
+	files   map[string][]review.File
+	err     error
 }
 
-func (f fakeSource) Files(context.Context, review.PullRequest) ([]review.File, error) {
-	return f.files, f.err
+func (f fakeSource) Commits(context.Context) ([]review.Commit, error) { return f.commits, f.err }
+func (f fakeSource) Files(_ context.Context, commit string) ([]review.File, error) {
+	return f.files[commit], f.err
 }
 
-type fakeAgent struct {
-	answer string
-	err    error
+type fakeStore struct {
+	viewed   map[string]string
+	comments []review.Comment
+	err      error
 }
 
-func (a fakeAgent) Run(_ context.Context, prompt string) (string, error) {
-	return a.answer + "\n" + prompt, a.err
+func (s *fakeStore) SetViewed(_ context.Context, _, path, hash string) error {
+	if s.err != nil {
+		return s.err
+	}
+	if hash == "" {
+		delete(s.viewed, path)
+	} else {
+		s.viewed[path] = hash
+	}
+	return nil
+}
+func (s *fakeStore) Viewed(context.Context, string) (map[string]string, error) {
+	return s.viewed, nil
+}
+func (s *fakeStore) AddComment(_ context.Context, _ string, c review.Comment) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.comments = append(s.comments, c)
+	return nil
+}
+func (s *fakeStore) Comments(context.Context, string) ([]review.Comment, error) {
+	return slices.Clone(s.comments), nil
+}
+func (s *fakeStore) DeleteComment(_ context.Context, _ string, i int) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.comments = slices.Delete(s.comments, i, i+1)
+	return nil
 }
 
-func loadedModel(t *testing.T, source review.Source) Model {
+var sample = fakeSource{
+	commits: []review.Commit{{SHA: "1111111aaaa", Subject: "add readme"}, {SHA: "2222222bbbb", Subject: "rework main"}},
+	files: map[string][]review.File{
+		"": {
+			{Path: "README.md", Status: review.StatusAdded, Additions: 2, Patch: "@@ -0,0 +1,2 @@\n+# Title\n+text"},
+			{Path: "a/main.go", Status: review.StatusModified, Additions: 2, Deletions: 1, Patch: "@@ -1,3 +1,4 @@\n package main\n-func old() {}\n+func a() {}\n+func b() {}\n // end"},
+			{Path: "img.png", Status: review.StatusModified},
+		},
+		"2222222bbbb": {
+			{Path: "a/main.go", Status: review.StatusModified, Additions: 1, Patch: "@@ -1 +1,2 @@\n package main\n+func only() {}"},
+		},
+	},
+}
+
+func newModel(t *testing.T, source review.Source, st *fakeStore) Model {
 	t.Helper()
-	return loadedModelWithAgent(t, source, fakeAgent{answer: "Looks good."})
-}
-
-func loadedModelWithAgent(t *testing.T, source review.Source, agent review.Agent) Model {
-	t.Helper()
-	m := New(review.NewService(source, store.NewMemory(), agent), review.PullRequest{Owner: "o", Repo: "r", Number: 1})
+	m := New(review.NewService(source, st, "feature"), "revunk", "main")
 	m = update(t, m, m.Init()())
-	return update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+}
+
+func loaded(t *testing.T) (Model, *fakeStore) {
+	t.Helper()
+	st := &fakeStore{viewed: map[string]string{}}
+	return newModel(t, sample, st), st
 }
 
 func update(t *testing.T, m Model, msg tea.Msg) Model {
@@ -50,183 +96,36 @@ func update(t *testing.T, m Model, msg tea.Msg) Model {
 	return updated.(Model)
 }
 
-func press(t *testing.T, m Model, k string) (Model, tea.Cmd) {
+var specialKeys = map[string]tea.KeyPressMsg{
+	"enter":       {Code: tea.KeyEnter},
+	"shift+enter": {Code: tea.KeyEnter, Mod: tea.ModShift},
+	"esc":         {Code: tea.KeyEscape},
+	"tab":         {Code: tea.KeyTab},
+	"shift+tab":   {Code: tea.KeyTab, Mod: tea.ModShift},
+	"down":        {Code: tea.KeyDown},
+	"up":          {Code: tea.KeyUp},
+	"pgdown":      {Code: tea.KeyPgDown},
+	"pgup":        {Code: tea.KeyPgUp},
+	"ctrl+c":      {Code: 'c', Mod: tea.ModCtrl},
+	"ctrl+d":      {Code: 'd', Mod: tea.ModCtrl},
+	"ctrl+u":      {Code: 'u', Mod: tea.ModCtrl},
+	"ctrl+g":      {Code: 'g', Mod: tea.ModCtrl},
+	"ctrl+j":      {Code: 'j', Mod: tea.ModCtrl},
+}
+
+func press(t *testing.T, m Model, keys ...string) (Model, tea.Cmd) {
 	t.Helper()
-	msg := tea.KeyPressMsg{Code: rune(k[0]), Text: k}
-	if k == "ctrl+c" {
-		msg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
-	}
-	updated, cmd := m.Update(msg)
-	return updated.(Model), cmd
-}
-
-func TestViewFitsTerminalAfterResize(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
-	for _, size := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 120, Height: 40}, {Width: 60, Height: 12}} {
-		m = update(t, m, size)
-
-		out := m.render()
-		if h := lipgloss.Height(out); h > size.Height {
-			t.Errorf("%dx%d: view height %d overflows terminal", size.Width, size.Height, h)
+	var cmd tea.Cmd
+	for _, k := range keys {
+		msg, ok := specialKeys[k]
+		if !ok {
+			msg = tea.KeyPressMsg{Code: []rune(k)[0], Text: k}
 		}
-		if w := lipgloss.Width(out); w > size.Width {
-			t.Errorf("%dx%d: view width %d overflows terminal", size.Width, size.Height, w)
-		}
+		var updated tea.Model
+		updated, cmd = m.Update(msg)
+		m = updated.(Model)
 	}
-}
-
-func TestRenderIsEmptyBeforeFirstWindowSize(t *testing.T) {
-	m := New(review.NewService(github.SampleSource{}, store.NewMemory(), nil), review.PullRequest{})
-	if out := m.render(); out != "" {
-		t.Fatalf("expected empty render before sizing, got %q", out)
-	}
-}
-
-func TestViewUsesAltScreen(t *testing.T) {
-	if !loadedModel(t, github.SampleSource{}).View().AltScreen {
-		t.Fatal("expected the view to use the alternate screen")
-	}
-}
-
-func TestStatusShowsPullRequest(t *testing.T) {
-	if out := loadedModel(t, github.SampleSource{}).render(); !strings.Contains(out, "o/r#1") {
-		t.Fatalf("status line missing pull request:\n%s", out)
-	}
-}
-
-func TestNavigationShowsSelectedPatchAndClampsCursor(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
-
-	m, _ = press(t, m, "k")
-	if m.cursor != 0 {
-		t.Fatalf("cursor moved above the first file to %d", m.cursor)
-	}
-	for range 5 {
-		m, _ = press(t, m, "j")
-	}
-
-	if m.cursor != len(m.files)-1 {
-		t.Fatalf("cursor = %d, want clamped to %d", m.cursor, len(m.files)-1)
-	}
-	if !strings.Contains(m.diff.View(), "Outdated notes") {
-		t.Fatalf("diff view does not show the last file's patch:\n%s", m.diff.View())
-	}
-}
-
-func TestPageKeysScrollDiffAndSelectionResetsScroll(t *testing.T) {
-	long := strings.Repeat("+line\n", 200)
-	m := loadedModel(t, fakeSource{files: []review.File{{Path: "a.go", Patch: long}, {Path: "b.go", Patch: "+b"}}})
-
-	m, _ = press(t, m, "f")
-	if m.diff.YOffset() == 0 {
-		t.Fatal("page down did not scroll the diff")
-	}
-	m, _ = press(t, m, "b")
-	if m.diff.YOffset() != 0 {
-		t.Fatalf("page up left offset at %d", m.diff.YOffset())
-	}
-
-	m, _ = press(t, m, "f")
-	m, _ = press(t, m, "j")
-	if m.diff.YOffset() != 0 {
-		t.Fatal("selecting another file did not reset the diff scroll")
-	}
-}
-
-func TestToggleViewedMarksSelectedFile(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
-
-	for _, want := range []bool{true, false} {
-		var cmd tea.Cmd
-		m, cmd = press(t, m, "v")
-		if cmd == nil {
-			t.Fatal("v did not return a command")
-		}
-		m = update(t, m, cmd())
-
-		marked := strings.Contains(m.renderFiles(), "✓ cmd/revunk/main.go")
-		if marked != want {
-			t.Fatalf("viewed mark = %v, want %v:\n%s", marked, want, m.renderFiles())
-		}
-	}
-}
-
-func TestToggleViewedErrorIsShownWithoutMarking(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
-	m = update(t, m, viewedToggledMsg{path: "README.md", viewed: true, err: errors.New("store down")})
-
-	if !strings.Contains(m.render(), "store down") {
-		t.Fatal("toggle error not shown in status line")
-	}
-	if m.viewed["README.md"] {
-		t.Fatal("file marked viewed despite the error")
-	}
-}
-
-func TestLoadShowsPreviouslyViewedFiles(t *testing.T) {
-	pr := review.PullRequest{Owner: "o", Repo: "r", Number: 1}
-	mem := store.NewMemory()
-	if err := mem.SetViewed(context.Background(), pr, "README.md", true); err != nil {
-		t.Fatal(err)
-	}
-	m := New(review.NewService(github.SampleSource{}, mem, nil), pr)
-	m = update(t, m, m.Init()())
-
-	if !strings.Contains(m.renderFiles(), "✓ README.md") {
-		t.Fatalf("stored viewed state not shown on load:\n%s", m.renderFiles())
-	}
-}
-
-func TestLoadErrorIsShownInStatus(t *testing.T) {
-	m := loadedModel(t, fakeSource{err: errors.New("rate limited")})
-	if !strings.Contains(m.render(), "rate limited") {
-		t.Fatalf("load error not shown:\n%s", m.render())
-	}
-}
-
-func TestEmptyFileListShowsPlaceholderAndIgnoresKeys(t *testing.T) {
-	m := loadedModel(t, fakeSource{})
-
-	m, _ = press(t, m, "j")
-	m, cmd := press(t, m, "v")
-
-	if cmd != nil {
-		t.Fatal("toggling viewed with no files should do nothing")
-	}
-	if m.cursor != 0 {
-		t.Fatalf("cursor moved to %d with no files", m.cursor)
-	}
-	if !strings.Contains(m.diff.View(), "No files to review.") {
-		t.Fatalf("missing empty placeholder:\n%s", m.diff.View())
-	}
-}
-
-func TestQuitKeysReturnQuitCommand(t *testing.T) {
-	for _, k := range []string{"q", "ctrl+c"} {
-		_, cmd := press(t, loadedModel(t, github.SampleSource{}), k)
-		if cmd == nil {
-			t.Fatalf("%s returned no command", k)
-		}
-		if _, ok := cmd().(tea.QuitMsg); !ok {
-			t.Fatalf("%s did not produce tea.QuitMsg", k)
-		}
-	}
-}
-
-func TestHelpListsEveryKeyBinding(t *testing.T) {
-	short := keys.ShortHelp()
-	full := keys.FullHelp()
-	if len(full) != 1 || len(full[0]) != len(short) {
-		t.Fatalf("FullHelp should contain the ShortHelp bindings, got %v", full)
-	}
-	if len(short) != 7 {
-		t.Fatalf("expected 7 bindings in help, got %d", len(short))
-	}
-	for _, b := range short {
-		if b.Help().Key == "" || b.Help().Desc == "" {
-			t.Errorf("binding %v has no help text", b.Keys())
-		}
-	}
+	return m, cmd
 }
 
 func typeText(t *testing.T, m Model, text string) Model {
@@ -237,137 +136,558 @@ func typeText(t *testing.T, m Model, text string) Model {
 	return m
 }
 
-func submit(t *testing.T, m Model) (Model, tea.Cmd) {
+func run(t *testing.T, m Model, cmd tea.Cmd) Model {
 	t.Helper()
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	return updated.(Model), cmd
+	if cmd == nil {
+		t.Fatal("expected a command")
+	}
+	return update(t, m, cmd())
 }
 
-func TestCommentAsksClaudeAboutSelectedFileAndShowsAnswer(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
+func screen(m Model) string {
+	return ansi.Strip(m.render())
+}
+
+func rowOf(t *testing.T, m Model, kind rowKind, file, line int) int {
+	t.Helper()
+	for i, r := range m.rows {
+		if r.kind == kind && r.file == file && (kind == rowFile || r.line == line) {
+			return i
+		}
+	}
+	t.Fatalf("no row kind=%d file=%d line=%d", kind, file, line)
+	return -1
+}
+
+func TestLoadedScreenMatchesDesignLayout(t *testing.T) {
+	m, _ := loaded(t)
+	out := screen(m)
+
+	for _, want := range []string{"Agent", "revunk · local changes on feature", "commits", "all commits", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("screen missing %q", want)
+		}
+	}
+	if !strings.Contains(out, "2      -  func old() {}") || !strings.Contains(out, "2 +  func a() {}") {
+		t.Fatalf("diff lines missing numbers or markers:\n%s", out)
+	}
+}
+
+func TestViewFitsTerminalAfterResize(t *testing.T) {
+	m, _ := loaded(t)
+	for _, size := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 160, Height: 50}, {Width: 50, Height: 12}} {
+		m = update(t, m, size)
+		out := m.render()
+		if h := lipgloss.Height(out); h != size.Height {
+			t.Errorf("%dx%d: view height %d", size.Width, size.Height, h)
+		}
+		if w := lipgloss.Width(out); w > size.Width {
+			t.Errorf("%dx%d: view width %d overflows", size.Width, size.Height, w)
+		}
+	}
+}
+
+func TestRenderIsEmptyBeforeFirstWindowSizeAndUsesAltScreen(t *testing.T) {
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, "feature"), "revunk", "main")
+	if out := m.render(); out != "" {
+		t.Fatalf("expected empty render before sizing, got %q", out)
+	}
+	if !m.View().AltScreen {
+		t.Fatal("expected the alternate screen")
+	}
+	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+	if !strings.Contains(screen(m), "loading…") {
+		t.Fatal("missing loading state before data arrives")
+	}
+}
+
+func TestLoadErrorAndEmptyBranchAreShown(t *testing.T) {
+	m := newModel(t, fakeSource{err: errors.New("bad revision")}, &fakeStore{viewed: map[string]string{}})
+	if !strings.Contains(screen(m), "bad revision") {
+		t.Fatalf("load error not shown:\n%s", screen(m))
+	}
+	m = newModel(t, fakeSource{}, &fakeStore{viewed: map[string]string{}})
+	if out := screen(m); !strings.Contains(out, "no changes between main and feature") || !strings.Contains(out, "no changes") {
+		t.Fatalf("empty state missing:\n%s", out)
+	}
+	m, cmd := press(t, m, "r")
+	if cmd != nil {
+		t.Fatal("r with no files should do nothing")
+	}
+	if _, cmd := press(t, m, "C"); cmd != nil {
+		t.Fatal("C with no files should do nothing")
+	}
+}
+
+func TestTabCyclesFocusAndHLJump(t *testing.T) {
+	m, _ := loaded(t)
+	if m.focus != focusFiles {
+		t.Fatalf("initial focus = %d, want files", m.focus)
+	}
+	for _, want := range []focusArea{focusDiff, focusCommits, focusFiles} {
+		m, _ = press(t, m, "tab")
+		if m.focus != want {
+			t.Fatalf("focus = %d, want %d", m.focus, want)
+		}
+	}
+	m, _ = press(t, m, "shift+tab")
+	if m.focus != focusCommits {
+		t.Fatalf("shift+tab focus = %d", m.focus)
+	}
+	m, _ = press(t, m, "l")
+	if m.focus != focusDiff {
+		t.Fatal("l did not focus the diff")
+	}
+	m, _ = press(t, m, "h")
+	if m.focus != focusFiles {
+		t.Fatal("h did not focus the files")
+	}
+	m, _ = press(t, m, "enter")
+	if m.focus != focusDiff {
+		t.Fatal("enter on a file did not focus the diff")
+	}
+}
+
+func TestSelectingFileScrollsContinuousDiffToItsHeader(t *testing.T) {
+	m, _ := loaded(t)
+
 	m, _ = press(t, m, "j")
 
+	header := rowOf(t, m, rowFile, 1, 0)
+	if m.fileCursor != 1 || m.cursor != header || m.offset != header {
+		t.Fatalf("fileCursor=%d cursor=%d offset=%d, want 1/%d/%d", m.fileCursor, m.cursor, m.offset, header, header)
+	}
+	if !strings.Contains(screen(m), "2/3") {
+		t.Fatal("files counter not updated")
+	}
+	m, _ = press(t, m, "j", "j", "j")
+	if m.fileCursor != 2 {
+		t.Fatalf("fileCursor = %d, want clamped to 2", m.fileCursor)
+	}
+	m, _ = press(t, m, "k", "k", "k", "up")
+	if m.fileCursor != 0 {
+		t.Fatalf("fileCursor = %d, want clamped to 0", m.fileCursor)
+	}
+}
+
+func TestDiffNavigationSkipsTextRowsAndTracksFile(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+
+	m, _ = press(t, m, "]", "f")
+	if m.cursor != rowOf(t, m, rowFile, 1, 0) || m.fileCursor != 1 {
+		t.Fatalf("]f moved to row %d (file %d)", m.cursor, m.fileCursor)
+	}
+	m, _ = press(t, m, "]", "f")
+	m, _ = press(t, m, "j", "j", "down")
+	if m.cursor != rowOf(t, m, rowFile, 2, 0) {
+		t.Fatalf("cursor landed on a text row: %d", m.cursor)
+	}
+	m, _ = press(t, m, "[", "f")
+	if m.fileCursor != 1 {
+		t.Fatalf("[f went to file %d", m.fileCursor)
+	}
+	m, _ = press(t, m, "{")
+	if m.rows[m.cursor].kind != rowHunk || m.rows[m.cursor].file != 0 {
+		t.Fatalf("{ did not reach the previous hunk: %+v", m.rows[m.cursor])
+	}
+	m, _ = press(t, m, "}")
+	if m.cursor != rowOf(t, m, rowHunk, 1, 0) {
+		t.Fatalf("} did not reach the next hunk")
+	}
+	m, _ = press(t, m, "G")
+	if m.cursor != rowOf(t, m, rowFile, 2, 0) {
+		t.Fatalf("G stopped at %d", m.cursor)
+	}
+	m, _ = press(t, m, "g", "g")
+	if m.cursor != 0 || m.offset != 0 {
+		t.Fatalf("gg left cursor=%d offset=%d", m.cursor, m.offset)
+	}
+	m, _ = press(t, m, "ctrl+d")
+	if m.cursor == 0 {
+		t.Fatal("ctrl+d did not move")
+	}
+	m, _ = press(t, m, "ctrl+u", "pgdown", "pgup", "k")
+	if m.cursor != 0 {
+		t.Fatalf("cursor = %d after paging back up", m.cursor)
+	}
+}
+
+func TestSmallWindowScrollsDiffToKeepCursorVisible(t *testing.T) {
+	m, _ := loaded(t)
+	m = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 9})
+	m, _ = press(t, m, "l", "G")
+
+	if m.offset == 0 || m.cursor-m.offset >= m.diffHeight() {
+		t.Fatalf("cursor %d not visible from offset %d (height %d)", m.cursor, m.offset, m.diffHeight())
+	}
+	if !strings.Contains(screen(m), "img.png") {
+		t.Fatalf("last file not on screen:\n%s", screen(m))
+	}
+}
+
+func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+
 	m, _ = press(t, m, "c")
-	if !m.input.Focused() {
-		t.Fatal("c did not open the question input")
+	if !m.editing || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "comment L2") {
+		t.Fatalf("editor not open on L2:\n%s", screen(m))
 	}
-	m = typeText(t, m, "why rename?")
-	if m.input.Value() != "why rename?" || !strings.Contains(m.render(), "Ask Claude:") {
-		t.Fatalf("question input not shown in footer:\n%s", m.render())
+	m = typeText(t, m, "Rename `a`.")
+	m, _ = press(t, m, "tab", "tab", "tab")
+	m, cmd := press(t, m, "enter")
+	m = run(t, m, cmd)
+
+	want := review.Comment{Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "Rename `a`."}
+	if len(st.comments) != 1 || st.comments[0] != want {
+		t.Fatalf("stored %+v, want %+v", st.comments, want)
+	}
+	out := screen(m)
+	lineAt := strings.Index(out, "func a() {}")
+	commentAt := strings.Index(out, "◆ nit  L2  draft")
+	if m.editing || commentAt < lineAt || !strings.Contains(out, "Rename") || !strings.Contains(out, "1 comments") {
+		t.Fatalf("comment not rendered under its line:\n%s", out)
+	}
+}
+
+func TestVisualRangeCommentsOnSelectedLines(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 1)
+
+	m, _ = press(t, m, "V")
+	if m.anchor < 0 || !strings.Contains(screen(m), "VISUAL") {
+		t.Fatal("V did not start visual mode")
+	}
+	m, _ = press(t, m, "j", "j", "j", "c")
+	m = typeText(t, m, "Split this.")
+	m, cmd := press(t, m, "enter")
+	m = run(t, m, cmd)
+
+	got := st.comments[0]
+	if got.Side != review.SideRight || got.Start != 1 || got.End != 3 {
+		t.Fatalf("range comment = %+v, want right L1-3", got)
+	}
+	if !strings.Contains(screen(m), "L1-3") {
+		t.Fatal("range label not shown")
+	}
+}
+
+func TestVisualToggleAndEscapeCancel(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	m, _ = press(t, m, "v")
+	if m.anchor >= 0 {
+		t.Fatal("visual started on a file header")
+	}
+	m.cursor = rowOf(t, m, rowLine, 0, 1)
+	m, _ = press(t, m, "v")
+	m, _ = press(t, m, "v")
+	if m.anchor >= 0 {
+		t.Fatal("second v did not end visual mode")
+	}
+	m, _ = press(t, m, "V", "esc")
+	if m.anchor >= 0 {
+		t.Fatal("esc did not end visual mode")
+	}
+}
+
+func TestCommentOnRemovedLineUsesLeftSide(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 2)
+
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "why?")
+	m, cmd := press(t, m, "enter")
+	m = run(t, m, cmd)
+
+	if got := st.comments[0]; got.Side != review.SideLeft || got.End != 2 {
+		t.Fatalf("comment = %+v, want left L2", got)
+	}
+	if !strings.Contains(screen(m), "why?") {
+		t.Fatal("left-side comment not shown")
+	}
+}
+
+func TestFileCommentFromFilesPaneAndHeader(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "j", "C")
+	if !m.editing || !m.editor.target.FileLevel() || m.editor.target.Path != "a/main.go" {
+		t.Fatalf("C did not open a file comment: %+v", m.editor.target)
+	}
+	m = typeText(t, m, "Whole file looks good.")
+	m, cmd := press(t, m, "enter")
+	m = run(t, m, cmd)
+
+	out := screen(m)
+	if !strings.Contains(out, "◆ comment  file  draft") || strings.Index(out, "Whole file") > strings.Index(out, "package main") {
+		t.Fatalf("file comment not shown below its header:\n%s", out)
 	}
 
-	m, cmd := submit(t, m)
-	if cmd == nil {
-		t.Fatal("enter did not return a command")
+	m, _ = press(t, m, "c")
+	if !m.editing || !m.editor.target.FileLevel() {
+		t.Fatal("c in the diff on a file header should open a file comment")
 	}
-	if m.input.Focused() || m.input.Value() != "" {
-		t.Fatal("input stayed open or kept its value after submit")
+	m, _ = press(t, m, "esc")
+	m.cursor = rowOf(t, m, rowHunk, 0, 0)
+	m, cmd = press(t, m, "c")
+	if m.editing || cmd != nil || !strings.Contains(screen(m), "move to a line") {
+		t.Fatal("c on a hunk header should explain instead of opening the editor")
 	}
-	if !strings.Contains(m.render(), "Asking Claude about README.md") {
-		t.Fatalf("pending status not shown:\n%s", m.render())
+	if len(st.comments) != 1 {
+		t.Fatalf("stored comments = %+v", st.comments)
+	}
+}
+
+func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "V", "j", "c")
+
+	m, _ = press(t, m, "enter")
+	if !m.editing || !strings.Contains(screen(m), "write something") {
+		t.Fatal("blank comment should keep the editor open with a notice")
+	}
+	m, _ = press(t, m, "ctrl+g")
+	if want := "```suggestion\nfunc a() {}\nfunc b() {}\n```"; m.editor.area.Value() != want {
+		t.Fatalf("suggestion block = %q, want %q", m.editor.area.Value(), want)
+	}
+	m.editor.area.SetValue("first")
+	m, _ = press(t, m, "shift+enter")
+	m = typeText(t, m, "second")
+	m, _ = press(t, m, "ctrl+j")
+	if m.editor.area.Value() != "first\nsecond\n" {
+		t.Fatalf("newlines not inserted: %q", m.editor.area.Value())
+	}
+	m, _ = press(t, m, "shift+tab")
+	if commentKinds[m.editor.kind] != "praise" {
+		t.Fatalf("shift+tab kind = %s", commentKinds[m.editor.kind])
+	}
+	m, _ = press(t, m, "esc")
+	if m.editing || len(st.comments) != 0 {
+		t.Fatal("esc should close the editor without saving")
 	}
 
-	m = update(t, m, cmd())
-	if m.pending != "" {
-		t.Fatal("pending state not cleared after the answer")
+	m.cursor = rowOf(t, m, rowLine, 1, 2)
+	m, _ = press(t, m, "c", "ctrl+g")
+	if m.editor.area.Value() != "" || !strings.Contains(screen(m), "suggestions apply") {
+		t.Fatal("suggestions on removed lines should be refused")
 	}
-	got := m.answers["README.md"]
-	for _, want := range []string{"Looks good.", "+# Revunk", "Question: why rename?"} {
+	if _, cmd := press(t, m, "ctrl+c"); cmd == nil {
+		t.Fatal("ctrl+c should quit from the editor")
+	}
+}
+
+func TestSuggestionRendersAsDiffAgainstOriginalLines(t *testing.T) {
+	got := expandSuggestions("Try:\n```suggestion\nfunc a(ctx context.Context) {}\n```\nthanks", []string{"func a() {}"})
+	for _, want := range []string{"**Suggested change**", "- func a() {}", "+ func a(ctx context.Context) {}", "thanks"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("answer for README.md missing %q:\n%s", want, got)
+			t.Errorf("expanded body missing %q:\n%s", want, got)
 		}
 	}
-	if !strings.Contains(m.diff.View(), "Looks good.") {
-		t.Fatalf("answer not shown under the diff:\n%s", m.diff.View())
+	if strings.Contains(got, "```suggestion") {
+		t.Fatal("suggestion fence left in place")
 	}
-
-	m, _ = press(t, m, "k")
-	if strings.Contains(m.diff.View(), "Looks good.") {
-		t.Fatal("answer shown on a file it does not belong to")
+	if got := expandSuggestions("```suggestion\n```", []string{"x"}); !strings.Contains(got, "- x") || strings.Contains(got, "+ ") {
+		t.Fatalf("empty suggestion should only remove lines: %q", got)
+	}
+	if got := expandSuggestions("plain", nil); got != "plain" {
+		t.Fatalf("plain body changed: %q", got)
 	}
 }
 
-func TestCommentInputCapturesKeysUntilEscape(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
-	m, _ = press(t, m, "c")
+func TestDeleteCommentUnderCursor(t *testing.T) {
+	m, st := loaded(t)
+	st.comments = []review.Comment{
+		{Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "keep me"},
+		{Kind: "issue", Path: "a/main.go", Body: "file note"},
+	}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
 
+	m.cursor = rowOf(t, m, rowFile, 1, 0)
+	m, cmd := press(t, m, "d", "d")
+	m = run(t, m, cmd)
+	if len(st.comments) != 1 || st.comments[0].Body != "keep me" || strings.Contains(screen(m), "file note") {
+		t.Fatalf("dd on header removed the wrong comment: %+v", st.comments)
+	}
+
+	m.cursor = rowOf(t, m, rowLine, 1, 4)
+	m, cmd = press(t, m, "d", "d")
+	if cmd != nil || !strings.Contains(screen(m), "no comment here") {
+		t.Fatal("dd with nothing to delete should explain")
+	}
+}
+
+func TestOutdatedCommentIsShownUnderFileHeader(t *testing.T) {
+	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{Kind: "question", Path: "a/main.go", Side: review.SideRight, Start: 40, End: 40, Body: "still relevant?"}}}
+	m := newModel(t, sample, st)
+	out := screen(m)
+	if !strings.Contains(out, "still relevant?") || strings.Index(out, "still relevant?") > strings.Index(out, "package main") {
+		t.Fatalf("outdated comment missing or misplaced:\n%s", out)
+	}
+}
+
+func TestMarkViewedCollapsesFileUntilItChanges(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "j")
+
+	m, cmd := press(t, m, "r")
+	m = run(t, m, cmd)
+
+	out := screen(m)
+	if !strings.Contains(out, "✓") || !strings.Contains(out, "viewed") || strings.Contains(out, "func a() {}") || !strings.Contains(out, "1/3 viewed") {
+		t.Fatalf("viewed file not collapsed and marked:\n%s", out)
+	}
+	if st.viewed["a/main.go"] == "" {
+		t.Fatal("viewed state not stored")
+	}
+
+	m, cmd = press(t, m, "r")
+	m = run(t, m, cmd)
+	if !strings.Contains(screen(m), "func a() {}") {
+		t.Fatal("unmarking did not expand the file")
+	}
+
+	failing := newModel(t, sample, &fakeStore{viewed: map[string]string{}, err: errors.New("read-only")})
+	failing, cmd = press(t, failing, "r")
+	failing = run(t, failing, cmd)
+	if !strings.Contains(screen(failing), "read-only") {
+		t.Fatal("store error not shown")
+	}
+}
+
+func TestCommitSelectionLoadsCommitFiles(t *testing.T) {
+	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{Kind: "nit", Path: "a/main.go", Body: "branch note"}}}
+	m := newModel(t, sample, st)
+	m, _ = press(t, m, "tab", "tab")
+
+	m, cmd := press(t, m, "j")
+	stale := cmd()
+	m, cmd = press(t, m, "j")
+	m = run(t, m, cmd)
+	m = update(t, m, stale)
+
+	out := screen(m)
+	if len(m.files) != 1 || !strings.Contains(out, "func only() {}") || !strings.Contains(out, "2222222") {
+		t.Fatalf("commit diff not shown:\n%s", out)
+	}
+	if strings.Contains(out, "branch note") {
+		t.Fatal("branch comment shown on a single commit")
+	}
+	m, _ = press(t, m, "j")
+	if m.commit != 2 {
+		t.Fatal("commit selection moved past the last commit")
+	}
+	m, cmd = press(t, m, "k", "k", "up")
+	if m.commit != 0 || cmd != nil {
+		t.Fatalf("commit = %d after moving up", m.commit)
+	}
+
+	failing := newModel(t, sample, &fakeStore{viewed: map[string]string{}})
+	failing, _ = press(t, failing, "tab", "tab", "j")
+	failing = update(t, failing, filesMsg{commit: 1, err: errors.New("bad object")})
+	if !strings.Contains(screen(failing), "bad object") {
+		t.Fatal("commit load error not shown")
+	}
+}
+
+func TestCommentSaveErrorIsShown(t *testing.T) {
+	st := &fakeStore{viewed: map[string]string{}, err: errors.New("disk full")}
+	m := newModel(t, sample, st)
+	m, _ = press(t, m, "C")
+	m = typeText(t, m, "x")
+	m, cmd := press(t, m, "enter")
+	m = run(t, m, cmd)
+	if !strings.Contains(screen(m), "disk full") {
+		t.Fatal("save error not shown")
+	}
+	st.comments = []review.Comment{{Path: "README.md", Body: "y"}}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l", "g", "g")
+	m, cmd = press(t, m, "d", "d")
+	m = run(t, m, cmd)
+	if !strings.Contains(screen(m), "disk full") {
+		t.Fatal("delete error not shown")
+	}
+}
+
+func TestHelpOverlayAndQuit(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "?")
+	if out := screen(m); !strings.Contains(out, "help · esc closes") || !strings.Contains(out, "mark file viewed") {
+		t.Fatalf("help not shown:\n%s", out)
+	}
 	m, cmd := press(t, m, "q")
-	if cmd != nil {
-		if _, ok := cmd().(tea.QuitMsg); ok {
-			t.Fatal("q quit while typing a question")
+	if m.help || cmd != nil {
+		t.Fatal("q in help should close help, not quit")
+	}
+	m, _ = press(t, m, "?", "esc")
+	if m.help {
+		t.Fatal("esc did not close help")
+	}
+	for _, k := range []string{"q", "ctrl+c"} {
+		if _, cmd := press(t, m, k); cmd == nil {
+			t.Fatalf("%s did not quit", k)
+		} else if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Fatalf("%s did not produce tea.QuitMsg", k)
 		}
 	}
-	m = typeText(t, m, "j")
-	if m.cursor != 0 || m.input.Value() != "qj" {
-		t.Fatalf("keys not routed to input: cursor=%d value=%q", m.cursor, m.input.Value())
-	}
+}
 
-	m = update(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.input.Focused() || m.input.Value() != "" {
-		t.Fatal("escape did not close and clear the input")
+func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
+	lines := review.ParseLines("@@ -1 +1 @@\n+func a() { return \"x\" } // note")
+	tokens := highlight("main.go", lines)
+	if len(tokens[0]) != 0 {
+		t.Fatalf("hunk line got tokens: %+v", tokens[0])
 	}
-	if !strings.Contains(m.render(), "ask claude") {
-		t.Fatalf("help footer not restored after escape:\n%s", m.render())
+	colors := map[string]string{}
+	for _, tk := range tokens[1] {
+		colors[strings.TrimSpace(tk.text)] = ansi.Strip(tk.style.Render("x")) + tk.style.Render("x")
+	}
+	if !strings.Contains(colors["func"], "235;175;57") {
+		t.Fatalf("keyword not amber: %q", colors["func"])
+	}
+	if !strings.Contains(colors[`"x"`], "174;199;108") {
+		t.Fatalf("string not green: %q", colors[`"x"`])
+	}
+	plain := highlight("notes.unknownext", review.ParseLines("@@ -1 +1 @@\n+just\ttext"))
+	if got := plain[1][0].text; got != "just    text" {
+		t.Fatalf("fallback token = %q, want tabs expanded", got)
 	}
 }
 
-func TestCtrlCQuitsWhileTypingQuestion(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
-	m, _ = press(t, m, "c")
-
-	_, cmd := press(t, m, "ctrl+c")
-
-	if cmd == nil {
-		t.Fatal("ctrl+c returned no command")
+func TestSmallHelpers(t *testing.T) {
+	for c, want := range map[review.Comment]string{{}: "file", {Start: 3, End: 3}: "L3", {Start: 3, End: 5}: "L3-5"} {
+		if got := lineLabel(c); got != want {
+			t.Errorf("lineLabel(%+v) = %q, want %q", c, got, want)
+		}
 	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("ctrl+c did not quit while typing")
+	for s, want := range map[review.FileStatus]string{review.StatusAdded: "A", review.StatusRemoved: "D", review.StatusRenamed: "R", review.StatusModified: "M"} {
+		if got := statusLetter(s); got != want {
+			t.Errorf("statusLetter(%s) = %q", s, got)
+		}
 	}
-}
-
-func TestEmptyQuestionIsNotSent(t *testing.T) {
-	m := loadedModel(t, github.SampleSource{})
-	m, _ = press(t, m, "c")
-	m = typeText(t, m, "   ")
-
-	m, cmd := submit(t, m)
-
-	if cmd != nil || m.pending != "" {
-		t.Fatal("blank question was sent to the agent")
+	if number(0) != "" || number(12) != "12" {
+		t.Fatal("number formatting wrong")
 	}
-	if m.input.Focused() {
-		t.Fatal("input stayed open after submitting a blank question")
+	if got := ansi.Strip(fit("abcdef", 3, lipgloss.NewStyle())); got != "abc" {
+		t.Fatalf("fit truncate = %q", got)
 	}
-}
-
-func TestCommentIsIgnoredWithoutFilesOrWhilePending(t *testing.T) {
-	m := loadedModel(t, fakeSource{})
-	if m, _ = press(t, m, "c"); m.input.Focused() {
-		t.Fatal("input opened with no files")
+	if got := ansi.Strip(fit("ab", 4, lipgloss.NewStyle())); got != "ab  " {
+		t.Fatalf("fit pad = %q", got)
 	}
-
-	m = loadedModel(t, github.SampleSource{})
-	m.pending = "README.md"
-	if m, _ = press(t, m, "c"); m.input.Focused() {
-		t.Fatal("input opened while a question is pending")
+	if box("t", "", nil, 3, 5, false) != "" {
+		t.Fatal("box too narrow should render nothing")
 	}
-}
-
-func TestAgentErrorIsShownWithoutAnswer(t *testing.T) {
-	m := loadedModelWithAgent(t, github.SampleSource{}, fakeAgent{err: errors.New("not logged in")})
-	m, _ = press(t, m, "c")
-	m = typeText(t, m, "ok?")
-	m, cmd := submit(t, m)
-
-	m = update(t, m, cmd())
-
-	if !strings.Contains(m.render(), "not logged in") {
-		t.Fatalf("agent error not shown:\n%s", m.render())
+	if got := ansi.Strip(box("a-very-long-title", "right", nil, 12, 2, true)); strings.Contains(got, "right") {
+		t.Fatalf("right label should be dropped when it does not fit: %q", got)
 	}
-	if _, ok := m.answers["cmd/revunk/main.go"]; ok {
-		t.Fatal("answer stored despite the error")
-	}
-	if m.pending != "" {
-		t.Fatal("pending state not cleared after the error")
+	if got := ansi.Strip(renderFileHeader(review.File{Path: strings.Repeat("x", 50)}, false, false, 20)); lipgloss.Width(got) != 20 {
+		t.Fatalf("narrow header width = %d", lipgloss.Width(got))
 	}
 }
