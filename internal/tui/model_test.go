@@ -809,7 +809,7 @@ func TestCommentsAndEditorAreDrawnInBorderedBoxes(t *testing.T) {
 		t.Fatalf("comment box missing:\n%s", out)
 	}
 	m, _ = press(t, m, "C")
-	if out := screen(m); !strings.Contains(out, "╭─ ◆ comment") || !strings.Contains(out, "^s save") {
+	if out := screen(m); !strings.Contains(out, "╭─ ◆ comment") || !strings.Contains(out, "C-s save") {
 		t.Fatalf("editor box missing:\n%s", out)
 	}
 }

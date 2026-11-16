@@ -127,6 +127,7 @@ type Model struct {
 	prefix     string
 	help       bool
 	showList   bool
+	keys       keyMap
 	hideTree   bool
 	listCursor int
 	pendingID  string
@@ -145,6 +146,7 @@ func New(svc *review.Service, repo, base string) Model {
 		viewed:   map[string]bool{},
 		rendered: map[int][]string{},
 		anchor:   -1,
+		keys:     defaultKeys(),
 		focus:    focusFiles,
 		loading:  true,
 	}
@@ -365,142 +367,140 @@ func (m *Model) refreshFiles(files []review.File) {
 }
 
 func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
+	key, k := msg.String(), m.keys
 	if m.help {
-		if key == "esc" || key == "?" || key == "q" {
+		if is(key, k.CloseHelp) {
 			m.help = false
 		}
 		return m, nil
 	}
 	if m.prefix != "" {
-		seq := m.prefix + key
+		seq := m.prefix + " " + key
 		m.prefix = ""
-		switch seq {
-		case "gg":
+		switch {
+		case is(seq, k.Top):
 			m.cursor, m.offset = 0, 0
 			m.syncFile()
-		case "]f":
+		case is(seq, k.NextFile):
 			m.jump(rowFile, 1)
-		case "[f":
+		case is(seq, k.PrevFile):
 			m.jump(rowFile, -1)
-		case "dd":
+		case is(seq, k.Delete):
 			return m, m.deleteComment()
-		case "DD":
+		case is(seq, k.DeleteAll):
 			return m, m.deleteAllComments()
 		}
 		return m, nil
 	}
-	switch key {
-	case "ctrl+c", "q":
-		return m, tea.Quit
-	case "?":
-		m.help = true
-	case "g", "]", "[", "d":
-		m.prefix = key
-	case "D":
-		if len(m.comments) == 0 {
-			m.notice = "no comments to delete"
-			return m, nil
+	if k.isPrefix(key) {
+		if again, ok := rest(k.DeleteAll, key); ok {
+			if len(m.comments) == 0 {
+				m.notice = "no comments to delete"
+				return m, nil
+			}
+			m.notice = fmt.Sprintf("press %s again to delete all %d comments", again, len(m.comments))
 		}
 		m.prefix = key
-		m.notice = fmt.Sprintf("press D again to delete all %d comments", len(m.comments))
-	case "tab":
+		return m, nil
+	}
+	switch {
+	case is(key, k.Quit), is(key, k.ForceQuit):
+		return m, tea.Quit
+	case is(key, k.Help):
+		m.help = true
+	case is(key, k.NextFocus):
 		m.cycleFocus(1)
-	case "shift+tab":
+	case is(key, k.PrevFocus):
 		m.cycleFocus(-1)
-	case "e":
+	case is(key, k.Explorer):
 		m.hideTree = !m.hideTree
 		if m.hideTree && m.focus < focusDiff {
 			m.focus = focusDiff
 		}
 		m.rendered = map[int][]string{}
 		m.relayout()
-	case "n":
+	case is(key, k.Comments):
 		m.showList = !m.showList
 		m.focus = focusComments
 		if !m.showList {
 			m.focus = focusDiff
 		}
 		m.relayout()
-	case "f":
+	case is(key, k.NextFile):
 		m.jump(rowFile, 1)
-	case "F":
+	case is(key, k.PrevFile):
 		m.jump(rowFile, -1)
-	case "h":
+	case is(key, k.NextHunk):
 		m.jump(rowHunk, 1)
-	case "H":
+	case is(key, k.PrevHunk):
 		m.jump(rowHunk, -1)
-	case "l":
+	case is(key, k.FocusDiff):
 		m.focus = focusDiff
-	case "esc":
+	case is(key, k.Cancel):
 		m.anchor = -1
-	case "r":
+	case is(key, k.Viewed):
 		return m, m.toggleViewed()
-	case "C":
+	case is(key, k.FileComment):
 		return m, m.openEditor(review.Comment{Commit: m.commitSHA(), Path: m.currentPath()})
-	case "S":
+	case is(key, k.Send):
 		return m, m.sendComments()
-	case "y":
+	case is(key, k.Copy):
 		return m, m.copyComments()
 	}
 	switch m.focus {
 	case focusCommits:
-		switch key {
-		case "j", "down":
+		switch {
+		case is(key, k.Down):
 			return m, m.selectCommit(1)
-		case "k", "up":
+		case is(key, k.Up):
 			return m, m.selectCommit(-1)
 		}
 	case focusComments:
-		switch key {
-		case "j", "down":
+		switch {
+		case is(key, k.Down):
 			m.listCursor = min(m.listCursor+1, max(len(m.comments)-1, 0))
-		case "k", "up":
+		case is(key, k.Up):
 			m.listCursor = max(m.listCursor-1, 0)
-		case "enter":
+		case is(key, k.Open):
 			if c, ok := m.selectedComment(); ok {
 				return m, m.goToComment(c)
 			}
 		}
 	case focusFiles:
-		switch key {
-		case "j", "down":
+		switch {
+		case is(key, k.Down):
 			m.selectFile(m.fileCursor + 1)
-		case "k", "up":
+		case is(key, k.Up):
 			m.selectFile(m.fileCursor - 1)
-		case "enter":
+		case is(key, k.Open):
 			m.focus = focusDiff
-		case "c":
+		case is(key, k.Comment):
 			return m, m.openEditor(review.Comment{Commit: m.commitSHA(), Path: m.currentPath()})
 		}
 	case focusDiff:
 		page := max(m.diffHeight(), 1)
-		switch key {
-		case "j", "down":
+		switch {
+		case is(key, k.Down):
 			m.move(1)
-		case "k", "up":
+		case is(key, k.Up):
 			m.move(-1)
-		case "ctrl+d":
+		case is(key, k.HalfDown):
 			m.move(page / 2)
-		case "ctrl+u":
+		case is(key, k.HalfUp):
 			m.move(-page / 2)
-		case "pgdown":
+		case is(key, k.PageDown):
 			m.move(page)
-		case "pgup", "b":
+		case is(key, k.PageUp):
 			m.move(-page)
-		case "G":
+		case is(key, k.Bottom):
 			m.move(len(m.rows))
-		case "}":
-			m.jump(rowHunk, 1)
-		case "{":
-			m.jump(rowHunk, -1)
-		case "v", "V":
+		case is(key, k.Select):
 			if m.anchor >= 0 {
 				m.anchor = -1
 			} else if len(m.rows) > 0 && m.rows[m.cursor].kind == rowLine {
 				m.anchor = m.cursor
 			}
-		case "c":
+		case is(key, k.Comment):
 			target, ok := m.lineTarget()
 			if !ok {
 				m.notice = "move to a line or file header to comment"
@@ -514,14 +514,15 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	switch msg.String() {
-	case "ctrl+c":
+	key, k := msg.String(), m.keys
+	switch {
+	case is(key, k.ForceQuit):
 		return m, tea.Quit
-	case "esc":
+	case is(key, k.Cancel):
 		m.editing = false
 		m.relayout()
 		return m, nil
-	case "ctrl+s":
+	case is(key, k.Save):
 		body := strings.TrimSpace(m.editor.area.Value())
 		if body == "" {
 			m.notice = "write something before saving"
@@ -532,9 +533,9 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.editing = false
 		m.relayout()
 		return m, m.saveComment(c)
-	case "tab", "shift+tab":
+	case is(key, k.NextKind), is(key, k.PrevKind):
 		step := 1
-		if msg.String() == "shift+tab" {
+		if is(key, k.PrevKind) {
 			step = len(commentKinds) - 1
 		}
 		if commentKinds[m.editor.kind] == "suggestion" {
@@ -866,6 +867,7 @@ func (m *Model) openEditor(target review.Comment) tea.Cmd {
 	area := textarea.New()
 	area.ShowLineNumbers = false
 	area.Prompt = ""
+	area.KeyMap.InsertNewline = m.keys.Newline
 	area.Placeholder = "write it like you'd say it… markdown and ```suggestion blocks work"
 	area.SetWidth(m.editorWidth())
 	area.SetHeight(3)
@@ -1129,19 +1131,17 @@ func (m *Model) addEditor(file int) {
 		}
 	}
 	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(m.editor.area.View(), "\n")...)
-	lines = append(lines, hints(editorHints...))
+	lines = append(lines, hints(m.keys.editorHints()))
 	for _, l := range commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth()) {
 		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
 	}
 	m.rows = append(m.rows, row{kind: rowText, file: file})
 }
 
-var editorHints = []string{"^s", "save", "⏎", "newline", "⇥", "type", "esc", "cancel"}
-
-func hints(pairs ...string) string {
-	parts := make([]string, 0, len(pairs)/2)
-	for i := 0; i+1 < len(pairs); i += 2 {
-		parts = append(parts, primaryStyle.Render(pairs[i])+" "+dimStyle.Render(pairs[i+1]))
+func hints(list []hint) string {
+	parts := make([]string, len(list))
+	for i, h := range list {
+		parts[i] = primaryStyle.Render(h.text(false)) + " " + dimStyle.Render(h.desc)
 	}
 	return strings.Join(parts, "  ")
 }
@@ -1170,7 +1170,7 @@ func (m Model) listHeight() int {
 
 func (m Model) listLines() []string {
 	if len(m.comments) == 0 {
-		return []string{dimStyle.Render(" no comments, press c on a line to add one")}
+		return []string{dimStyle.Render(" no comments, press " + label(m.keys.Comment) + " on a line to add one")}
 	}
 	cursor := min(m.listCursor, len(m.comments)-1)
 	lines := make([]string, len(m.comments))
@@ -1211,7 +1211,7 @@ func (m Model) render() string {
 	}
 	var panes string
 	if m.help {
-		panes = box("help · esc closes", "", helpLines(), m.width, m.panesHeight(), colorPrimary)
+		panes = box("help · "+label(m.keys.CloseHelp)+" closes", "", m.helpLines(), m.width, m.panesHeight(), colorPrimary)
 	} else {
 		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), focusColor(m.focus == focusDiff))
 		if !m.hideTree {
@@ -1410,7 +1410,7 @@ func (m Model) statusLine() string {
 	case m.anchor >= 0:
 		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorThread).Render(" VISUAL ")
 	}
-	message := dimStyle.Render("? shows every key")
+	message := dimStyle.Render(label(m.keys.Help) + " shows every key")
 	switch {
 	case m.err != nil:
 		message = errorStyle.Render(m.err.Error())
@@ -1434,56 +1434,26 @@ func (m Model) statusLine() string {
 func (m Model) footer() string {
 	switch {
 	case m.editing:
-		return hints(editorHints...)
+		return hints(m.keys.editorHints())
 	case m.anchor >= 0:
-		return hints("c", "comment range", "j k", "extend", "esc", "cancel")
+		return hints(m.keys.rangeHints())
 	case m.focus == focusComments:
-		return hints("j k", "move", "⏎", "go to", "dd", "delete", "tab", "focus", "n", "close")
+		return hints(m.keys.listHints())
 	}
-	return hints("f F", "file", "h H", "hunk", "n", "comments", "e", "explorer", "c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
+	return hints(m.keys.mainHints())
 }
 
-func helpLines() []string {
-	keys := [][2]string{
-		{"move", ""},
-		{"j k", "down / up"},
-		{"gg G", "top / bottom"},
-		{"C-d C-u", "half page"},
-		{"f F  ]f [f", "next / previous file"},
-		{"h H  } {", "next / previous hunk"},
-		{"tab l", "cycle focus, focus diff"},
-		{"click", "focus a pane and select the row"},
-		{"wheel", "scroll the pane under the pointer"},
-		{"", ""},
-		{"review", ""},
-		{"v V", "visual range"},
-		{"c", "comment on line, range or file header"},
-		{"C", "comment on the whole file"},
-		{"dd", "delete or resolve comment under cursor"},
-		{"n", "show or hide the comments pane"},
-		{"e", "show or hide the commits and files panes"},
-		{"DD", "delete every comment"},
-		{"r", "mark file viewed until it changes"},
-		{"S", "send unsent comments to the agent"},
-		{"y", "copy unsent comments"},
-		{"", ""},
-		{"comment editor", ""},
-		{"C-s", "save"},
-		{"⏎", "newline"},
-		{"⇥", "cycle type, suggestion adds the lines as a code block"},
-		{"esc", "cancel"},
-		{"", ""},
-		{"anywhere", ""},
-		{"?", "this help"},
-		{"q", "quit"},
-	}
-	lines := make([]string, len(keys))
-	for i, k := range keys {
-		if k[1] == "" {
-			lines[i] = "  " + dimStyle.Render(k[0])
-			continue
+func (m Model) helpLines() []string {
+	var lines []string
+	for i, sec := range m.keys.helpSections() {
+		if i > 0 {
+			lines = append(lines, "")
 		}
-		lines[i] = fmt.Sprintf("  %s%s", primaryStyle.Render(fmt.Sprintf("%-10s", k[0])), k[1])
+		lines = append(lines, "  "+dimStyle.Render(sec.title))
+		for _, h := range sec.hints {
+			keys := h.text(true)
+			lines = append(lines, "  "+primaryStyle.Render(keys)+strings.Repeat(" ", max(12-lipgloss.Width(keys), 1))+h.desc)
+		}
 	}
 	return lines
 }

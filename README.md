@@ -85,11 +85,11 @@ revunk reply <id> <text>        Reply to a review comment, used by the coding ag
 
 ## Project layout
 
-| Package                 | Responsibility                                                                                                                                  |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cmd/revunk`            | CLI entry point and dependency wiring                                                                                                           |
-| `internal/review`       | Review domain types, diff line parsing, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
-| `internal/provider/git` | Local git provider implementing `review.Source` for the commits on the current branch. Code hosts such as GitHub go in sibling packages.        |
-| `internal/agent`        | Sends prompts to a Claude Code or opencode session in a `herdr` pane, or starts one, implementing `review.Agent`                                |
-| `internal/store`        | JSON file store implementing `review.Store`                                                                                                     |
-| `internal/tui`          | Bubble Tea presentation layer, with `chroma` for syntax highlighting and `glamour` for Markdown comments                                        |
+| Package                 | Responsibility                                                                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmd/revunk`            | CLI entry point and dependency wiring                                                                                                             |
+| `internal/review`       | Review domain types, diff line parsing, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies.   |
+| `internal/provider/git` | Local git provider implementing `review.Source` for the commits on the current branch. Code hosts such as GitHub go in sibling packages.          |
+| `internal/agent`        | Sends prompts to a Claude Code or opencode session in a `herdr` pane, or starts one, implementing `review.Agent`                                  |
+| `internal/store`        | JSON file store implementing `review.Store`                                                                                                       |
+| `internal/tui`          | Bubble Tea presentation layer, with `chroma` for syntax highlighting, `glamour` for Markdown comments, and every default key binding in `keys.go` |

@@ -20,6 +20,7 @@ Run format, vet, and tests before every commit. All must pass. CI runs the same 
 - `internal/agent` implements `review.Agent` by reaching a coding agent through `herdr`.
 - `internal/store` implements `review.Store`.
 - `internal/tui` is the only package allowed to import Charm libraries (`bubbletea`, `bubbles`, `lipgloss`).
+- Every key binding lives in `defaultKeys()` in `internal/tui/keys.go`, together with the help screen and footer hints. Match keys with `is(key, m.keys.X)` and never compare key strings anywhere else.
 - `cmd/revunk` only parses arguments and wires dependencies together.
 
 ## Simplicity
