@@ -1309,3 +1309,47 @@ func TestCommentBoxesUseAccentBorder(t *testing.T) {
 		t.Fatalf("saved comment border should use the accent color:\n%q", out)
 	}
 }
+
+func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "e")
+	out := screen(m)
+	if strings.Contains(out, "╭─ files") || strings.Contains(out, "╭─ commits") || !strings.Contains(out, "╭─ continuous diff") {
+		t.Fatalf("e should hide commits and files:\n%s", out)
+	}
+	if m.focus != focusDiff || m.diffWidth() != 118 {
+		t.Fatalf("focus=%d diffWidth=%d", m.focus, m.diffWidth())
+	}
+	if r := m.render(); lipgloss.Height(r) != 40 || lipgloss.Width(r) != 120 {
+		t.Fatalf("view should fill the terminal, got %dx%d", lipgloss.Width(r), lipgloss.Height(r))
+	}
+	if m, _ = press(t, m, "tab"); m.focus != focusDiff {
+		t.Fatalf("tab should stay on the diff, got %d", m.focus)
+	}
+	m, _ = press(t, m, "n", "tab")
+	if m.focus != focusDiff {
+		t.Fatalf("tab from comments should skip hidden panes, got %d", m.focus)
+	}
+	if m, _ = press(t, m, "shift+tab"); m.focus != focusComments {
+		t.Fatalf("shift+tab should go back to comments, got %d", m.focus)
+	}
+	m, _ = press(t, m, "n")
+	target := rowOf(t, m, rowLine, 0, 1)
+	if m, _ = click(t, m, 5, 2+target-m.offset); m.focus != focusDiff || m.cursor != target {
+		t.Fatalf("left clicks should hit the diff, focus=%d cursor=%d", m.focus, m.cursor)
+	}
+
+	m, _ = press(t, m, "e")
+	if !strings.Contains(screen(m), "╭─ files") || m.focus != focusDiff {
+		t.Fatal("e again should bring the panes back and keep focus on the diff")
+	}
+	if m, _ = press(t, m, "tab"); m.focus != focusCommits {
+		t.Fatalf("tab should reach commits again, got %d", m.focus)
+	}
+
+	d, _ := loaded(t)
+	d, _ = press(t, d, "l", "e")
+	if d.focus != focusDiff {
+		t.Fatal("hiding the explorer should keep focus on the diff")
+	}
+}

@@ -123,6 +123,7 @@ type Model struct {
 	prefix     string
 	help       bool
 	showList   bool
+	hideTree   bool
 	listCursor int
 	pendingID  string
 	loading    bool
@@ -377,9 +378,16 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.prefix = key
 		m.notice = fmt.Sprintf("press D again to delete all %d comments", len(m.comments))
 	case "tab":
-		m.focus = (m.focus + 1) % m.focusCount()
+		m.cycleFocus(1)
 	case "shift+tab":
-		m.focus = (m.focus + m.focusCount() - 1) % m.focusCount()
+		m.cycleFocus(-1)
+	case "e":
+		m.hideTree = !m.hideTree
+		if m.hideTree && m.focus < focusDiff {
+			m.focus = focusDiff
+		}
+		m.rendered = map[int][]string{}
+		m.relayout()
 	case "n":
 		m.showList = !m.showList
 		m.focus = focusComments
@@ -591,6 +599,15 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
 	}
 	return nil
+}
+
+func (m *Model) cycleFocus(step focusArea) {
+	for {
+		m.focus = (m.focus + step + m.focusCount()) % m.focusCount()
+		if !m.hideTree || m.focus >= focusDiff {
+			return
+		}
+	}
 }
 
 func (m Model) focusCount() focusArea {
@@ -1068,6 +1085,9 @@ func hints(pairs ...string) string {
 }
 
 func (m Model) leftWidth() int {
+	if m.hideTree {
+		return 0
+	}
 	return min(36, m.width/3)
 }
 
@@ -1131,12 +1151,15 @@ func (m Model) render() string {
 	if m.help {
 		panes = box("help · esc closes", "", helpLines(), m.width, m.panesHeight(), true)
 	} else {
-		files, _ := m.fileLines()
-		left := lipgloss.JoinVertical(lipgloss.Left,
-			box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), m.focus == focusCommits),
-			box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), m.focus == focusFiles),
-		)
-		panes = lipgloss.JoinHorizontal(lipgloss.Top, left, box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), m.focus == focusDiff))
+		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), m.focus == focusDiff)
+		if !m.hideTree {
+			files, _ := m.fileLines()
+			left := lipgloss.JoinVertical(lipgloss.Left,
+				box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), m.focus == focusCommits),
+				box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), m.focus == focusFiles),
+			)
+			panes = lipgloss.JoinHorizontal(lipgloss.Top, left, panes)
+		}
 	}
 	parts := []string{m.tabBar(), panes}
 	if m.showList && !m.help {
@@ -1337,7 +1360,7 @@ func (m Model) footer() string {
 	case m.focus == focusComments:
 		return hints("j k", "move", "⏎", "go to", "dd", "delete", "tab", "focus", "n", "close")
 	}
-	return hints("f F", "file", "h H", "hunk", "n", "comments", "c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
+	return hints("f F", "file", "h H", "hunk", "n", "comments", "e", "explorer", "c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
 }
 
 func helpLines() []string {
@@ -1358,6 +1381,7 @@ func helpLines() []string {
 		{"C", "comment on the whole file"},
 		{"dd", "delete or resolve comment under cursor"},
 		{"n", "show or hide the comments pane"},
+		{"e", "show or hide the commits and files panes"},
 		{"DD", "delete every comment"},
 		{"r", "mark file viewed until it changes"},
 		{"S", "send unsent comments to the agent"},

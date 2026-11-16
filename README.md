@@ -39,7 +39,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 
 | Key                      | Action                                                                       |
 | ------------------------ | ---------------------------------------------------------------------------- |
-| `tab`, `shift+tab`       | Cycle focus between commits, files, and diff                                 |
+| `tab`, `shift+tab`       | Cycle focus between the visible panes                                        |
 | `l`                      | Focus the diff                                                               |
 | Click                    | Focus a pane and select the commit, file, line, or comment under the pointer |
 | Mouse wheel              | Scroll the pane under the pointer                                            |
@@ -54,6 +54,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `C`                      | Comment on the whole file                                                    |
 | `dd`                     | Delete or resolve the comment under the cursor                               |
 | `n`                      | Show or hide the comments pane                                               |
+| `e`                      | Show or hide the commits and files panes                                     |
 | `DD`                     | Delete every comment on the branch                                           |
 | `r`                      | Toggle the file's viewed state                                               |
 | `S`                      | Send unsent comments to the agent                                            |
