@@ -222,6 +222,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.clipboard != "" {
 			return m, tea.SetClipboard(msg.clipboard)
 		}
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft && !m.editing && !m.help {
+			m.notice, m.prefix = "", ""
+			return m, m.click(msg.X, msg.Y)
+		}
+	case tea.MouseWheelMsg:
+		if !m.editing && !m.help {
+			step := map[tea.MouseButton]int{tea.MouseWheelDown: 1, tea.MouseWheelUp: -1}[msg.Button]
+			return m, m.scroll(msg.X, msg.Y, step)
+		}
 	case tea.KeyPressMsg:
 		m.notice = ""
 		if m.editing {
@@ -517,6 +527,70 @@ func (m *Model) injectSuggestion() {
 		body += "\n\n"
 	}
 	m.editor.area.SetValue(body + "```suggestion\n" + strings.Join(m.original(t), "\n") + "\n```")
+}
+
+func (m Model) areaAt(x, y int) (focusArea, int) {
+	top := 1
+	switch {
+	case y >= top+m.panesHeight():
+		return focusComments, y - top - m.panesHeight() - 1
+	case x >= m.leftWidth():
+		return focusDiff, y - top - 1
+	case y < top+m.commitsHeight():
+		return focusCommits, y - top - 1
+	}
+	return focusFiles, y - top - m.commitsHeight() - 1
+}
+
+func (m *Model) click(x, y int) tea.Cmd {
+	area, i := m.areaAt(x, y)
+	if y < 1 || (area == focusComments && !m.showList) {
+		return nil
+	}
+	inner := map[focusArea]int{focusCommits: m.commitsHeight(), focusFiles: m.panesHeight() - m.commitsHeight(), focusDiff: m.panesHeight(), focusComments: m.listHeight()}[area] - 2
+	if i > inner {
+		return nil
+	}
+	m.focus = area
+	if i < 0 || i == inner {
+		return nil
+	}
+	switch area {
+	case focusCommits:
+		if next := max(m.commit-(m.commitsHeight()-2)+1, 0) + i; next <= len(m.commits) {
+			return m.selectCommit(next - m.commit)
+		}
+	case focusFiles:
+		if _, files := m.fileLines(); i < len(files) && files[i] >= 0 {
+			m.selectFile(files[i])
+		}
+	case focusDiff:
+		if r := m.offset + i; r < len(m.rows) && m.rows[r].kind != rowText {
+			m.cursor = r
+			m.syncFile()
+		}
+	case focusComments:
+		if c := max(min(m.listCursor, len(m.comments)-1)-(m.listHeight()-2)+1, 0) + i; c < len(m.comments) {
+			m.listCursor = c
+			return m.goToComment(m.comments[c])
+		}
+	}
+	return nil
+}
+
+func (m *Model) scroll(x, y, step int) tea.Cmd {
+	area, _ := m.areaAt(x, y)
+	switch area {
+	case focusCommits:
+		return m.selectCommit(step)
+	case focusFiles:
+		m.selectFile(m.fileCursor + step)
+	case focusDiff:
+		m.move(3 * step)
+	case focusComments:
+		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
+	}
+	return nil
 }
 
 func (m Model) focusCount() focusArea {
@@ -1045,6 +1119,7 @@ func (m Model) commitsHeight() int {
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -1056,9 +1131,10 @@ func (m Model) render() string {
 	if m.help {
 		panes = box("help · esc closes", "", helpLines(), m.width, m.panesHeight(), true)
 	} else {
+		files, _ := m.fileLines()
 		left := lipgloss.JoinVertical(lipgloss.Left,
 			box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), m.focus == focusCommits),
-			box("files", m.filesCounter(), m.fileLines(), m.leftWidth(), m.panesHeight()-m.commitsHeight(), m.focus == focusFiles),
+			box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), m.focus == focusFiles),
 		)
 		panes = lipgloss.JoinHorizontal(lipgloss.Top, left, box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), m.focus == focusDiff))
 	}
@@ -1149,15 +1225,16 @@ func (m Model) commitLines() []string {
 	return lines[start:]
 }
 
-func (m Model) fileLines() []string {
+func (m Model) fileLines() ([]string, []int) {
 	if m.loading {
-		return []string{dimStyle.Render(" loading…")}
+		return []string{dimStyle.Render(" loading…")}, nil
 	}
 	if len(m.files) == 0 {
-		return []string{dimStyle.Render(" no changes")}
+		return []string{dimStyle.Render(" no changes")}, nil
 	}
 	inner := m.leftWidth() - 2
 	var lines []string
+	var files []int
 	selected, lastDir := 0, ""
 	for i, f := range m.files {
 		dir, name, indent := path.Dir(f.Path), f.Path, " "
@@ -1165,6 +1242,7 @@ func (m Model) fileLines() []string {
 			name, indent = path.Base(f.Path), "   "
 			if dir != lastDir {
 				lines = append(lines, " "+dimStyle.Render(dir+"/"))
+				files = append(files, -1)
 			}
 		}
 		lastDir = dir
@@ -1181,9 +1259,10 @@ func (m Model) fileLines() []string {
 		right := base.Foreground(colorAdd).Render(mark + " ")
 		gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
 		lines = append(lines, fit(left+base.Render(strings.Repeat(" ", max(gap, 0))), inner-lipgloss.Width(right), base)+right)
+		files = append(files, i)
 	}
-	visible := max(m.panesHeight()-m.commitsHeight()-2, 1)
-	return lines[max(selected-visible+1, 0):]
+	start := max(selected-max(m.panesHeight()-m.commitsHeight()-2, 1)+1, 0)
+	return lines[start:], files[start:]
 }
 
 func (m Model) diffLines() []string {
@@ -1270,6 +1349,8 @@ func helpLines() []string {
 		{"f F  ]f [f", "next / previous file"},
 		{"h H  } {", "next / previous hunk"},
 		{"tab l", "cycle focus, focus diff"},
+		{"click", "focus a pane and select the row"},
+		{"wheel", "scroll the pane under the pointer"},
 		{"", ""},
 		{"review", ""},
 		{"v V", "visual range"},

@@ -1116,3 +1116,188 @@ func TestCommentsPaneHandlesMissingTargetsAndDeletes(t *testing.T) {
 		t.Fatalf("deleted comment still listed:\n%s", out)
 	}
 }
+
+func click(t *testing.T, m Model, x, y int) (Model, tea.Cmd) {
+	t.Helper()
+	updated, cmd := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	return updated.(Model), cmd
+}
+
+func wheel(t *testing.T, m Model, x, y int, button tea.MouseButton) (Model, tea.Cmd) {
+	t.Helper()
+	updated, cmd := m.Update(tea.MouseWheelMsg{X: x, Y: y, Button: button})
+	return updated.(Model), cmd
+}
+
+func TestViewEnablesMouse(t *testing.T) {
+	m, _ := loaded(t)
+	if m.View().MouseMode != tea.MouseModeCellMotion {
+		t.Fatal("mouse should be enabled")
+	}
+}
+
+func TestClickSelectsCommitsAndFiles(t *testing.T) {
+	m, _ := loaded(t)
+	m, cmd := click(t, m, 5, 4)
+	if m.focus != focusCommits || m.commit != 2 {
+		t.Fatalf("focus=%d commit=%d", m.focus, m.commit)
+	}
+	m = run(t, m, cmd)
+	if len(m.files) != 1 || m.files[0].Path != "a/main.go" {
+		t.Fatalf("files not loaded for clicked commit: %+v", m.files)
+	}
+	if _, cmd := click(t, m, 5, 3); cmd == nil {
+		t.Fatal("clicking another commit should load it")
+	}
+
+	m, _ = loaded(t)
+	m, _ = click(t, m, 5, 9)
+	if m.focus != focusFiles || m.fileCursor != 1 || m.rows[m.cursor].kind != rowFile || m.rows[m.cursor].file != 1 {
+		t.Fatalf("focus=%d fileCursor=%d cursor=%d", m.focus, m.fileCursor, m.cursor)
+	}
+	m, _ = click(t, m, 5, 8)
+	if m.fileCursor != 1 {
+		t.Fatalf("clicking a directory should keep the file, got %d", m.fileCursor)
+	}
+	m, _ = click(t, m, 5, 10)
+	if m.fileCursor != 2 {
+		t.Fatalf("fileCursor=%d", m.fileCursor)
+	}
+}
+
+func TestClickMovesDiffCursor(t *testing.T) {
+	m, _ := loaded(t)
+	target := rowOf(t, m, rowLine, 1, 2)
+	m, _ = click(t, m, 60, 2+target-m.offset)
+	if m.focus != focusDiff || m.cursor != target || m.fileCursor != 1 {
+		t.Fatalf("focus=%d cursor=%d want %d", m.focus, m.cursor, target)
+	}
+	m, _ = click(t, m, 60, 2+len(m.rows)+1)
+	if m.cursor != target {
+		t.Fatal("clicking below the last row should keep the cursor")
+	}
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "hi")
+	m, cmd := press(t, m, "ctrl+s")
+	m = run(t, m, cmd)
+	text := slices.IndexFunc(m.rows, func(r row) bool { return r.kind == rowText && r.file == 1 })
+	if text < 0 {
+		t.Fatal("expected comment rows")
+	}
+	if m, _ = click(t, m, 60, 2+text-m.offset); m.cursor != target {
+		t.Fatalf("clicking comment text should keep the cursor, got %d", m.cursor)
+	}
+}
+
+func TestClickOnBordersOnlyFocuses(t *testing.T) {
+	m, _ := loaded(t)
+	before := m.cursor
+	m, cmd := click(t, m, 60, 1)
+	if m.focus != focusDiff || m.cursor != before || cmd != nil {
+		t.Fatalf("title click should only focus: focus=%d cursor=%d", m.focus, m.cursor)
+	}
+	m, _ = click(t, m, 5, 5)
+	if m.focus != focusCommits || m.commit != 0 {
+		t.Fatalf("bottom border click should only focus: focus=%d commit=%d", m.focus, m.commit)
+	}
+	m, _ = click(t, m, 60, 0)
+	m, _ = click(t, m, 60, 39)
+	if m.focus != focusCommits {
+		t.Fatalf("tab bar and footer clicks should do nothing, focus=%d", m.focus)
+	}
+	m, _ = click(t, m, 60, m.panesHeight())
+	if m.focus != focusDiff || m.cursor != before {
+		t.Fatalf("diff bottom border click should only focus: cursor=%d", m.cursor)
+	}
+	right, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 9, Button: tea.MouseRight})
+	if right.(Model).fileCursor != m.fileCursor {
+		t.Fatal("right click should be ignored")
+	}
+}
+
+func TestClickCommentsPaneGoesToComment(t *testing.T) {
+	m, _ := listModel(t)
+	m, _ = press(t, m, "n")
+	top := 1 + m.panesHeight()
+	m, _ = click(t, m, 10, top)
+	if m.focus != focusComments {
+		t.Fatalf("pane title click should focus the pane, got %d", m.focus)
+	}
+	m, cmd := click(t, m, 10, top+1)
+	if cmd != nil || m.focus != focusDiff || m.listCursor != 0 || m.cursor != rowOf(t, m, rowLine, 1, 4) {
+		t.Fatalf("focus=%d listCursor=%d cursor=%d", m.focus, m.listCursor, m.cursor)
+	}
+	m, cmd = click(t, m, 10, top+3)
+	if m.listCursor != 2 || cmd == nil {
+		t.Fatalf("clicking a comment from another commit should switch commit, listCursor=%d", m.listCursor)
+	}
+	m, _ = click(t, m, 10, 38)
+	if m.listCursor != 2 {
+		t.Fatal("clicking the status line should not select a comment")
+	}
+
+	hidden, _ := listModel(t)
+	hidden, _ = click(t, hidden, 10, 37)
+	if hidden.focus == focusComments {
+		t.Fatal("clicks below the panes should be ignored while the pane is hidden")
+	}
+}
+
+func TestWheelScrollsPaneUnderPointer(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown)
+	if m.cursor != 3 {
+		t.Fatalf("wheel down should move the diff 3 rows, cursor=%d", m.cursor)
+	}
+	m, _ = wheel(t, m, 60, 10, tea.MouseWheelUp)
+	if m.cursor != 0 {
+		t.Fatalf("wheel up should move back, cursor=%d", m.cursor)
+	}
+	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	if m.fileCursor != 1 {
+		t.Fatalf("wheel over files should select the next file, got %d", m.fileCursor)
+	}
+	m, cmd := wheel(t, m, 5, 3, tea.MouseWheelDown)
+	if m.commit != 1 || cmd == nil {
+		t.Fatalf("wheel over commits should select the next commit, got %d", m.commit)
+	}
+	if m, _ = wheel(t, m, 5, 3, tea.MouseWheelLeft); m.commit != 1 {
+		t.Fatal("horizontal wheel should be ignored")
+	}
+
+	l, _ := listModel(t)
+	l, _ = press(t, l, "n")
+	y := 2 + l.panesHeight()
+	for range 5 {
+		l, _ = wheel(t, l, 10, y, tea.MouseWheelDown)
+	}
+	if l.listCursor != len(l.comments)-1 {
+		t.Fatalf("wheel should stop at the last comment, got %d", l.listCursor)
+	}
+	l, _ = wheel(t, l, 10, y, tea.MouseWheelUp)
+	if l.listCursor != len(l.comments)-2 {
+		t.Fatalf("listCursor=%d", l.listCursor)
+	}
+}
+
+func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "?")
+	if m, _ = click(t, m, 5, 9); m.fileCursor != 0 {
+		t.Fatal("clicks should be ignored on the help screen")
+	}
+	if m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown); m.cursor != 0 {
+		t.Fatal("wheel should be ignored on the help screen")
+	}
+	m, _ = press(t, m, "esc", "l", "j", "j", "c")
+	if !m.editing {
+		t.Fatal("editor should open")
+	}
+	cursor := m.cursor
+	if m, _ = click(t, m, 5, 9); !m.editing || m.fileCursor != 0 {
+		t.Fatal("clicks should be ignored while editing")
+	}
+	if m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown); m.cursor != cursor {
+		t.Fatal("wheel should be ignored while editing")
+	}
+}
