@@ -311,12 +311,12 @@ func TestDiffNavigationSkipsTextRowsAndTracksFile(t *testing.T) {
 		t.Fatalf("[f went to file %d", m.fileCursor)
 	}
 	m, _ = press(t, m, "{")
-	if m.rows[m.cursor].kind != rowHunk || m.rows[m.cursor].file != 0 {
-		t.Fatalf("{ did not reach the previous hunk: %+v", m.rows[m.cursor])
+	if m.cursor != rowOf(t, m, rowLine, 0, 1) {
+		t.Fatalf("{ did not reach the previous change: %+v", m.rows[m.cursor])
 	}
 	m, _ = press(t, m, "}")
-	if m.cursor != rowOf(t, m, rowHunk, 1, 0) {
-		t.Fatalf("} did not reach the next hunk")
+	if m.cursor != rowOf(t, m, rowLine, 1, 2) {
+		t.Fatalf("} did not reach the next change")
 	}
 	m, _ = press(t, m, "G")
 	if m.cursor != rowOf(t, m, rowFile, 2, 0) {
@@ -994,11 +994,11 @@ func TestFileAndHunkKeysJumpForwardAndBackward(t *testing.T) {
 		t.Fatalf("f moved to row %d", m.cursor)
 	}
 	m, _ = press(t, m, "h")
-	if m.cursor != rowOf(t, m, rowHunk, 1, 0) {
+	if m.cursor != rowOf(t, m, rowLine, 1, 2) {
 		t.Fatalf("h moved to row %d", m.cursor)
 	}
 	m, _ = press(t, m, "H")
-	if m.cursor != rowOf(t, m, rowHunk, 0, 0) {
+	if m.cursor != rowOf(t, m, rowLine, 0, 1) {
 		t.Fatalf("H moved to row %d", m.cursor)
 	}
 	m, _ = press(t, m, "f", "f", "F")
@@ -2046,5 +2046,33 @@ func TestExplorerSelectionFollowsTheDiffCursor(t *testing.T) {
 	lines, _ := m.fileLines()
 	if !strings.Contains(strings.Join(lines, ""), accent) {
 		t.Fatal("the selected file should use the accent color even when the diff has focus")
+	}
+}
+
+func TestChangeKeysVisitEachBlockOfChanges(t *testing.T) {
+	patch := "@@ -1,8 +1,8 @@\n a\n-b\n+B\n c\n d\n+e\n f\n-g\n h\n@@ -20,2 +20,2 @@\n x\n-y\n+Y"
+	m := newModel(t, fakeSource{files: map[string][]review.File{"": {
+		{Path: "one.go", Status: review.StatusModified, Patch: patch},
+		{Path: "two.go", Status: review.StatusModified, Patch: "@@ -1 +1 @@\n-old\n+new"},
+	}}}, &fakeStore{viewed: map[string]string{}})
+	want := []int{rowOf(t, m, rowLine, 0, 2), rowOf(t, m, rowLine, 0, 6), rowOf(t, m, rowLine, 0, 8), rowOf(t, m, rowLine, 0, 12), rowOf(t, m, rowLine, 1, 1)}
+	var got []int
+	for range want {
+		m, _ = press(t, m, "h")
+		got = append(got, m.cursor)
+	}
+	if !reflect.DeepEqual(got, want) || m.focus != focusDiff {
+		t.Fatalf("h visited %v, want %v (focus %d)", got, want, m.focus)
+	}
+	if m, _ = press(t, m, "h"); m.cursor != want[4] {
+		t.Fatal("h on the last change should stay")
+	}
+	m, _ = press(t, m, "H", "H")
+	if m.cursor != want[2] {
+		t.Fatalf("H should go back one block at a time, got %d", m.cursor)
+	}
+	m.cursor = rowOf(t, m, rowLine, 0, 3)
+	if m, _ = press(t, m, "H"); m.cursor != want[0] {
+		t.Fatalf("H inside a block should go to its start, got %d", m.cursor)
 	}
 }

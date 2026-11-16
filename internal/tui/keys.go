@@ -26,8 +26,8 @@ type keyMap struct {
 	PageUp      key.Binding
 	NextFile    key.Binding
 	PrevFile    key.Binding
-	NextHunk    key.Binding
-	PrevHunk    key.Binding
+	NextChange  key.Binding
+	PrevChange  key.Binding
 	Open        key.Binding
 	Select      key.Binding
 	Cancel      key.Binding
@@ -74,8 +74,8 @@ func defaultKeys() keyMap {
 		PageUp:      bind("pgup", "b"),
 		NextFile:    bind("f", "] f"),
 		PrevFile:    bind("F", "[ f"),
-		NextHunk:    bind("h", "}"),
-		PrevHunk:    bind("H", "{"),
+		NextChange:  bind("h", "}"),
+		PrevChange:  bind("H", "{"),
 		Open:        bind("enter"),
 		Select:      bind("v", "V"),
 		Cancel:      bind("esc"),
@@ -173,7 +173,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "half page", keys: []key.Binding{k.HalfDown, k.HalfUp}},
 			{desc: "page", keys: []key.Binding{k.PageDown, k.PageUp}},
 			{desc: "next / previous file", keys: []key.Binding{k.NextFile, k.PrevFile}},
-			{desc: "next / previous hunk", keys: []key.Binding{k.NextHunk, k.PrevHunk}},
+			{desc: "next / previous block of changes", keys: []key.Binding{k.NextChange, k.PrevChange}},
 			{desc: "cycle focus, focus diff", keys: []key.Binding{k.NextFocus, k.FocusDiff}},
 			{desc: "search every file in the diff", keys: []key.Binding{k.Search}},
 			{desc: "next / previous match", keys: []key.Binding{k.NextMatch, k.PrevMatch}},
@@ -243,7 +243,7 @@ func (k keyMap) listHints() []hint {
 func (k keyMap) mainHints() []hint {
 	return []hint{
 		{desc: "file", keys: []key.Binding{k.NextFile, k.PrevFile}},
-		{desc: "hunk", keys: []key.Binding{k.NextHunk, k.PrevHunk}},
+		{desc: "change", keys: []key.Binding{k.NextChange, k.PrevChange}},
 		{desc: "search", keys: []key.Binding{k.Search}},
 		{desc: "comments", keys: []key.Binding{k.Comments}},
 		{desc: "explorer", keys: []key.Binding{k.Explorer}},

@@ -403,9 +403,9 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor, m.offset = 0, 0
 			m.syncFile()
 		case is(seq, k.NextFile):
-			m.jump(rowFile, 1)
+			m.jumpFile(1)
 		case is(seq, k.PrevFile):
-			m.jump(rowFile, -1)
+			m.jumpFile(-1)
 		case is(seq, k.Delete):
 			return m, m.deleteComment()
 		case is(seq, k.DeleteAll):
@@ -450,13 +450,13 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.relayout()
 	case is(key, k.NextFile):
-		m.jump(rowFile, 1)
+		m.jumpFile(1)
 	case is(key, k.PrevFile):
-		m.jump(rowFile, -1)
-	case is(key, k.NextHunk):
-		m.jump(rowHunk, 1)
-	case is(key, k.PrevHunk):
-		m.jump(rowHunk, -1)
+		m.jumpFile(-1)
+	case is(key, k.NextChange):
+		m.nextChange(1)
+	case is(key, k.PrevChange):
+		m.nextChange(-1)
 	case is(key, k.FocusDiff):
 		m.focus = focusDiff
 	case is(key, k.Cancel):
@@ -1003,13 +1003,28 @@ func (m *Model) move(delta int) {
 	m.syncFile()
 }
 
-func (m *Model) jump(kind rowKind, step int) {
+func (m *Model) jumpFile(step int) {
 	for i := m.cursor + step; i >= 0 && i < len(m.rows); i += step {
-		if m.rows[i].kind == kind {
-			m.cursor = i
-			if kind == rowFile {
-				m.offset = i
-			}
+		if m.rows[i].kind == rowFile {
+			m.cursor, m.offset = i, i
+			m.syncFile()
+			return
+		}
+	}
+}
+
+func changed(l review.Line) bool {
+	return l.Kind == review.LineAdded || l.Kind == review.LineRemoved
+}
+
+func (m *Model) nextChange(step int) {
+	for i := m.cursor + step; i >= 0 && i < len(m.rows); i += step {
+		r := m.rows[i]
+		if r.kind != rowLine || !changed(m.lines[r.file][r.line]) {
+			continue
+		}
+		if r.line == 0 || !changed(m.lines[r.file][r.line-1]) {
+			m.cursor, m.focus = i, focusDiff
 			m.syncFile()
 			return
 		}

@@ -50,7 +50,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `ctrl+d`, `ctrl+u`               | Move half a page down or up in the diff, focusing it                         |
 | `pgdn`, `pgup`/`b`               | Move a page down or up in the diff, focusing it                              |
 | `f`, `F` (or `]f`, `[f`)         | Next or previous file                                                        |
-| `h`, `H` (or `}`, `{`)           | Next or previous hunk                                                        |
+| `h`, `H` (or `}`, `{`)           | Next or previous block of added or removed lines                             |
 | `/`                              | Search every file in the diff, showing the current match and the total       |
 | `n`, `N` (or `ctrl+n`, `ctrl+p`) | Next or previous match, `ctrl+n` and `ctrl+p` also work while typing         |
 | `v`, `V`                         | Start or stop selecting a range of lines                                     |
