@@ -29,7 +29,6 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. The r
 
 ```
 revunk [tui]   Launch the terminal review interface (default)
-revunk serve   Start the review API server
 ```
 
 ## Project layout

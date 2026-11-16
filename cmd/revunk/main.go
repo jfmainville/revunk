@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -17,7 +16,6 @@ const usage = `Usage: revunk <command>
 
 Commands:
   tui    Launch the terminal review interface (default)
-  serve  Start the review API server (not implemented yet)
 `
 
 func main() {
@@ -38,8 +36,6 @@ func run(args []string) error {
 		pr := review.PullRequest{Owner: "jfmainville", Repo: "revunk", Number: 1}
 		_, err := tea.NewProgram(tui.New(svc, pr)).Run()
 		return err
-	case "serve":
-		return errors.New("serve is not implemented yet")
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
