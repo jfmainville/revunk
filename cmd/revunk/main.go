@@ -63,7 +63,7 @@ func run(args []string) error {
 			return errors.New("usage: revunk reply <id> <text>")
 		}
 		ctx := context.Background()
-		svc, _, err := service(ctx, ".", *base)
+		svc, _, _, err := service(ctx, ".", *base)
 		if err != nil {
 			return err
 		}
@@ -82,32 +82,32 @@ func run(args []string) error {
 }
 
 func setup(ctx context.Context, dir, base string) (tui.Model, error) {
-	svc, base, err := service(ctx, dir, base)
+	svc, root, base, err := service(ctx, dir, base)
 	if err != nil {
 		return tui.Model{}, err
 	}
-	return tui.New(svc, base), nil
+	return tui.New(svc, root, base), nil
 }
 
-func service(ctx context.Context, dir, base string) (*review.Service, string, error) {
+func service(ctx context.Context, dir, base string) (*review.Service, string, string, error) {
 	root, err := git.Root(ctx, dir)
 	if err != nil {
-		return nil, "", fmt.Errorf("run revunk inside a git repository: %w", err)
+		return nil, "", "", fmt.Errorf("run revunk inside a git repository: %w", err)
 	}
 	branch, err := git.Branch(ctx, root)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if base == "" {
 		base = git.DefaultBase(ctx, root)
 	}
 	statePath, err := git.StatePath(ctx, root)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	st, err := store.Open(statePath)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	svc := review.NewService(git.Source{Dir: root, Base: base}, st, agent.Agent{Dir: root}, branch)
 	svc.ReplyCommand, _ = os.Executable()
@@ -115,5 +115,5 @@ func service(ctx context.Context, dir, base string) (*review.Service, string, er
 		_, err := os.Lstat(filepath.Join(root, path))
 		return err == nil
 	}
-	return svc, base, nil
+	return svc, root, base, nil
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -96,7 +98,7 @@ var sample = fakeSource{
 
 func newModel(t *testing.T, source review.Source, st *fakeStore) Model {
 	t.Helper()
-	m := New(review.NewService(source, st, nil, "feature"), "main")
+	m := New(review.NewService(source, st, nil, "feature"), "", "main")
 	m = update(t, m, m.Init()())
 	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 }
@@ -209,7 +211,7 @@ func TestViewFitsTerminalAfterResize(t *testing.T) {
 }
 
 func TestRenderIsEmptyBeforeFirstWindowSizeAndUsesAltScreen(t *testing.T) {
-	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "main")
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "", "main")
 	if out := m.render(); out != "" {
 		t.Fatalf("expected empty render before sizing, got %q", out)
 	}
@@ -744,7 +746,7 @@ func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
 func withComment(t *testing.T, agent review.Agent) Model {
 	t.Helper()
 	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{ID: "c1", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename"}}}
-	m := New(review.NewService(sample, st, agent, "feature"), "main")
+	m := New(review.NewService(sample, st, agent, "feature"), "", "main")
 	m = update(t, m, m.Init()())
 	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 }
@@ -1566,7 +1568,7 @@ func TestCommentsOnDeletedFilesArePruned(t *testing.T) {
 	}}
 	svc := review.NewService(sample, st, nil, "feature")
 	svc.Exists = func(path string) bool { return path != "gone.go" }
-	m := New(svc, "main")
+	m := New(svc, "", "main")
 	m = update(t, m, m.Init()())
 	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if len(m.comments) != 1 || m.comments[0].ID != "a" || !strings.Contains(screen(m), "removed 1 comments on deleted files") {
@@ -1897,5 +1899,97 @@ func TestMarkMatchesSplitsTokens(t *testing.T) {
 	}
 	if got := markMatches(tokens, ""); !reflect.DeepEqual(got, tokens) {
 		t.Fatal("an empty query should change nothing")
+	}
+}
+
+func TestEditorCommandPrefersVisualThenEditor(t *testing.T) {
+	envOf := func(vars map[string]string) func(string) string {
+		return func(k string) string { return vars[k] }
+	}
+	for _, tc := range []struct {
+		vars map[string]string
+		want []string
+	}{
+		{map[string]string{"VISUAL": "nvim -u NONE", "EDITOR": "vim"}, []string{"nvim", "-u", "NONE", "+7", "/r/a.go"}},
+		{map[string]string{"VISUAL": "  ", "EDITOR": "vim"}, []string{"vim", "+7", "/r/a.go"}},
+		{map[string]string{}, []string{"nvim", "+7", "/r/a.go"}},
+	} {
+		if got := editorCommand(envOf(tc.vars), "/r/a.go", 7).Args; !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%v: got %v, want %v", tc.vars, got, tc.want)
+		}
+	}
+}
+
+func TestCurrentLinePicksTheWorkingTreeLine(t *testing.T) {
+	m, _ := loaded(t)
+	if m.currentLine() != 1 {
+		t.Fatal("the files pane should open at the top")
+	}
+	m, _ = press(t, m, "l")
+	for _, tc := range []struct {
+		kind             rowKind
+		file, line, want int
+	}{
+		{rowFile, 1, 0, 1},
+		{rowHunk, 1, 0, 1},
+		{rowLine, 1, 2, 2},
+		{rowLine, 1, 3, 2},
+		{rowLine, 1, 5, 4},
+	} {
+		m.cursor = rowOf(t, m, tc.kind, tc.file, tc.line)
+		if got := m.currentLine(); got != tc.want {
+			t.Errorf("row %+v: line %d, want %d", tc, got, tc.want)
+		}
+	}
+
+	d := newModel(t, fakeSource{files: map[string][]review.File{"": {
+		{Path: "gone.go", Status: review.StatusRemoved, Patch: "@@ -1,2 +0,0 @@\n-a\n-b"},
+		{Path: "tail.go", Status: review.StatusModified, Patch: "@@ -1,2 +1,1 @@\n keep\n-drop"},
+	}}}, &fakeStore{viewed: map[string]string{}})
+	d, _ = press(t, d, "l")
+	if d.cursor = rowOf(t, d, rowLine, 0, 2); d.currentLine() != 1 {
+		t.Fatal("a deleted file should open at line 1")
+	}
+	if d.cursor = rowOf(t, d, rowLine, 1, 2); d.currentLine() != 1 {
+		t.Fatalf("a removed last line should use the line above, got %d", d.currentLine())
+	}
+}
+
+func TestOpenFileWithGF(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &fakeStore{viewed: map[string]string{}}
+	m := New(review.NewService(sample, st, nil, "feature"), root, "main")
+	m = update(t, m, m.Init()())
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	if m, cmd := press(t, m, "g", "f"); cmd != nil || !strings.Contains(m.notice, "README.md is not in the working tree") {
+		t.Fatalf("a missing file should not open: %q", m.notice)
+	}
+	m, _ = press(t, m, "j")
+	if _, cmd := press(t, m, "g", "f"); cmd == nil {
+		t.Fatal("gf on a file in the working tree should open the editor")
+	}
+
+	m = update(t, m, editedMsg{path: "a/main.go"})
+	if m.notice != "edited a/main.go" || m.err != nil {
+		t.Fatalf("notice=%q err=%v", m.notice, m.err)
+	}
+	if _, cmd := m.Update(editedMsg{path: "a/main.go"}); cmd == nil {
+		t.Fatal("returning from the editor should refresh right away")
+	}
+	m = update(t, m, editedMsg{path: "a/main.go", err: errors.New("exit status 1")})
+	if m.notice != "" || m.err == nil || !strings.Contains(screen(m), "exit status 1") {
+		t.Fatal("an editor failure should be shown")
+	}
+
+	empty := newModel(t, fakeSource{}, &fakeStore{viewed: map[string]string{}})
+	if _, cmd := press(t, empty, "g", "f"); cmd != nil {
+		t.Fatal("gf with no files should do nothing")
 	}
 }

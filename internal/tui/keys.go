@@ -48,6 +48,7 @@ type keyMap struct {
 	NextMatch   key.Binding
 	PrevMatch   key.Binding
 	DeleteChar  key.Binding
+	OpenFile    key.Binding
 }
 
 func bind(keys ...string) key.Binding {
@@ -95,6 +96,7 @@ func defaultKeys() keyMap {
 		NextMatch:   bind("ctrl+n"),
 		PrevMatch:   bind("ctrl+p"),
 		DeleteChar:  bind("backspace"),
+		OpenFile:    bind("g f"),
 	}
 }
 
@@ -189,6 +191,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "mark file viewed until it changes", keys: []key.Binding{k.Viewed}},
 			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
+			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
 		}},
 		{"comment editor", []hint{
 			{desc: "save", keys: []key.Binding{k.Save}},

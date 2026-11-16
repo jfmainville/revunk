@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -86,6 +89,11 @@ type actionMsg struct {
 
 type tickMsg struct{}
 
+type editedMsg struct {
+	path string
+	err  error
+}
+
 type polledMsg struct {
 	pruned   int
 	commits  []review.Commit
@@ -107,6 +115,7 @@ func tick() tea.Cmd {
 
 type Model struct {
 	svc        *review.Service
+	root       string
 	base       string
 	commits    []review.Commit
 	commit     int
@@ -141,9 +150,10 @@ type Model struct {
 	height     int
 }
 
-func New(svc *review.Service, base string) Model {
+func New(svc *review.Service, root, base string) Model {
 	return Model{
 		svc:      svc,
+		root:     root,
 		base:     base,
 		viewed:   map[string]bool{},
 		rendered: map[int][]string{},
@@ -232,6 +242,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
+	case editedMsg:
+		m.err, m.notice = msg.err, "edited "+msg.path
+		if msg.err != nil {
+			m.notice = ""
+		}
+		return m, m.poll()
 	case actionMsg:
 		m.err, m.notice = msg.err, msg.notice
 		if msg.clipboard != "" {
@@ -394,6 +410,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.deleteComment()
 		case is(seq, k.DeleteAll):
 			return m, m.deleteAllComments()
+		case is(seq, k.OpenFile):
+			return m, m.openFile()
 		}
 		return m, nil
 	}
@@ -882,6 +900,55 @@ func (m Model) currentFile() int {
 		return m.rows[m.cursor].file
 	}
 	return m.fileCursor
+}
+
+func (m Model) currentLine() int {
+	if m.focus != focusDiff || len(m.rows) == 0 {
+		return 1
+	}
+	r := m.rows[m.cursor]
+	lines := m.lines[r.file]
+	if r.kind == rowFile {
+		return 1
+	}
+	for i := r.line; i < len(lines); i++ {
+		if lines[i].New > 0 {
+			return lines[i].New
+		}
+	}
+	for i := r.line; i >= 0; i-- {
+		if lines[i].New > 0 {
+			return lines[i].New
+		}
+	}
+	return 1
+}
+
+func editorCommand(env func(string) string, path string, line int) *exec.Cmd {
+	editor := env("VISUAL")
+	if strings.TrimSpace(editor) == "" {
+		editor = env("EDITOR")
+	}
+	words := strings.Fields(editor)
+	if len(words) == 0 {
+		words = []string{"nvim"}
+	}
+	return exec.Command(words[0], append(words[1:], fmt.Sprintf("+%d", line), path)...)
+}
+
+func (m *Model) openFile() tea.Cmd {
+	rel := m.currentPath()
+	if rel == "" {
+		return nil
+	}
+	path := filepath.Join(m.root, rel)
+	if _, err := os.Stat(path); err != nil {
+		m.notice = rel + " is not in the working tree"
+		return nil
+	}
+	cmd := editorCommand(os.Getenv, path, m.currentLine())
+	cmd.Dir = m.root
+	return tea.ExecProcess(cmd, func(err error) tea.Msg { return editedMsg{path: rel, err: err} })
 }
 
 func (m Model) currentPath() string {

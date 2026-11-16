@@ -75,7 +75,7 @@ func TestRunReplyAddsReplyToComment(t *testing.T) {
 	ctx := context.Background()
 	dir := gitRepo(t)
 	t.Chdir(dir)
-	svc, _, err := service(ctx, ".", "")
+	svc, _, _, err := service(ctx, ".", "")
 	if err != nil {
 		t.Fatal(err)
 	}
