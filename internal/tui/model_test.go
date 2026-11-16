@@ -1353,3 +1353,124 @@ func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 		t.Fatal("hiding the explorer should keep focus on the diff")
 	}
 }
+
+func TestWrapTokensSplitsAtCodeWidth(t *testing.T) {
+	red, blue := lipgloss.NewStyle().Foreground(colorDel), lipgloss.NewStyle().Foreground(colorAdd)
+	parts := wrapTokens([]token{{text: "abcd", style: red}, {text: "efg", style: blue}}, lineGutter+3)
+	want := [][]token{{{text: "abc", style: red}}, {{text: "d", style: red}, {text: "ef", style: blue}}, {{text: "g", style: blue}}}
+	if !reflect.DeepEqual(parts, want) {
+		t.Fatalf("got %+v", parts)
+	}
+	if parts := wrapTokens([]token{{text: "日本語", style: red}}, lineGutter+4); len(parts) != 2 || parts[0][0].text != "日本" || parts[1][0].text != "語" {
+		t.Fatalf("wide runes should count two cells: %+v", parts)
+	}
+	if parts := wrapTokens(nil, 80); len(parts) != 1 || parts[0] != nil {
+		t.Fatalf("empty line should be one part: %+v", parts)
+	}
+	if parts := wrapTokens([]token{{text: "ab", style: red}}, 3); len(parts) != 2 {
+		t.Fatalf("narrow widths should still wrap one cell per row: %+v", parts)
+	}
+}
+
+var long = "x := \"" + strings.Repeat("abcdefghij", 30) + "\""
+
+func wrapModel(t *testing.T) Model {
+	t.Helper()
+	patch := "@@ -1,2 +1,3 @@\n a\n+" + long + "\n+short\n b"
+	return newModel(t, fakeSource{files: map[string][]review.File{"": {{Path: "w.go", Status: review.StatusModified, Patch: patch}}}}, &fakeStore{viewed: map[string]string{}})
+}
+
+func TestDiffSoftWrapsLongLines(t *testing.T) {
+	m := wrapModel(t)
+	first := rowOf(t, m, rowLine, 0, 2)
+	parts := len(wrapTokens(m.tokens[0][2], m.diffWidth()))
+	if parts < 3 {
+		t.Fatalf("expected the long line to wrap, got %d parts", parts)
+	}
+	for p := 1; p < parts; p++ {
+		if r := m.rows[first+p]; r.kind != rowText || r.line != 2 || r.part != p {
+			t.Fatalf("row %d = %+v", first+p, r)
+		}
+	}
+	out := screen(m)
+	joined := ""
+	for line := range strings.SplitSeq(out, "\n") {
+		if i := strings.Index(line, "│"); i >= 0 && strings.Contains(line, "abcdefghij") {
+			code := strings.TrimRight(strings.TrimSuffix(strings.TrimRight(line, " "), "│"), " ")
+			joined += strings.TrimLeft(code[strings.LastIndex(code, "│")+len("│"):], " ▌0123456789+")
+		}
+	}
+	if !strings.Contains(joined, strings.Repeat("abcdefghij", 30)) {
+		t.Fatalf("wrapped rows should show the whole line:\n%s", out)
+	}
+	if lipgloss.Width(m.render()) != 120 {
+		t.Fatal("wrapped rows should not overflow the view")
+	}
+
+	m, _ = press(t, m, "l", "j", "j", "j", "j")
+	if m.cursor != first+parts {
+		t.Fatalf("j should skip wrapped rows, cursor=%d want %d", m.cursor, first+parts)
+	}
+	m, _ = press(t, m, "k")
+	if m.cursor != first {
+		t.Fatalf("k should land on the wrapped line, cursor=%d", m.cursor)
+	}
+	cursorRows := 0
+	for _, l := range m.diffLines()[first-m.offset : first-m.offset+parts] {
+		if strings.Contains(ansi.Strip(l), "▌") {
+			cursorRows++
+		}
+	}
+	if cursorRows != parts {
+		t.Fatalf("every row of the cursor line should be highlighted, got %d of %d", cursorRows, parts)
+	}
+
+	m, _ = press(t, m, "j")
+	m, _ = click(t, m, 60, 2+first+1-m.offset)
+	if m.cursor != first {
+		t.Fatalf("clicking a wrapped row should select its line, cursor=%d", m.cursor)
+	}
+
+	wide := update(t, m, tea.WindowSizeMsg{Width: 400, Height: 40})
+	if wide.cursor != rowOf(t, wide, rowLine, 0, 2) || wide.rows[wide.cursor+1].part != 0 {
+		t.Fatal("a wide terminal should fit the line on one row and keep the cursor on it")
+	}
+}
+
+func TestWrappedLineStaysVisibleAtBottom(t *testing.T) {
+	m := wrapModel(t)
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 11})
+	m, _ = press(t, m, "l", "j", "j", "j")
+	first := rowOf(t, m, rowLine, 0, 2)
+	parts := len(wrapTokens(m.tokens[0][2], m.diffWidth()))
+	if m.cursor != first || first+parts-1 >= m.offset+m.diffHeight() || m.cursor < m.offset {
+		t.Fatalf("cursor=%d offset=%d height=%d parts=%d", m.cursor, m.offset, m.diffHeight(), parts)
+	}
+}
+
+func TestEditorRevealIgnoresWrappedRows(t *testing.T) {
+	m := wrapModel(t)
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 16})
+	m, _ = press(t, m, "l", "j", "j", "c")
+	spacer := -1
+	for i, r := range m.rows {
+		if r.kind == rowText && r.text == "" && r.part == 0 {
+			spacer = i
+		}
+	}
+	if !m.editing || spacer < 0 || spacer >= m.offset+m.diffHeight() {
+		t.Fatalf("editor should be revealed: spacer=%d offset=%d height=%d", spacer, m.offset, m.diffHeight())
+	}
+	if spacer > rowOf(t, m, rowLine, 0, 2) {
+		t.Fatal("the editor spacer should come before the wrapped line")
+	}
+}
+
+func TestTallWrappedLineKeepsCursorVisible(t *testing.T) {
+	m := wrapModel(t)
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 9})
+	m, _ = press(t, m, "l", "j", "j", "j")
+	if m.cursor != m.offset {
+		t.Fatalf("a line taller than the pane should start at the top, cursor=%d offset=%d", m.cursor, m.offset)
+	}
+}

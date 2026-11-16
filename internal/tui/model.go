@@ -40,6 +40,7 @@ type row struct {
 	kind rowKind
 	file int
 	line int
+	part int
 	text string
 }
 
@@ -573,7 +574,11 @@ func (m *Model) click(x, y int) tea.Cmd {
 			m.selectFile(files[i])
 		}
 	case focusDiff:
-		if r := m.offset + i; r < len(m.rows) && m.rows[r].kind != rowText {
+		r := m.offset + i
+		if r < len(m.rows) {
+			r -= m.rows[r].part
+		}
+		if r < len(m.rows) && m.rows[r].kind != rowText {
 			m.cursor = r
 			m.syncFile()
 		}
@@ -750,18 +755,22 @@ func (m *Model) syncFile() {
 	}
 	m.fileCursor = m.rows[m.cursor].file
 	h := max(m.diffHeight(), 1)
+	last := m.cursor
+	for last+1 < len(m.rows) && m.rows[last+1].part > 0 {
+		last++
+	}
+	if last >= m.offset+h {
+		m.offset = max(last-h+1, 0)
+	}
 	if m.cursor < m.offset {
 		m.offset = m.cursor
-	}
-	if m.cursor >= m.offset+h {
-		m.offset = m.cursor - h + 1
 	}
 }
 
 func (m *Model) revealEditor() {
 	last := -1
 	for i, r := range m.rows {
-		if r.kind == rowText && r.text == "" {
+		if r.kind == rowText && r.text == "" && r.part == 0 {
 			last = i
 		}
 	}
@@ -1021,6 +1030,9 @@ func (m *Model) layout() {
 				continue
 			}
 			m.rows = append(m.rows, row{kind: rowLine, file: fi, line: li})
+			for part := range len(wrapTokens(m.tokens[fi][li], m.diffWidth())) - 1 {
+				m.rows = append(m.rows, row{kind: rowText, file: fi, line: li, part: part + 1})
+			}
 			for ci, c := range m.comments {
 				if m.visible(c, f.Path) && !c.FileLevel() && anchoredAt(c, l) {
 					m.addComment(ci, fi)
@@ -1307,6 +1319,12 @@ func (m Model) diffLines() []string {
 	for i := m.offset; i < end; i++ {
 		r := m.rows[i]
 		cursor := i == m.cursor && m.focus == focusDiff
+		if r.part > 0 {
+			line := i - r.part
+			selected := line >= from && line <= to && r.file == m.rows[m.cursor].file
+			lines = append(lines, renderLine(m.lines[r.file][r.line], m.tokens[r.file][r.line], width, r.part, line == m.cursor && m.focus == focusDiff, selected))
+			continue
+		}
 		switch r.kind {
 		case rowFile:
 			lines = append(lines, renderFileHeader(m.files[r.file], m.viewed[m.files[r.file].Path], cursor, width))
@@ -1314,7 +1332,7 @@ func (m Model) diffLines() []string {
 			lines = append(lines, renderHunk(m.lines[r.file][r.line].Text, width, cursor))
 		case rowLine:
 			selected := i >= from && i <= to && r.file == m.rows[m.cursor].file
-			lines = append(lines, renderLine(m.lines[r.file][r.line], m.tokens[r.file][r.line], width, cursor, selected))
+			lines = append(lines, renderLine(m.lines[r.file][r.line], m.tokens[r.file][r.line], width, 0, cursor, selected))
 		default:
 			lines = append(lines, r.text)
 		}

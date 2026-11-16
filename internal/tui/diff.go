@@ -49,7 +49,10 @@ var (
 	})
 )
 
-const gutterWidth = 14
+const (
+	gutterWidth = 14
+	lineGutter  = 15
+)
 
 type token struct {
 	text  string
@@ -118,7 +121,32 @@ func number(n int) string {
 	return fmt.Sprint(n)
 }
 
-func renderLine(l review.Line, tokens []token, width int, cursor, selected bool) string {
+func wrapTokens(tokens []token, width int) [][]token {
+	width = max(width-lineGutter, 1)
+	parts := [][]token{nil}
+	used := 0
+	for _, t := range tokens {
+		var b strings.Builder
+		for _, c := range t.text {
+			w := ansi.StringWidth(string(c))
+			if used+w > width && used > 0 {
+				if b.Len() > 0 {
+					parts[len(parts)-1] = append(parts[len(parts)-1], token{text: b.String(), style: t.style})
+					b.Reset()
+				}
+				parts, used = append(parts, nil), 0
+			}
+			b.WriteRune(c)
+			used += w
+		}
+		if b.Len() > 0 {
+			parts[len(parts)-1] = append(parts[len(parts)-1], token{text: b.String(), style: t.style})
+		}
+	}
+	return parts
+}
+
+func renderLine(l review.Line, tokens []token, width, part int, cursor, selected bool) string {
 	var bg color.Color
 	marker, markerColor := " ", colorDim
 	switch l.Kind {
@@ -143,11 +171,15 @@ func renderLine(l review.Line, tokens []token, width int, cursor, selected bool)
 		numStyle = base.Foreground(colorPrimary)
 		bar = base.Foreground(colorPrimary).Render("▌")
 	}
+	oldNum, newNum := number(l.Old), number(l.New)
+	if part > 0 {
+		oldNum, newNum, marker = "", "", " "
+	}
 	var b strings.Builder
 	b.WriteString(bar)
-	b.WriteString(numStyle.Render(fmt.Sprintf(" %4s %4s ", number(l.Old), number(l.New))))
+	b.WriteString(numStyle.Render(fmt.Sprintf(" %4s %4s ", oldNum, newNum)))
 	b.WriteString(base.Foreground(markerColor).Render(marker + "  "))
-	for _, t := range tokens {
+	for _, t := range wrapTokens(tokens, width)[part] {
 		b.WriteString(t.style.Inherit(base).Render(t.text))
 	}
 	return fit(b.String(), width, base)

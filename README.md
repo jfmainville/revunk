@@ -24,7 +24,7 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 - **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff.
 - **files** lists the changed files grouped by directory. Selecting a file scrolls the diff to it.
-- **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, both line numbers are shown, and code is syntax highlighted.
+- **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, both line numbers are shown, and code is syntax highlighted. Lines wider than the pane wrap onto the next rows without changing the file.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
 - **comments**, hidden until `n` is pressed, lists every comment on the branch with its file, lines, commit, and state. `enter` jumps to the selected comment, switching to its commit view when needed, and `dd` deletes it.
 - A file marked viewed collapses and stays viewed until its diff changes.
