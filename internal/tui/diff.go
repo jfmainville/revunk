@@ -51,8 +51,8 @@ var (
 )
 
 const (
-	gutterWidth = 14
-	lineGutter  = 15
+	gutterWidth = 9
+	lineGutter  = 10
 )
 
 type token struct {
@@ -184,13 +184,16 @@ func renderLine(l review.Line, tokens []token, width, part int, cursor, selected
 		numStyle = base.Foreground(colorPrimary)
 		bar = base.Foreground(colorPrimary).Render("▌")
 	}
-	oldNum, newNum := number(l.Old), number(l.New)
+	num := number(l.New)
+	if l.Kind == review.LineRemoved {
+		num = number(l.Old)
+	}
 	if part > 0 {
-		oldNum, newNum, marker = "", "", " "
+		num, marker = "", " "
 	}
 	var b strings.Builder
 	b.WriteString(bar)
-	b.WriteString(numStyle.Render(fmt.Sprintf(" %4s %4s ", oldNum, newNum)))
+	b.WriteString(numStyle.Render(fmt.Sprintf(" %4s ", num)))
 	b.WriteString(base.Foreground(markerColor).Render(marker + "  "))
 	for _, t := range wrapTokens(tokens, width)[part] {
 		b.WriteString(t.style.Inherit(base).Render(t.text))

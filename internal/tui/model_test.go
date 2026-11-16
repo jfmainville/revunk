@@ -191,7 +191,7 @@ func TestLoadedScreenMatchesDesignLayout(t *testing.T) {
 	if strings.Contains(out, "local changes on") {
 		t.Fatal("the top bar should only show the tab")
 	}
-	if !strings.Contains(out, "2      -  func old() {}") || !strings.Contains(out, "2 +  func a() {}") {
+	if !strings.Contains(out, "│     1    package main") || !strings.Contains(out, "     2 -  func old() {}") || !strings.Contains(out, "     2 +  func a() {}") || strings.Contains(out, "1    1") {
 		t.Fatalf("diff lines missing numbers or markers:\n%s", out)
 	}
 }
