@@ -99,7 +99,7 @@ func TestCommentFileLevel(t *testing.T) {
 
 func TestCommitsAndFilesWrapSourceErrors(t *testing.T) {
 	sourceErr := errors.New("boom")
-	svc := review.NewService(&fakeSource{err: sourceErr}, newStore(t), "feature")
+	svc := review.NewService(&fakeSource{err: sourceErr}, newStore(t), nil, "feature")
 
 	if _, err := svc.Commits(context.Background()); !errors.Is(err, sourceErr) || !strings.Contains(err.Error(), "feature") {
 		t.Fatalf("Commits: got %v", err)
@@ -118,7 +118,7 @@ func TestCommitsAndFilesWrapSourceErrors(t *testing.T) {
 func TestCommitsAndFilesReturnSourceData(t *testing.T) {
 	commits := []review.Commit{{SHA: "a1", Subject: "first"}}
 	files := []review.File{{Path: "a.go"}}
-	svc := review.NewService(&fakeSource{commits: commits, files: map[string][]review.File{"a1": files}}, newStore(t), "feature")
+	svc := review.NewService(&fakeSource{commits: commits, files: map[string][]review.File{"a1": files}}, newStore(t), nil, "feature")
 
 	gotCommits, err := svc.Commits(context.Background())
 	if err != nil || !reflect.DeepEqual(gotCommits, commits) {
@@ -136,7 +136,7 @@ func TestCommitsAndFilesReturnSourceData(t *testing.T) {
 func TestViewedResetsWhenFileChanges(t *testing.T) {
 	ctx := context.Background()
 	source := &fakeSource{files: map[string][]review.File{"": {{Path: "a.go", Patch: "+v1"}, {Path: "b.go", Patch: "+b"}}}}
-	svc := review.NewService(source, newStore(t), "feature")
+	svc := review.NewService(source, newStore(t), nil, "feature")
 
 	viewed, err := svc.ToggleViewed(ctx, "a.go")
 	if err != nil || !viewed {
@@ -167,17 +167,17 @@ func TestViewedIsScopedToBranch(t *testing.T) {
 	ctx := context.Background()
 	source := &fakeSource{files: map[string][]review.File{"": {{Path: "a.go", Patch: "+a"}}}}
 	st := newStore(t)
-	if _, err := review.NewService(source, st, "one").ToggleViewed(ctx, "a.go"); err != nil {
+	if _, err := review.NewService(source, st, nil, "one").ToggleViewed(ctx, "a.go"); err != nil {
 		t.Fatal(err)
 	}
 
-	if got, _ := review.NewService(source, st, "two").Viewed(ctx); got["a.go"] {
+	if got, _ := review.NewService(source, st, nil, "two").Viewed(ctx); got["a.go"] {
 		t.Fatal("viewed state leaked to another branch")
 	}
 }
 
 func TestToggleViewedRejectsUnknownFile(t *testing.T) {
-	svc := review.NewService(&fakeSource{}, newStore(t), "feature")
+	svc := review.NewService(&fakeSource{}, newStore(t), nil, "feature")
 	if _, err := svc.ToggleViewed(context.Background(), "nope.go"); err == nil || !strings.Contains(err.Error(), "nope.go") {
 		t.Fatalf("got %v, want error naming the file", err)
 	}
@@ -188,14 +188,14 @@ func TestViewedReturnsStoreErrors(t *testing.T) {
 	storeErr := errors.New("disk full")
 	source := &fakeSource{files: map[string][]review.File{"": {{Path: "a.go"}}}}
 
-	readFails := review.NewService(source, failingStore{viewedErr: storeErr}, "b")
+	readFails := review.NewService(source, failingStore{viewedErr: storeErr}, nil, "b")
 	if _, err := readFails.Viewed(ctx); !errors.Is(err, storeErr) {
 		t.Fatalf("Viewed: got %v", err)
 	}
 	if _, err := readFails.ToggleViewed(ctx, "a.go"); !errors.Is(err, storeErr) {
 		t.Fatalf("ToggleViewed read: got %v", err)
 	}
-	writeFails := review.NewService(source, failingStore{setErr: storeErr}, "b")
+	writeFails := review.NewService(source, failingStore{setErr: storeErr}, nil, "b")
 	if _, err := writeFails.ToggleViewed(ctx, "a.go"); !errors.Is(err, storeErr) {
 		t.Fatalf("ToggleViewed write: got %v", err)
 	}
@@ -204,7 +204,7 @@ func TestViewedReturnsStoreErrors(t *testing.T) {
 func TestAddCommentStoresCommentsPerBranch(t *testing.T) {
 	ctx := context.Background()
 	st := newStore(t)
-	svc := review.NewService(&fakeSource{}, st, "feature")
+	svc := review.NewService(&fakeSource{}, st, nil, "feature")
 	c := review.Comment{Kind: "nit", Path: "a.go", Side: review.SideRight, Start: 2, End: 3, Body: "Use `ctx` here."}
 
 	if err := svc.AddComment(ctx, c); err != nil {
@@ -215,14 +215,14 @@ func TestAddCommentStoresCommentsPerBranch(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, []review.Comment{c}) {
 		t.Fatalf("Comments = %v, %v", got, err)
 	}
-	if other, _ := review.NewService(&fakeSource{}, st, "other").Comments(ctx); len(other) != 0 {
+	if other, _ := review.NewService(&fakeSource{}, st, nil, "other").Comments(ctx); len(other) != 0 {
 		t.Fatalf("comments leaked to another branch: %v", other)
 	}
 }
 
 func TestAddCommentRejectsBlankBodyAndReturnsStoreErrors(t *testing.T) {
 	ctx := context.Background()
-	svc := review.NewService(&fakeSource{}, newStore(t), "feature")
+	svc := review.NewService(&fakeSource{}, newStore(t), nil, "feature")
 	if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: " \n "}); err == nil {
 		t.Fatal("blank comment accepted")
 	}
@@ -231,7 +231,7 @@ func TestAddCommentRejectsBlankBodyAndReturnsStoreErrors(t *testing.T) {
 	}
 
 	storeErr := errors.New("read only")
-	failing := review.NewService(&fakeSource{}, failingStore{setErr: storeErr, viewedErr: storeErr}, "feature")
+	failing := review.NewService(&fakeSource{}, failingStore{setErr: storeErr, viewedErr: storeErr}, nil, "feature")
 	if err := failing.AddComment(ctx, review.Comment{Path: "a.go", Body: "hi"}); !errors.Is(err, storeErr) {
 		t.Fatalf("AddComment: got %v", err)
 	}
@@ -245,7 +245,7 @@ func TestAddCommentRejectsBlankBodyAndReturnsStoreErrors(t *testing.T) {
 
 func TestDeleteCommentRemovesOnlyThatComment(t *testing.T) {
 	ctx := context.Background()
-	svc := review.NewService(&fakeSource{}, newStore(t), "feature")
+	svc := review.NewService(&fakeSource{}, newStore(t), nil, "feature")
 	for _, body := range []string{"one", "two", "three"} {
 		if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: body}); err != nil {
 			t.Fatal(err)
@@ -262,5 +262,88 @@ func TestDeleteCommentRemovesOnlyThatComment(t *testing.T) {
 	}
 	if err := svc.DeleteComment(ctx, 5); err == nil {
 		t.Fatal("deleting a missing comment should fail")
+	}
+}
+
+type fakeAgent struct {
+	text string
+	err  error
+}
+
+func (a *fakeAgent) Prompt(_ context.Context, text string) error {
+	a.text = text
+	return a.err
+}
+
+func promptService(t *testing.T, agent review.Agent) *review.Service {
+	t.Helper()
+	source := &fakeSource{files: map[string][]review.File{
+		"":          {{Path: "a.go", Patch: "@@ -1,3 +1,3 @@\n keep\n-old\n+new\n tail"}},
+		"abcdef123": {{Path: "b.go", Patch: "@@ -0,0 +1 @@\n+b"}},
+	}}
+	svc := review.NewService(source, newStore(t), agent, "feature")
+	for _, c := range []review.Comment{
+		{Kind: "issue", Path: "a.go", Side: review.SideRight, Start: 1, End: 2, Body: "fix it"},
+		{Kind: "question", Path: "a.go", Side: review.SideLeft, Start: 2, End: 2, Body: "why remove?"},
+		{Kind: "nit", Path: "a.go", Body: "whole file"},
+		{Kind: "praise", Commit: "abcdef123", Path: "b.go", Side: review.SideRight, Start: 1, End: 1, Body: "nice"},
+	} {
+		if err := svc.AddComment(context.Background(), c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return svc
+}
+
+func TestPromptListsEveryCommentWithItsCode(t *testing.T) {
+	got, err := promptService(t, nil).Prompt(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Address these review comments on branch feature.\n" +
+		"\n## 1. issue on a.go lines 1-2\n\n```\nkeep\nnew\n```\n\nfix it\n" +
+		"\n## 2. question on a.go removed line 2\n\n```\nold\n```\n\nwhy remove?\n" +
+		"\n## 3. nit on a.go\n\nwhole file\n" +
+		"\n## 4. praise on b.go line 1 in commit abcdef1\n\n```\nb\n```\n\nnice\n"
+	if got != want {
+		t.Fatalf("prompt =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestPromptErrors(t *testing.T) {
+	ctx := context.Background()
+	if _, err := review.NewService(&fakeSource{}, newStore(t), nil, "feature").Prompt(ctx); err == nil || !strings.Contains(err.Error(), "no comments on feature") {
+		t.Fatalf("empty prompt error = %v", err)
+	}
+	storeErr := errors.New("locked")
+	if _, err := review.NewService(&fakeSource{}, failingStore{viewedErr: storeErr}, nil, "b").Prompt(ctx); !errors.Is(err, storeErr) {
+		t.Fatalf("store error = %v", err)
+	}
+	st := newStore(t)
+	if err := st.AddComment(ctx, "b", review.Comment{Path: "a.go", Body: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	sourceErr := errors.New("bad revision")
+	if _, err := review.NewService(&fakeSource{err: sourceErr}, st, nil, "b").Prompt(ctx); !errors.Is(err, sourceErr) {
+		t.Fatalf("source error = %v", err)
+	}
+}
+
+func TestSendCommentsPromptsTheAgent(t *testing.T) {
+	ctx := context.Background()
+	agent := &fakeAgent{}
+	if err := promptService(t, agent).SendComments(ctx); err != nil || !strings.Contains(agent.text, "## 4. praise") {
+		t.Fatalf("SendComments = %v, sent %q", err, agent.text)
+	}
+	agentErr := errors.New("blocked")
+	if err := promptService(t, &fakeAgent{err: agentErr}).SendComments(ctx); !errors.Is(err, agentErr) {
+		t.Fatalf("agent error = %v", err)
+	}
+	if err := promptService(t, nil).SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
+		t.Fatalf("missing agent error = %v", err)
+	}
+	empty := &fakeAgent{}
+	if err := review.NewService(&fakeSource{}, newStore(t), empty, "x").SendComments(ctx); err == nil || empty.text != "" {
+		t.Fatalf("empty send = %v, sent %q", err, empty.text)
 	}
 }

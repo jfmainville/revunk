@@ -79,7 +79,7 @@ var sample = fakeSource{
 
 func newModel(t *testing.T, source review.Source, st *fakeStore) Model {
 	t.Helper()
-	m := New(review.NewService(source, st, "feature"), "revunk", "main")
+	m := New(review.NewService(source, st, nil, "feature"), "revunk", "main")
 	m = update(t, m, m.Init()())
 	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 }
@@ -97,20 +97,19 @@ func update(t *testing.T, m Model, msg tea.Msg) Model {
 }
 
 var specialKeys = map[string]tea.KeyPressMsg{
-	"enter":       {Code: tea.KeyEnter},
-	"shift+enter": {Code: tea.KeyEnter, Mod: tea.ModShift},
-	"esc":         {Code: tea.KeyEscape},
-	"tab":         {Code: tea.KeyTab},
-	"shift+tab":   {Code: tea.KeyTab, Mod: tea.ModShift},
-	"down":        {Code: tea.KeyDown},
-	"up":          {Code: tea.KeyUp},
-	"pgdown":      {Code: tea.KeyPgDown},
-	"pgup":        {Code: tea.KeyPgUp},
-	"ctrl+c":      {Code: 'c', Mod: tea.ModCtrl},
-	"ctrl+d":      {Code: 'd', Mod: tea.ModCtrl},
-	"ctrl+u":      {Code: 'u', Mod: tea.ModCtrl},
-	"ctrl+g":      {Code: 'g', Mod: tea.ModCtrl},
-	"ctrl+j":      {Code: 'j', Mod: tea.ModCtrl},
+	"enter":     {Code: tea.KeyEnter},
+	"esc":       {Code: tea.KeyEscape},
+	"tab":       {Code: tea.KeyTab},
+	"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},
+	"down":      {Code: tea.KeyDown},
+	"up":        {Code: tea.KeyUp},
+	"pgdown":    {Code: tea.KeyPgDown},
+	"pgup":      {Code: tea.KeyPgUp},
+	"ctrl+c":    {Code: 'c', Mod: tea.ModCtrl},
+	"ctrl+d":    {Code: 'd', Mod: tea.ModCtrl},
+	"ctrl+u":    {Code: 'u', Mod: tea.ModCtrl},
+	"ctrl+g":    {Code: 'g', Mod: tea.ModCtrl},
+	"ctrl+s":    {Code: 's', Mod: tea.ModCtrl},
 }
 
 func press(t *testing.T, m Model, keys ...string) (Model, tea.Cmd) {
@@ -188,7 +187,7 @@ func TestViewFitsTerminalAfterResize(t *testing.T) {
 }
 
 func TestRenderIsEmptyBeforeFirstWindowSizeAndUsesAltScreen(t *testing.T) {
-	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, "feature"), "revunk", "main")
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "revunk", "main")
 	if out := m.render(); out != "" {
 		t.Fatalf("expected empty render before sizing, got %q", out)
 	}
@@ -332,12 +331,12 @@ func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 
 	m, _ = press(t, m, "c")
-	if !m.editing || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "comment L2") {
+	if !m.editing || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "comment ─") || !strings.Contains(screen(m), " L2 ─") {
 		t.Fatalf("editor not open on L2:\n%s", screen(m))
 	}
 	m = typeText(t, m, "Rename `a`.")
 	m, _ = press(t, m, "tab", "tab", "tab")
-	m, cmd := press(t, m, "enter")
+	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 
 	want := review.Comment{Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "Rename `a`."}
@@ -346,8 +345,8 @@ func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
 	}
 	out := screen(m)
 	lineAt := strings.Index(out, "func a() {}")
-	commentAt := strings.Index(out, "◆ nit  L2  draft")
-	if m.editing || commentAt < lineAt || !strings.Contains(out, "Rename") || !strings.Contains(out, "1 comments") {
+	commentAt := strings.Index(out, "◆ nit")
+	if m.editing || commentAt < lineAt || !strings.Contains(out, "L2 · draft") || !strings.Contains(out, "Rename") || !strings.Contains(out, "1 comments") {
 		t.Fatalf("comment not rendered under its line:\n%s", out)
 	}
 }
@@ -363,7 +362,7 @@ func TestVisualRangeCommentsOnSelectedLines(t *testing.T) {
 	}
 	m, _ = press(t, m, "j", "j", "j", "c")
 	m = typeText(t, m, "Split this.")
-	m, cmd := press(t, m, "enter")
+	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 
 	got := st.comments[0]
@@ -401,7 +400,7 @@ func TestCommentOnRemovedLineUsesLeftSide(t *testing.T) {
 
 	m, _ = press(t, m, "c")
 	m = typeText(t, m, "why?")
-	m, cmd := press(t, m, "enter")
+	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 
 	if got := st.comments[0]; got.Side != review.SideLeft || got.End != 2 {
@@ -419,11 +418,11 @@ func TestFileCommentFromFilesPaneAndHeader(t *testing.T) {
 		t.Fatalf("C did not open a file comment: %+v", m.editor.target)
 	}
 	m = typeText(t, m, "Whole file looks good.")
-	m, cmd := press(t, m, "enter")
+	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 
 	out := screen(m)
-	if !strings.Contains(out, "◆ comment  file  draft") || strings.Index(out, "Whole file") > strings.Index(out, "package main") {
+	if !strings.Contains(out, "◆ comment") || !strings.Contains(out, "file · draft") || strings.Index(out, "Whole file") > strings.Index(out, "package main") {
 		t.Fatalf("file comment not shown below its header:\n%s", out)
 	}
 
@@ -448,7 +447,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 	m, _ = press(t, m, "V", "j", "c")
 
-	m, _ = press(t, m, "enter")
+	m, _ = press(t, m, "ctrl+s")
 	if !m.editing || !strings.Contains(screen(m), "write something") {
 		t.Fatal("blank comment should keep the editor open with a notice")
 	}
@@ -457,9 +456,10 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 		t.Fatalf("suggestion block = %q, want %q", m.editor.area.Value(), want)
 	}
 	m.editor.area.SetValue("first")
-	m, _ = press(t, m, "shift+enter")
+	m.editor.area.CursorEnd()
+	m, _ = press(t, m, "enter")
 	m = typeText(t, m, "second")
-	m, _ = press(t, m, "ctrl+j")
+	m, _ = press(t, m, "enter")
 	if m.editor.area.Value() != "first\nsecond\n" {
 		t.Fatalf("newlines not inserted: %q", m.editor.area.Value())
 	}
@@ -601,7 +601,7 @@ func TestCommentSaveErrorIsShown(t *testing.T) {
 	m := newModel(t, sample, st)
 	m, _ = press(t, m, "C")
 	m = typeText(t, m, "x")
-	m, cmd := press(t, m, "enter")
+	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 	if !strings.Contains(screen(m), "disk full") {
 		t.Fatal("save error not shown")
@@ -689,5 +689,95 @@ func TestSmallHelpers(t *testing.T) {
 	}
 	if got := ansi.Strip(renderFileHeader(review.File{Path: strings.Repeat("x", 50)}, false, false, 20)); lipgloss.Width(got) != 20 {
 		t.Fatalf("narrow header width = %d", lipgloss.Width(got))
+	}
+}
+
+type fakeAgent struct {
+	prompts []string
+	err     error
+}
+
+func (a *fakeAgent) Prompt(_ context.Context, text string) error {
+	a.prompts = append(a.prompts, text)
+	return a.err
+}
+
+func withComment(t *testing.T, agent review.Agent) Model {
+	t.Helper()
+	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename"}}}
+	m := New(review.NewService(sample, st, agent, "feature"), "revunk", "main")
+	m = update(t, m, m.Init()())
+	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+}
+
+func TestSendCommentsPromptsTheAgent(t *testing.T) {
+	agent := &fakeAgent{}
+	m := withComment(t, agent)
+
+	m, cmd := press(t, m, "S")
+	if !strings.Contains(screen(m), "sending comments") {
+		t.Fatal("no sending notice")
+	}
+	m = run(t, m, cmd)
+
+	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
+		t.Fatalf("prompts = %q", agent.prompts)
+	}
+	if !strings.Contains(screen(m), "sent 1 comments to Claude Code") {
+		t.Fatalf("missing sent notice:\n%s", screen(m))
+	}
+
+	failing := withComment(t, &fakeAgent{err: errors.New("no Claude Code session open")})
+	failing, cmd = press(t, failing, "S")
+	failing = run(t, failing, cmd)
+	if !strings.Contains(screen(failing), "no Claude Code session open") {
+		t.Fatal("agent error not shown")
+	}
+
+	empty, _ := loaded(t)
+	if empty, cmd = press(t, empty, "S"); cmd != nil || !strings.Contains(screen(empty), "no comments to send") {
+		t.Fatal("S without comments should explain")
+	}
+}
+
+func TestCopyCommentsWritesClipboard(t *testing.T) {
+	var copied string
+	orig := writeClipboard
+	writeClipboard = func(s string) error { copied = s; return nil }
+	t.Cleanup(func() { writeClipboard = orig })
+	m := withComment(t, nil)
+
+	m, cmd := press(t, m, "y")
+	updated, osc := m.Update(cmd())
+	m = updated.(Model)
+
+	if !strings.Contains(copied, "nit on a/main.go line 2") || !strings.Contains(copied, "func a() {}") {
+		t.Fatalf("clipboard = %q", copied)
+	}
+	if osc == nil || !strings.Contains(screen(m), "copied 1 comments") {
+		t.Fatal("copy should also set the terminal clipboard and confirm")
+	}
+
+	empty, _ := loaded(t)
+	if empty, cmd = press(t, empty, "y"); cmd != nil || !strings.Contains(screen(empty), "no comments to copy") {
+		t.Fatal("y without comments should explain")
+	}
+	stale, _ := loaded(t)
+	stale.comments = []review.Comment{{Path: "x"}}
+	stale, cmd = press(t, stale, "y")
+	stale = run(t, stale, cmd)
+	if !strings.Contains(screen(stale), "no comments on feature") {
+		t.Fatalf("prompt error not shown:\n%s", screen(stale))
+	}
+}
+
+func TestCommentsAndEditorAreDrawnInBorderedBoxes(t *testing.T) {
+	m := withComment(t, nil)
+	if out := screen(m); !strings.Contains(out, "╭─ ◆ nit") || !strings.Contains(out, "rename") {
+		t.Fatalf("comment box missing:\n%s", out)
+	}
+	m, _ = press(t, m, "C")
+	if out := screen(m); !strings.Contains(out, "╭─ comment") || !strings.Contains(out, "^s save") {
+		t.Fatalf("editor box missing:\n%s", out)
 	}
 }

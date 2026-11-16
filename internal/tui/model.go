@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 
 	"github.com/jfmainville/revunk/internal/review"
 )
@@ -68,6 +69,14 @@ type commentsMsg struct {
 	comments []review.Comment
 	err      error
 }
+
+type actionMsg struct {
+	notice    string
+	clipboard string
+	err       error
+}
+
+var writeClipboard = clipboard.WriteAll
 
 type Model struct {
 	svc        *review.Service
@@ -168,6 +177,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
+	case actionMsg:
+		m.err, m.notice = msg.err, msg.notice
+		if msg.clipboard != "" {
+			return m, tea.SetClipboard(msg.clipboard)
+		}
 	case tea.KeyPressMsg:
 		m.notice = ""
 		if m.editing {
@@ -235,6 +249,10 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.toggleViewed()
 	case "C":
 		return m, m.openEditor(review.Comment{Commit: m.commitSHA(), Path: m.currentPath()})
+	case "S":
+		return m, m.sendComments()
+	case "y":
+		return m, m.copyComments()
 	}
 	switch m.focus {
 	case focusCommits:
@@ -303,7 +321,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.editing = false
 		m.relayout()
 		return m, nil
-	case "enter":
+	case "ctrl+s":
 		body := strings.TrimSpace(m.editor.area.Value())
 		if body == "" {
 			m.notice = "write something before saving"
@@ -314,8 +332,6 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.editing = false
 		m.relayout()
 		return m, m.saveComment(c)
-	case "shift+enter", "ctrl+j":
-		m.editor.area.InsertString("\n")
 	case "tab":
 		m.editor.kind = (m.editor.kind + 1) % len(commentKinds)
 	case "shift+tab":
@@ -497,7 +513,7 @@ func (m *Model) openEditor(target review.Comment) tea.Cmd {
 }
 
 func (m Model) editorWidth() int {
-	return max(m.diffWidth()-gutterWidth-2, 10)
+	return max(commentWidth(m.diffWidth())-4, 10)
 }
 
 func (m Model) original(c review.Comment) []string {
@@ -552,6 +568,37 @@ func (m *Model) deleteComment() tea.Cmd {
 		}
 		comments, err := svc.Comments(context.Background())
 		return commentsMsg{comments: comments, err: err}
+	}
+}
+
+func (m *Model) sendComments() tea.Cmd {
+	if len(m.comments) == 0 {
+		m.notice = "no comments to send"
+		return nil
+	}
+	svc, n := m.svc, len(m.comments)
+	m.notice = "sending comments to Claude Code…"
+	return func() tea.Msg {
+		if err := svc.SendComments(context.Background()); err != nil {
+			return actionMsg{err: err}
+		}
+		return actionMsg{notice: fmt.Sprintf("sent %d comments to Claude Code", n)}
+	}
+}
+
+func (m *Model) copyComments() tea.Cmd {
+	if len(m.comments) == 0 {
+		m.notice = "no comments to copy"
+		return nil
+	}
+	svc, n := m.svc, len(m.comments)
+	return func() tea.Msg {
+		text, err := svc.Prompt(context.Background())
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		_ = writeClipboard(text)
+		return actionMsg{notice: fmt.Sprintf("copied %d comments", n), clipboard: text}
 	}
 }
 
@@ -662,8 +709,6 @@ func (m *Model) addComment(index, file int) {
 }
 
 func (m *Model) addEditor(file int) {
-	indent := strings.Repeat(" ", gutterWidth-2)
-	bar := primaryStyle.Render("┃ ")
 	chips := make([]string, len(commentKinds))
 	for i, k := range commentKinds {
 		chips[i] = dimStyle.Render(k)
@@ -671,16 +716,15 @@ func (m *Model) addEditor(file int) {
 			chips[i] = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render(k)
 		}
 	}
-	lines := []string{indent + bar + "comment " + dimStyle.Render(lineLabel(m.editor.target)) + "  " + strings.Join(chips, "  ")}
-	for _, l := range strings.Split(m.editor.area.View(), "\n") {
-		lines = append(lines, indent+bar+l)
-	}
-	lines = append(lines, indent+bar+hints("⏎", "save", "⇧⏎", "newline", "⇥", "type", "^g", "suggestion", "esc", "cancel"))
-	for _, l := range lines {
+	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(m.editor.area.View(), "\n")...)
+	lines = append(lines, hints(editorHints...))
+	for _, l := range commentBox("comment", lineLabel(m.editor.target), lines, m.diffWidth(), true) {
 		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
 	}
 	m.rows = append(m.rows, row{kind: rowText, file: file})
 }
+
+var editorHints = []string{"^s", "save", "⏎", "newline", "⇥", "type", "^g", "suggestion", "esc", "cancel"}
 
 func hints(pairs ...string) string {
 	parts := make([]string, 0, len(pairs)/2)
@@ -916,11 +960,11 @@ func (m Model) statusLine() string {
 func (m Model) footer() string {
 	switch {
 	case m.editing:
-		return hints("⏎", "save", "⇧⏎", "newline", "⇥", "type", "^g", "suggestion", "esc", "cancel")
+		return hints(editorHints...)
 	case m.anchor >= 0:
 		return hints("c", "comment range", "j k", "extend", "esc", "cancel")
 	}
-	return hints("c", "comment", "C", "file comment", "v", "range", "r", "viewed", "]f", "next file", "dd", "delete", "tab", "focus", "?", "help")
+	return hints("c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
 }
 
 func helpLines() []string {
@@ -939,10 +983,12 @@ func helpLines() []string {
 		{"C", "comment on the whole file"},
 		{"dd", "delete comment under cursor"},
 		{"r", "mark file viewed until it changes"},
+		{"S", "send every comment to Claude Code"},
+		{"y", "copy every comment"},
 		{"", ""},
 		{"comment editor", ""},
-		{"⏎", "save"},
-		{"⇧⏎ C-j", "newline"},
+		{"C-s", "save"},
+		{"⏎", "newline"},
 		{"⇥", "cycle type"},
 		{"C-g", "insert a suggestion block for the lines"},
 		{"esc", "cancel"},

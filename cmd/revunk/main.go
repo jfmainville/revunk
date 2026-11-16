@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/jfmainville/revunk/internal/agent/herdr"
 	"github.com/jfmainville/revunk/internal/provider/git"
 	"github.com/jfmainville/revunk/internal/review"
 	"github.com/jfmainville/revunk/internal/store"
@@ -85,6 +86,6 @@ func setup(ctx context.Context, dir, base string) (tui.Model, error) {
 	if err != nil {
 		return tui.Model{}, err
 	}
-	svc := review.NewService(git.Source{Dir: root, Base: base}, st, branch)
+	svc := review.NewService(git.Source{Dir: root, Base: base}, st, herdr.Agent{Dir: root}, branch)
 	return tui.New(svc, filepath.Base(root), base), nil
 }

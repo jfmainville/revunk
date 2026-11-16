@@ -249,13 +249,24 @@ func renderMarkdown(body string, width int) []string {
 	return lines
 }
 
-func renderComment(c review.Comment, original []string, width int) []string {
-	bar := primaryStyle.Render("┃ ")
+func commentWidth(width int) int {
+	return width - gutterWidth + 1
+}
+
+func commentBox(title, right string, lines []string, width int, focused bool) []string {
+	padded := make([]string, len(lines))
+	for i, l := range lines {
+		padded[i] = " " + l
+	}
 	indent := strings.Repeat(" ", gutterWidth-2)
-	inner := max(width-gutterWidth-2, 10)
-	out := []string{indent + bar + primaryStyle.Render("◆ "+c.Kind+"  ") + dimStyle.Render(lineLabel(c)+"  draft")}
-	for _, l := range renderMarkdown(expandSuggestions(c.Body, original), inner) {
-		out = append(out, ansi.Truncate(indent+bar+l, width, ""))
+	out := strings.Split(box(title, right, padded, commentWidth(width), len(lines)+2, focused), "\n")
+	for i, l := range out {
+		out[i] = indent + l
 	}
 	return out
+}
+
+func renderComment(c review.Comment, original []string, width int) []string {
+	body := renderMarkdown(expandSuggestions(c.Body, original), max(commentWidth(width)-4, 10))
+	return commentBox(primaryStyle.Render("◆ "+c.Kind), lineLabel(c)+" · draft", body, width, false)
 }

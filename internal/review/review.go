@@ -121,14 +121,19 @@ type Store interface {
 	DeleteComment(ctx context.Context, branch string, index int) error
 }
 
+type Agent interface {
+	Prompt(ctx context.Context, text string) error
+}
+
 type Service struct {
 	source Source
 	store  Store
+	agent  Agent
 	branch string
 }
 
-func NewService(source Source, store Store, branch string) *Service {
-	return &Service{source: source, store: store, branch: branch}
+func NewService(source Source, store Store, agent Agent, branch string) *Service {
+	return &Service{source: source, store: store, agent: agent, branch: branch}
 }
 
 func (s *Service) Branch() string {
@@ -209,4 +214,78 @@ func (s *Service) AddComment(ctx context.Context, c Comment) error {
 
 func (s *Service) DeleteComment(ctx context.Context, index int) error {
 	return s.store.DeleteComment(ctx, s.branch, index)
+}
+
+func (s *Service) Prompt(ctx context.Context) (string, error) {
+	comments, err := s.Comments(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(comments) == 0 {
+		return "", errors.New("no comments on " + s.branch)
+	}
+	files := map[string][]File{}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Address these review comments on branch %s.\n", s.branch)
+	for i, c := range comments {
+		if _, ok := files[c.Commit]; !ok {
+			if files[c.Commit], err = s.Files(ctx, c.Commit); err != nil {
+				return "", err
+			}
+		}
+		fmt.Fprintf(&b, "\n## %d. %s on %s", i+1, c.Kind, c.Path)
+		if !c.FileLevel() {
+			side := ""
+			if c.Side == SideLeft {
+				side = "removed "
+			}
+			lines := fmt.Sprintf("lines %d-%d", c.Start, c.End)
+			if c.Start == c.End {
+				lines = fmt.Sprintf("line %d", c.End)
+			}
+			b.WriteString(" " + side + lines)
+		}
+		if c.Commit != "" {
+			fmt.Fprintf(&b, " in commit %s", Commit{SHA: c.Commit}.Short())
+		}
+		b.WriteString("\n\n")
+		if code := commented(files[c.Commit], c); len(code) > 0 {
+			b.WriteString("```\n" + strings.Join(code, "\n") + "\n```\n\n")
+		}
+		b.WriteString(c.Body + "\n")
+	}
+	return b.String(), nil
+}
+
+func commented(files []File, c Comment) []string {
+	if c.FileLevel() {
+		return nil
+	}
+	var code []string
+	for _, f := range files {
+		if f.Path != c.Path {
+			continue
+		}
+		for _, l := range ParseLines(f.Patch) {
+			skip, n := LineRemoved, l.New
+			if c.Side == SideLeft {
+				skip, n = LineAdded, l.Old
+			}
+			if l.Kind != LineHunk && l.Kind != skip && n >= c.Start && n <= c.End {
+				code = append(code, l.Text)
+			}
+		}
+	}
+	return code
+}
+
+func (s *Service) SendComments(ctx context.Context) error {
+	if s.agent == nil {
+		return errors.New("no coding agent is configured")
+	}
+	text, err := s.Prompt(ctx)
+	if err != nil {
+		return err
+	}
+	return s.agent.Prompt(ctx, text)
 }
