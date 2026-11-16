@@ -1283,7 +1283,7 @@ func box(title, right string, lines []string, width, height int, accent color.Co
 
 func (m Model) tabBar() string {
 	tab := lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render(" Agent ")
-	left := tab + "  " + dimStyle.Render("local changes on "+m.svc.Branch())
+	left := tab
 	right := dimStyle.Render("▌ ") + "revunk"
 	if gap := m.width - lipgloss.Width(left) - lipgloss.Width(right); gap > 0 {
 		return left + strings.Repeat(" ", gap) + right

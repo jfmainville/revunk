@@ -178,10 +178,13 @@ func TestLoadedScreenMatchesDesignLayout(t *testing.T) {
 	m, _ := loaded(t)
 	out := screen(m)
 
-	for _, want := range []string{"Agent", "Agent   local changes on feature", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
+	for _, want := range []string{"Agent", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
 		}
+	}
+	if strings.Contains(out, "local changes on") {
+		t.Fatal("the top bar should only show the tab")
 	}
 	if !strings.Contains(out, "2      -  func old() {}") || !strings.Contains(out, "2 +  func a() {}") {
 		t.Fatalf("diff lines missing numbers or markers:\n%s", out)
