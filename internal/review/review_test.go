@@ -3,6 +3,7 @@ package review_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/jfmainville/revunk/internal/review"
@@ -18,7 +19,39 @@ func (f fakeSource) Files(context.Context, review.PullRequest) ([]review.File, e
 	return f.files, f.err
 }
 
+type failingStore struct {
+	viewedErr, setErr error
+}
+
+func (s failingStore) SetViewed(context.Context, review.PullRequest, string, bool) error {
+	return s.setErr
+}
+
+func (s failingStore) Viewed(context.Context, review.PullRequest) (map[string]bool, error) {
+	return map[string]bool{}, s.viewedErr
+}
+
 var pr = review.PullRequest{Owner: "octo", Repo: "demo", Number: 7}
+
+func TestPullRequestString(t *testing.T) {
+	if got := pr.String(); got != "octo/demo#7" {
+		t.Fatalf("got %q, want %q", got, "octo/demo#7")
+	}
+}
+
+func TestFilesReturnsSourceFiles(t *testing.T) {
+	want := []review.File{{Path: "a.go", Status: review.StatusAdded, Additions: 1}}
+	svc := review.NewService(fakeSource{files: want}, store.NewMemory())
+
+	got, err := svc.Files(context.Background(), pr)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
 
 func TestFilesWrapsSourceError(t *testing.T) {
 	sourceErr := errors.New("boom")
@@ -59,5 +92,23 @@ func TestToggleViewedFlipsAndPersistsPerPullRequest(t *testing.T) {
 	}
 	if otherViewed["main.go"] {
 		t.Fatal("viewed state leaked to another pull request")
+	}
+}
+
+func TestViewedAndToggleViewedReturnStoreErrors(t *testing.T) {
+	ctx := context.Background()
+	storeErr := errors.New("disk full")
+
+	readFails := review.NewService(fakeSource{}, failingStore{viewedErr: storeErr})
+	if _, err := readFails.Viewed(ctx, pr); !errors.Is(err, storeErr) {
+		t.Fatalf("Viewed: got %v, want %v", err, storeErr)
+	}
+	if _, err := readFails.ToggleViewed(ctx, pr, "a.go"); !errors.Is(err, storeErr) {
+		t.Fatalf("ToggleViewed read: got %v, want %v", err, storeErr)
+	}
+
+	writeFails := review.NewService(fakeSource{}, failingStore{setErr: storeErr})
+	if _, err := writeFails.ToggleViewed(ctx, pr, "a.go"); !errors.Is(err, storeErr) {
+		t.Fatalf("ToggleViewed write: got %v, want %v", err, storeErr)
 	}
 }
