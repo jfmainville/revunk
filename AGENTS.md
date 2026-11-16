@@ -11,7 +11,7 @@ Revunk is a pull request review tool written in Go with a Bubble Tea terminal in
 - Test: `go test ./...`
 - Coverage: `go test -cover ./...`
 
-Run format, vet, and tests before every commit. All must pass.
+Run format, vet, and tests before every commit. All must pass. CI runs the same checks on every pull request through `.github/workflows/validation.yml`, which calls the reusable `.github/workflows/validation-go.yml`.
 
 ## Architecture
 
