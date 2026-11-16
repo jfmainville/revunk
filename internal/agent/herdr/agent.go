@@ -13,10 +13,12 @@ type Agent struct {
 	Dir string
 }
 
-func (a Agent) Prompt(ctx context.Context, text string) error {
+var names = map[string]string{"claude": "Claude Code", "opencode": "opencode"}
+
+func (a Agent) Prompt(ctx context.Context, text string) (string, error) {
 	out, err := run(ctx, "agent", "list")
 	if err != nil {
-		return err
+		return "", err
 	}
 	var list struct {
 		Result struct {
@@ -28,16 +30,16 @@ func (a Agent) Prompt(ctx context.Context, text string) error {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(out, &list); err != nil {
-		return fmt.Errorf("read herdr agents: %w", err)
+		return "", fmt.Errorf("read herdr agents: %w", err)
 	}
 	for _, ag := range list.Result.Agents {
 		inRepo := ag.Cwd == a.Dir || strings.HasPrefix(ag.Cwd, a.Dir+"/")
-		if ag.Agent == "claude" && inRepo && ag.PaneID != os.Getenv("HERDR_PANE_ID") {
+		if name, ok := names[ag.Agent]; ok && inRepo && ag.PaneID != os.Getenv("HERDR_PANE_ID") {
 			_, err := run(ctx, "agent", "prompt", ag.PaneID, text)
-			return err
+			return name, err
 		}
 	}
-	return fmt.Errorf("no Claude Code session open in %s", a.Dir)
+	return "", fmt.Errorf("no Claude Code or opencode session open in %s", a.Dir)
 }
 
 func run(ctx context.Context, args ...string) ([]byte, error) {

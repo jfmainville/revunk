@@ -697,9 +697,9 @@ type fakeAgent struct {
 	err     error
 }
 
-func (a *fakeAgent) Prompt(_ context.Context, text string) error {
+func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
 	a.prompts = append(a.prompts, text)
-	return a.err
+	return "opencode", a.err
 }
 
 func withComment(t *testing.T, agent review.Agent) Model {
@@ -715,7 +715,7 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	m := withComment(t, agent)
 
 	m, cmd := press(t, m, "S")
-	if !strings.Contains(screen(m), "sending comments") {
+	if !strings.Contains(screen(m), "sending comments to the coding agent") {
 		t.Fatal("no sending notice")
 	}
 	m = run(t, m, cmd)
@@ -723,7 +723,7 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
 		t.Fatalf("prompts = %q", agent.prompts)
 	}
-	if !strings.Contains(screen(m), "sent 1 comments to Claude Code") {
+	if !strings.Contains(screen(m), "sent 1 comments to opencode") {
 		t.Fatalf("missing sent notice:\n%s", screen(m))
 	}
 

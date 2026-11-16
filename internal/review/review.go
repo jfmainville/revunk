@@ -122,7 +122,7 @@ type Store interface {
 }
 
 type Agent interface {
-	Prompt(ctx context.Context, text string) error
+	Prompt(ctx context.Context, text string) (string, error)
 }
 
 type Service struct {
@@ -279,13 +279,13 @@ func commented(files []File, c Comment) []string {
 	return code
 }
 
-func (s *Service) SendComments(ctx context.Context) error {
+func (s *Service) SendComments(ctx context.Context) (string, error) {
 	if s.agent == nil {
-		return errors.New("no coding agent is configured")
+		return "", errors.New("no coding agent is configured")
 	}
 	text, err := s.Prompt(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return s.agent.Prompt(ctx, text)
 }

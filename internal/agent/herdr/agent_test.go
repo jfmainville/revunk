@@ -12,7 +12,7 @@ const agents = `{"result":{"agents":[
 {"agent":"codex","cwd":"/repo","pane_id":"p1"},
 {"agent":"claude","cwd":"/repo-other","pane_id":"p2"},
 {"agent":"claude","cwd":"/repo","pane_id":"self"},
-{"agent":"claude","cwd":"/repo/sub","pane_id":"p4"},
+{"agent":"opencode","cwd":"/repo/sub","pane_id":"p4"},
 {"agent":"claude","cwd":"/repo","pane_id":"p5"}]}}`
 
 func fakeHerdr(t *testing.T, list string, promptExit int) string {
@@ -28,11 +28,12 @@ func fakeHerdr(t *testing.T, list string, promptExit int) string {
 	return log
 }
 
-func TestPromptSendsToFirstClaudeSessionInRepo(t *testing.T) {
+func TestPromptSendsToFirstSupportedSessionInRepo(t *testing.T) {
 	log := fakeHerdr(t, agents, 0)
 
-	if err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "fix\nthis"); err != nil {
-		t.Fatal(err)
+	name, err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "fix\nthis")
+	if err != nil || name != "opencode" {
+		t.Fatalf("Prompt = %q, %v", name, err)
 	}
 
 	got, err := os.ReadFile(log)
@@ -44,24 +45,31 @@ func TestPromptSendsToFirstClaudeSessionInRepo(t *testing.T) {
 	}
 }
 
+func TestPromptSendsToClaudeCode(t *testing.T) {
+	fakeHerdr(t, `{"result":{"agents":[{"agent":"claude","cwd":"/repo","pane_id":"p1"}]}}`, 0)
+	if name, err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err != nil || name != "Claude Code" {
+		t.Fatalf("Prompt = %q, %v", name, err)
+	}
+}
+
 func TestPromptFailsWithoutMatchingSession(t *testing.T) {
 	fakeHerdr(t, `{"result":{"agents":[{"agent":"claude","cwd":"/elsewhere","pane_id":"p1"}]}}`, 0)
-	if err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "no Claude Code session open in /repo") {
+	if _, err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "no Claude Code or opencode session open in /repo") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
 func TestPromptReportsHerdrErrors(t *testing.T) {
 	fakeHerdr(t, agents, 1)
-	if err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "agent_blocked") {
+	if _, err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "agent_blocked") {
 		t.Fatalf("prompt error = %v", err)
 	}
 	fakeHerdr(t, "not json", 0)
-	if err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "read herdr agents") {
+	if _, err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "read herdr agents") {
 		t.Fatalf("bad list error = %v", err)
 	}
 	t.Setenv("PATH", t.TempDir())
-	if err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "herdr agent list") {
+	if _, err := (Agent{Dir: "/repo"}).Prompt(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "herdr agent list") {
 		t.Fatalf("missing herdr error = %v", err)
 	}
 }

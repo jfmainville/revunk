@@ -6,7 +6,7 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 
 - Go 1.26 or later
 - `git`
-- [herdr](https://herdr.dev), only to send comments to Claude Code with `S`
+- [herdr](https://herdr.dev), only to send comments to Claude Code or opencode with `S`
 
 ## Commands
 
@@ -30,7 +30,7 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 Comments and viewed state are saved per branch in `.git/revunk.json`.
 
-`S` sends every comment on the branch to the Claude Code session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its file, lines, commit, and the commented code. Sending looks up the session with `herdr agent list`, picking a Claude Code pane whose directory is inside the repository, and submits the text with `herdr agent prompt`.
+`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its file, lines, commit, and the commented code. Sending looks up the session with `herdr agent list`, picking the first Claude Code or opencode pane whose directory is inside the repository, and submits the text with `herdr agent prompt`.
 
 ### Keys
 
@@ -49,7 +49,7 @@ Comments and viewed state are saved per branch in `.git/revunk.json`.
 | `C`                    | Comment on the whole file                              |
 | `dd`                   | Delete the comment under the cursor                    |
 | `r`                    | Toggle the file's viewed state                         |
-| `S`                    | Send every comment to Claude Code                      |
+| `S`                    | Send every comment to Claude Code or opencode          |
 | `y`                    | Copy every comment to the clipboard                    |
 | `?`                    | Show every key                                         |
 | `esc`                  | Stop selecting or close the help                       |
@@ -80,6 +80,6 @@ revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
 | `cmd/revunk`            | CLI entry point and dependency wiring                                                                                                           |
 | `internal/review`       | Review domain types, diff line parsing, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
 | `internal/provider/git` | Local git provider implementing `review.Source` for the commits on the current branch. Code hosts such as GitHub go in sibling packages.        |
-| `internal/agent/herdr`  | Sends prompts to a Claude Code session running in a `herdr` pane, implementing `review.Agent`                                                   |
+| `internal/agent/herdr`  | Sends prompts to a Claude Code or opencode session running in a `herdr` pane, implementing `review.Agent`                                       |
 | `internal/store`        | JSON file store implementing `review.Store`                                                                                                     |
 | `internal/tui`          | Bubble Tea presentation layer, with `chroma` for syntax highlighting and `glamour` for Markdown comments                                        |

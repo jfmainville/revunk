@@ -577,12 +577,13 @@ func (m *Model) sendComments() tea.Cmd {
 		return nil
 	}
 	svc, n := m.svc, len(m.comments)
-	m.notice = "sending comments to Claude Code…"
+	m.notice = "sending comments to the coding agent…"
 	return func() tea.Msg {
-		if err := svc.SendComments(context.Background()); err != nil {
+		agent, err := svc.SendComments(context.Background())
+		if err != nil {
 			return actionMsg{err: err}
 		}
-		return actionMsg{notice: fmt.Sprintf("sent %d comments to Claude Code", n)}
+		return actionMsg{notice: fmt.Sprintf("sent %d comments to %s", n, agent)}
 	}
 }
 
@@ -983,7 +984,7 @@ func helpLines() []string {
 		{"C", "comment on the whole file"},
 		{"dd", "delete comment under cursor"},
 		{"r", "mark file viewed until it changes"},
-		{"S", "send every comment to Claude Code"},
+		{"S", "send every comment to Claude Code or opencode"},
 		{"y", "copy every comment"},
 		{"", ""},
 		{"comment editor", ""},

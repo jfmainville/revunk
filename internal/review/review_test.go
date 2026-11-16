@@ -270,9 +270,9 @@ type fakeAgent struct {
 	err  error
 }
 
-func (a *fakeAgent) Prompt(_ context.Context, text string) error {
+func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
 	a.text = text
-	return a.err
+	return "opencode", a.err
 }
 
 func promptService(t *testing.T, agent review.Agent) *review.Service {
@@ -332,18 +332,18 @@ func TestPromptErrors(t *testing.T) {
 func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	ctx := context.Background()
 	agent := &fakeAgent{}
-	if err := promptService(t, agent).SendComments(ctx); err != nil || !strings.Contains(agent.text, "## 4. praise") {
-		t.Fatalf("SendComments = %v, sent %q", err, agent.text)
+	if name, err := promptService(t, agent).SendComments(ctx); err != nil || name != "opencode" || !strings.Contains(agent.text, "## 4. praise") {
+		t.Fatalf("SendComments = %q, %v, sent %q", name, err, agent.text)
 	}
 	agentErr := errors.New("blocked")
-	if err := promptService(t, &fakeAgent{err: agentErr}).SendComments(ctx); !errors.Is(err, agentErr) {
+	if _, err := promptService(t, &fakeAgent{err: agentErr}).SendComments(ctx); !errors.Is(err, agentErr) {
 		t.Fatalf("agent error = %v", err)
 	}
-	if err := promptService(t, nil).SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
+	if _, err := promptService(t, nil).SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
 		t.Fatalf("missing agent error = %v", err)
 	}
 	empty := &fakeAgent{}
-	if err := review.NewService(&fakeSource{}, newStore(t), empty, "x").SendComments(ctx); err == nil || empty.text != "" {
+	if _, err := review.NewService(&fakeSource{}, newStore(t), empty, "x").SendComments(ctx); err == nil || empty.text != "" {
 		t.Fatalf("empty send = %v, sent %q", err, empty.text)
 	}
 }
