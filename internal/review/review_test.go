@@ -38,7 +38,7 @@ func (s failingStore) AddComment(context.Context, string, review.Comment) error 
 func (s failingStore) Comments(context.Context, string) ([]review.Comment, error) {
 	return nil, s.viewedErr
 }
-func (s failingStore) DeleteComment(context.Context, string, int) error { return s.setErr }
+func (s failingStore) DeleteComments(context.Context, string, int, int) error { return s.setErr }
 
 func newStore(t *testing.T) *store.JSON {
 	t.Helper()
@@ -265,6 +265,35 @@ func TestDeleteCommentRemovesOnlyThatComment(t *testing.T) {
 	}
 }
 
+func TestDeleteAllCommentsClearsOnlyThisBranch(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	svc := review.NewService(&fakeSource{}, st, nil, "feature")
+	if err := svc.DeleteAllComments(ctx); err != nil {
+		t.Fatalf("clearing no comments = %v", err)
+	}
+	for _, branch := range []string{"feature", "feature", "other"} {
+		if err := st.AddComment(ctx, branch, review.Comment{Path: "a.go", Body: "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := svc.DeleteAllComments(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, _ := svc.Comments(ctx); len(got) != 0 {
+		t.Fatalf("comments left = %v", got)
+	}
+	if got, _ := st.Comments(ctx, "other"); len(got) != 1 {
+		t.Fatalf("other branch comments = %v", got)
+	}
+	storeErr := errors.New("locked")
+	if err := review.NewService(&fakeSource{}, failingStore{viewedErr: storeErr}, nil, "b").DeleteAllComments(ctx); !errors.Is(err, storeErr) {
+		t.Fatalf("store error = %v", err)
+	}
+}
+
 type fakeAgent struct {
 	text string
 	err  error
@@ -332,12 +361,20 @@ func TestPromptErrors(t *testing.T) {
 func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	ctx := context.Background()
 	agent := &fakeAgent{}
-	if name, err := promptService(t, agent).SendComments(ctx); err != nil || name != "opencode" || !strings.Contains(agent.text, "## 4. praise") {
+	svc := promptService(t, agent)
+	if name, err := svc.SendComments(ctx); err != nil || name != "opencode" || !strings.Contains(agent.text, "## 4. praise") {
 		t.Fatalf("SendComments = %q, %v, sent %q", name, err, agent.text)
 	}
+	if left, _ := svc.Comments(ctx); len(left) != 0 {
+		t.Fatalf("sent comments were kept: %v", left)
+	}
 	agentErr := errors.New("blocked")
-	if _, err := promptService(t, &fakeAgent{err: agentErr}).SendComments(ctx); !errors.Is(err, agentErr) {
+	failing := promptService(t, &fakeAgent{err: agentErr})
+	if _, err := failing.SendComments(ctx); !errors.Is(err, agentErr) {
 		t.Fatalf("agent error = %v", err)
+	}
+	if left, _ := failing.Comments(ctx); len(left) != 4 {
+		t.Fatalf("comments removed after a failed send: %v", left)
 	}
 	if _, err := promptService(t, nil).SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
 		t.Fatalf("missing agent error = %v", err)

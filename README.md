@@ -30,7 +30,7 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 Comments and viewed state are saved per branch in `.git/revunk.json`.
 
-`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its file, lines, commit, and the commented code. `S` picks the first Claude Code or opencode session whose directory is inside the repository, skipping the pane Revunk runs in, and tries these in order.
+`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. Comments are removed once the agent accepts them and kept when sending fails. The text lists each comment with its file, lines, commit, and the commented code. `S` picks the first Claude Code or opencode session whose directory is inside the repository, skipping the pane Revunk runs in, and tries these in order.
 
 1. A `herdr` pane listed by `herdr agent list`, prompted with `herdr agent prompt`.
 2. A `tmux` pane running `claude` or `opencode`, pasted into with `tmux paste-buffer` and submitted with `Enter`.
@@ -52,8 +52,9 @@ Comments and viewed state are saved per branch in `.git/revunk.json`.
 | `c`                    | Comment on the current line, the range, or file header |
 | `C`                    | Comment on the whole file                              |
 | `dd`                   | Delete the comment under the cursor                    |
+| `DD`                   | Delete every comment on the branch                     |
 | `r`                    | Toggle the file's viewed state                         |
-| `S`                    | Send every comment to Claude Code or opencode          |
+| `S`                    | Send every comment to the agent and remove them        |
 | `y`                    | Copy every comment to the clipboard                    |
 | `?`                    | Show every key                                         |
 | `esc`                  | Stop selecting or close the help                       |

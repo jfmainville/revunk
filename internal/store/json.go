@@ -93,14 +93,14 @@ func (s *JSON) AddComment(_ context.Context, branch string, c review.Comment) er
 	return s.save()
 }
 
-func (s *JSON) DeleteComment(_ context.Context, branch string, index int) error {
+func (s *JSON) DeleteComments(_ context.Context, branch string, from, to int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	comments := s.state.Comments[branch]
-	if index < 0 || index >= len(comments) {
-		return fmt.Errorf("no comment %d on %s", index, branch)
+	if from < 0 || to > len(comments) || from >= to {
+		return fmt.Errorf("no comments %d to %d on %s", from, to, branch)
 	}
-	s.state.Comments[branch] = slices.Delete(comments, index, index+1)
+	s.state.Comments[branch] = slices.Delete(comments, from, to)
 	return s.save()
 }
 

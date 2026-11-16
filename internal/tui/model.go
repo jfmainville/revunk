@@ -67,6 +67,7 @@ type viewedMsg struct {
 
 type commentsMsg struct {
 	comments []review.Comment
+	notice   string
 	err      error
 }
 
@@ -173,6 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commentsMsg:
 		m.err = msg.err
 		if msg.err == nil {
+			m.notice = msg.notice
 			m.comments = msg.comments
 			m.rendered = map[int][]string{}
 			m.relayout()
@@ -225,6 +227,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.jump(rowFile, -1)
 		case "dd":
 			return m, m.deleteComment()
+		case "DD":
+			return m, m.deleteAllComments()
 		}
 		return m, nil
 	}
@@ -235,6 +239,13 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.help = true
 	case "g", "]", "[", "d":
 		m.prefix = key
+	case "D":
+		if len(m.comments) == 0 {
+			m.notice = "no comments to delete"
+			return m, nil
+		}
+		m.prefix = key
+		m.notice = fmt.Sprintf("press D again to delete all %d comments", len(m.comments))
 	case "tab":
 		m.focus = (m.focus + 1) % 3
 	case "shift+tab":
@@ -579,11 +590,25 @@ func (m *Model) sendComments() tea.Cmd {
 	svc, n := m.svc, len(m.comments)
 	m.notice = "sending comments to the coding agent…"
 	return func() tea.Msg {
-		agent, err := svc.SendComments(context.Background())
+		ctx := context.Background()
+		agent, err := svc.SendComments(ctx)
 		if err != nil {
-			return actionMsg{err: err}
+			return commentsMsg{err: err}
 		}
-		return actionMsg{notice: fmt.Sprintf("sent %d comments to %s", n, agent)}
+		comments, err := svc.Comments(ctx)
+		return commentsMsg{comments: comments, notice: fmt.Sprintf("sent %d comments to %s", n, agent), err: err}
+	}
+}
+
+func (m Model) deleteAllComments() tea.Cmd {
+	svc, n := m.svc, len(m.comments)
+	return func() tea.Msg {
+		ctx := context.Background()
+		if err := svc.DeleteAllComments(ctx); err != nil {
+			return commentsMsg{err: err}
+		}
+		comments, err := svc.Comments(ctx)
+		return commentsMsg{comments: comments, notice: fmt.Sprintf("deleted %d comments", n), err: err}
 	}
 }
 
@@ -983,8 +1008,9 @@ func helpLines() []string {
 		{"c", "comment on line, range or file header"},
 		{"C", "comment on the whole file"},
 		{"dd", "delete comment under cursor"},
+		{"DD", "delete every comment"},
 		{"r", "mark file viewed until it changes"},
-		{"S", "send every comment to Claude Code or opencode"},
+		{"S", "send every comment to Claude Code or opencode, then remove them"},
 		{"y", "copy every comment"},
 		{"", ""},
 		{"comment editor", ""},

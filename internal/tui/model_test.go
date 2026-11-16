@@ -55,11 +55,11 @@ func (s *fakeStore) AddComment(_ context.Context, _ string, c review.Comment) er
 func (s *fakeStore) Comments(context.Context, string) ([]review.Comment, error) {
 	return slices.Clone(s.comments), nil
 }
-func (s *fakeStore) DeleteComment(_ context.Context, _ string, i int) error {
+func (s *fakeStore) DeleteComments(_ context.Context, _ string, from, to int) error {
 	if s.err != nil {
 		return s.err
 	}
-	s.comments = slices.Delete(s.comments, i, i+1)
+	s.comments = slices.Delete(s.comments, from, to)
 	return nil
 }
 
@@ -723,15 +723,15 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
 		t.Fatalf("prompts = %q", agent.prompts)
 	}
-	if !strings.Contains(screen(m), "sent 1 comments to opencode") {
-		t.Fatalf("missing sent notice:\n%s", screen(m))
+	if out := screen(m); !strings.Contains(out, "sent 1 comments to opencode") || strings.Contains(out, "◆ nit") || len(m.comments) != 0 {
+		t.Fatalf("sent comments not removed:\n%s", out)
 	}
 
 	failing := withComment(t, &fakeAgent{err: errors.New("no Claude Code session open")})
 	failing, cmd = press(t, failing, "S")
 	failing = run(t, failing, cmd)
-	if !strings.Contains(screen(failing), "no Claude Code session open") {
-		t.Fatal("agent error not shown")
+	if !strings.Contains(screen(failing), "no Claude Code session open") || len(failing.comments) != 1 {
+		t.Fatal("agent error not shown or comments dropped")
 	}
 
 	empty, _ := loaded(t)
@@ -779,5 +779,39 @@ func TestCommentsAndEditorAreDrawnInBorderedBoxes(t *testing.T) {
 	m, _ = press(t, m, "C")
 	if out := screen(m); !strings.Contains(out, "╭─ comment") || !strings.Contains(out, "^s save") {
 		t.Fatalf("editor box missing:\n%s", out)
+	}
+}
+
+func TestDeleteAllCommentsNeedsSecondPress(t *testing.T) {
+	m := withComment(t, nil)
+
+	m, cmd := press(t, m, "D")
+	if cmd != nil || !strings.Contains(screen(m), "press D again to delete all 1 comments") {
+		t.Fatal("first D should ask for confirmation")
+	}
+	m, cmd = press(t, m, "D")
+	m = run(t, m, cmd)
+	if out := screen(m); len(m.comments) != 0 || strings.Contains(out, "◆ nit") || !strings.Contains(out, "deleted 1 comments") {
+		t.Fatalf("comments not deleted:\n%s", out)
+	}
+
+	m, cmd = press(t, m, "D")
+	if cmd != nil || !strings.Contains(screen(m), "no comments to delete") {
+		t.Fatal("D without comments should explain")
+	}
+
+	kept := withComment(t, nil)
+	kept, _ = press(t, kept, "D", "j")
+	if len(kept.comments) != 1 || kept.prefix != "" {
+		t.Fatal("another key after D should cancel")
+	}
+
+	failing := withComment(t, nil)
+	failing.svc = review.NewService(sample, &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{Path: "x"}}, err: errors.New("disk full")}, nil, "feature")
+	failing.comments = []review.Comment{{Path: "x"}}
+	failing, cmd = press(t, failing, "D", "D")
+	failing = run(t, failing, cmd)
+	if !strings.Contains(screen(failing), "disk full") {
+		t.Fatalf("delete all error not shown:\n%s", screen(failing))
 	}
 }

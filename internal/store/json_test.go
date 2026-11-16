@@ -106,24 +106,25 @@ func TestWritesFailWhenDirectoryIsNotWritable(t *testing.T) {
 	if err := s.AddComment(ctx, "b", review.Comment{Body: "x"}); err == nil {
 		t.Fatal("AddComment succeeded without a writable directory")
 	}
-	if err := s.DeleteComment(ctx, "b", 0); err == nil {
-		t.Fatal("DeleteComment succeeded without a writable directory")
+	if err := s.DeleteComments(ctx, "b", 0, 1); err == nil {
+		t.Fatal("DeleteComments succeeded without a writable directory")
 	}
 }
 
-func TestDeleteCommentPersistsAndRejectsBadIndex(t *testing.T) {
+func TestDeleteCommentsPersistsRangeAndRejectsBadRange(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "s.json")
 	s, _ := Open(path)
-	_ = s.AddComment(ctx, "b", review.Comment{Body: "keep"})
-	_ = s.AddComment(ctx, "b", review.Comment{Body: "drop"})
+	for _, body := range []string{"drop", "drop too", "keep"} {
+		_ = s.AddComment(ctx, "b", review.Comment{Body: body})
+	}
 
-	if err := s.DeleteComment(ctx, "b", 1); err != nil {
+	if err := s.DeleteComments(ctx, "b", 0, 2); err != nil {
 		t.Fatal(err)
 	}
-	for _, i := range []int{-1, 1} {
-		if err := s.DeleteComment(ctx, "b", i); err == nil {
-			t.Fatalf("DeleteComment(%d) succeeded on a one-comment branch", i)
+	for _, r := range [][2]int{{-1, 0}, {0, 2}, {1, 1}} {
+		if err := s.DeleteComments(ctx, "b", r[0], r[1]); err == nil {
+			t.Fatalf("DeleteComments(%d, %d) succeeded on a one-comment branch", r[0], r[1])
 		}
 	}
 

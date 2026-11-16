@@ -118,7 +118,7 @@ type Store interface {
 	Viewed(ctx context.Context, branch string) (map[string]string, error)
 	AddComment(ctx context.Context, branch string, c Comment) error
 	Comments(ctx context.Context, branch string) ([]Comment, error)
-	DeleteComment(ctx context.Context, branch string, index int) error
+	DeleteComments(ctx context.Context, branch string, from, to int) error
 }
 
 type Agent interface {
@@ -213,16 +213,29 @@ func (s *Service) AddComment(ctx context.Context, c Comment) error {
 }
 
 func (s *Service) DeleteComment(ctx context.Context, index int) error {
-	return s.store.DeleteComment(ctx, s.branch, index)
+	return s.store.DeleteComments(ctx, s.branch, index, index+1)
+}
+
+func (s *Service) DeleteAllComments(ctx context.Context) error {
+	comments, err := s.Comments(ctx)
+	if err != nil || len(comments) == 0 {
+		return err
+	}
+	return s.store.DeleteComments(ctx, s.branch, 0, len(comments))
 }
 
 func (s *Service) Prompt(ctx context.Context) (string, error) {
+	text, _, err := s.prompt(ctx)
+	return text, err
+}
+
+func (s *Service) prompt(ctx context.Context) (string, int, error) {
 	comments, err := s.Comments(ctx)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if len(comments) == 0 {
-		return "", errors.New("no comments on " + s.branch)
+		return "", 0, errors.New("no comments on " + s.branch)
 	}
 	files := map[string][]File{}
 	var b strings.Builder
@@ -230,7 +243,7 @@ func (s *Service) Prompt(ctx context.Context) (string, error) {
 	for i, c := range comments {
 		if _, ok := files[c.Commit]; !ok {
 			if files[c.Commit], err = s.Files(ctx, c.Commit); err != nil {
-				return "", err
+				return "", 0, err
 			}
 		}
 		fmt.Fprintf(&b, "\n## %d. %s on %s", i+1, c.Kind, c.Path)
@@ -254,7 +267,7 @@ func (s *Service) Prompt(ctx context.Context) (string, error) {
 		}
 		b.WriteString(c.Body + "\n")
 	}
-	return b.String(), nil
+	return b.String(), len(comments), nil
 }
 
 func commented(files []File, c Comment) []string {
@@ -283,9 +296,13 @@ func (s *Service) SendComments(ctx context.Context) (string, error) {
 	if s.agent == nil {
 		return "", errors.New("no coding agent is configured")
 	}
-	text, err := s.Prompt(ctx)
+	text, sent, err := s.prompt(ctx)
 	if err != nil {
 		return "", err
 	}
-	return s.agent.Prompt(ctx, text)
+	name, err := s.agent.Prompt(ctx, text)
+	if err != nil {
+		return name, err
+	}
+	return name, s.store.DeleteComments(ctx, s.branch, 0, sent)
 }
