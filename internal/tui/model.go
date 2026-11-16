@@ -452,6 +452,9 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case is(key, k.Copy):
 		return m, m.copyComments()
 	}
+	if is(key, k.HalfDown) || is(key, k.HalfUp) || is(key, k.PageDown) || is(key, k.PageUp) {
+		m.focus = focusDiff
+	}
 	switch m.focus {
 	case focusCommits:
 		switch {
@@ -642,6 +645,10 @@ func (m *Model) click(x, y int) tea.Cmd {
 
 func (m *Model) scroll(x, y, step int) tea.Cmd {
 	area, _ := m.areaAt(x, y)
+	if y < 1 || (area == focusComments && !m.showList) {
+		return nil
+	}
+	m.focus = area
 	switch area {
 	case focusCommits:
 		return m.selectCommit(step)

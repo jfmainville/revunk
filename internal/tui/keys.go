@@ -166,7 +166,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "next / previous hunk", keys: []key.Binding{k.NextHunk, k.PrevHunk}},
 			{desc: "cycle focus, focus diff", keys: []key.Binding{k.NextFocus, k.FocusDiff}},
 			{desc: "focus a pane and select the row", label: "click"},
-			{desc: "scroll the pane under the pointer", label: "wheel"},
+			{desc: "focus and scroll the pane under the pointer", label: "wheel"},
 		}},
 		{"review", []hint{
 			{desc: "visual range", keys: []key.Binding{k.Select}},

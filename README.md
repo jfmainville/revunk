@@ -42,11 +42,11 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `tab`, `shift+tab`       | Cycle focus between the visible panes                                        |
 | `l`                      | Focus the diff                                                               |
 | Click                    | Focus a pane and select the commit, file, line, or comment under the pointer |
-| Mouse wheel              | Scroll the pane under the pointer                                            |
+| Mouse wheel              | Focus and scroll the pane under the pointer                                  |
 | `j`/`↓`, `k`/`↑`         | Move down or up                                                              |
 | `gg`, `G`                | Go to the top or bottom of the diff                                          |
-| `ctrl+d`, `ctrl+u`       | Move half a page down or up                                                  |
-| `pgdn`, `pgup`/`b`       | Move a page down or up                                                       |
+| `ctrl+d`, `ctrl+u`       | Move half a page down or up in the diff, focusing it                         |
+| `pgdn`, `pgup`/`b`       | Move a page down or up in the diff, focusing it                              |
 | `f`, `F` (or `]f`, `[f`) | Next or previous file                                                        |
 | `h`, `H` (or `}`, `{`)   | Next or previous hunk                                                        |
 | `v`, `V`                 | Start or stop selecting a range of lines                                     |

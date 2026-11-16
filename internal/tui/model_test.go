@@ -1706,3 +1706,48 @@ func TestMarkingReviewedInExplorerSelectsNextFile(t *testing.T) {
 		t.Fatal("marking from the diff should not move the selection")
 	}
 }
+
+func TestScrollingTheDiffFocusesIt(t *testing.T) {
+	m, _ := loaded(t)
+	if m.focus != focusFiles {
+		t.Fatalf("focus=%d", m.focus)
+	}
+	m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown)
+	if m.focus != focusDiff || m.cursor != 3 {
+		t.Fatalf("wheel over the diff should focus it and move, focus=%d cursor=%d", m.focus, m.cursor)
+	}
+	if !strings.Contains(strings.Join(m.diffLines(), "\n"), "▌") {
+		t.Fatal("the cursor should be visible once the diff has focus")
+	}
+	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	if m.focus != focusFiles {
+		t.Fatalf("wheel over the files should focus them, got %d", m.focus)
+	}
+	m, _ = wheel(t, m, 5, 3, tea.MouseWheelDown)
+	if m.focus != focusCommits {
+		t.Fatalf("wheel over the commits should focus them, got %d", m.focus)
+	}
+	if m, _ = wheel(t, m, 60, 0, tea.MouseWheelDown); m.focus != focusCommits {
+		t.Fatal("wheel over the tab bar should do nothing")
+	}
+	if m, _ = wheel(t, m, 60, 38, tea.MouseWheelDown); m.focus != focusCommits {
+		t.Fatal("wheel over the status line should do nothing while the comments pane is hidden")
+	}
+
+	for _, k := range []string{"ctrl+d", "pgdown"} {
+		p, _ := loaded(t)
+		p, _ = press(t, p, k)
+		if p.focus != focusDiff || p.cursor == 0 {
+			t.Errorf("%s from the files pane should focus and scroll the diff, focus=%d cursor=%d", k, p.focus, p.cursor)
+		}
+	}
+	p, _ := loaded(t)
+	p, _ = press(t, p, "ctrl+d", "ctrl+u")
+	if p.focus != focusDiff || p.cursor != 0 {
+		t.Fatalf("ctrl+u should scroll back up, cursor=%d", p.cursor)
+	}
+	p, _ = press(t, p, "n", "pgup")
+	if p.focus != focusDiff {
+		t.Fatalf("page keys from the comments pane should focus the diff, got %d", p.focus)
+	}
+}
