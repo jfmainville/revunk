@@ -253,14 +253,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) setFiles(files []review.File) {
-	m.files = files
-	m.lines = make([][]review.Line, len(files))
-	m.tokens = make([][][]token, len(files))
-	for i, f := range files {
-		m.lines[i] = review.ParseLines(f.Patch)
-		m.tokens[i] = highlight(f.Path, m.lines[i])
+func (m *Model) parse(files []review.File) {
+	old := map[string]int{}
+	for i, f := range m.files {
+		old[f.Path] = i
 	}
+	lines, tokens := make([][]review.Line, len(files)), make([][][]token, len(files))
+	for i, f := range files {
+		if j, ok := old[f.Path]; ok && m.files[j].Patch == f.Patch {
+			lines[i], tokens[i] = m.lines[j], m.tokens[j]
+			continue
+		}
+		lines[i] = review.ParseLines(f.Patch)
+		tokens[i] = highlight(f.Path, lines[i])
+	}
+	m.files, m.lines, m.tokens = files, lines, tokens
+}
+
+func (m *Model) setFiles(files []review.File) {
+	m.parse(files)
 	m.cursor, m.offset, m.fileCursor, m.anchor = 0, 0, 0, -1
 	m.layout()
 }
@@ -328,13 +339,9 @@ func (m *Model) refreshFiles(files []review.File) {
 		selected = m.files[m.fileCursor].Path
 	}
 	screenRow := m.cursor - m.offset
-	m.files, m.anchor, m.rendered = files, -1, map[int][]string{}
-	m.lines = make([][]review.Line, len(files))
-	m.tokens = make([][][]token, len(files))
-	m.fileCursor = 0
+	m.parse(files)
+	m.anchor, m.rendered, m.fileCursor = -1, map[int][]string{}, 0
 	for i, f := range files {
-		m.lines[i] = review.ParseLines(f.Patch)
-		m.tokens[i] = highlight(f.Path, m.lines[i])
 		if f.Path == selected {
 			m.fileCursor = i
 		}
@@ -1043,11 +1050,18 @@ func (m *Model) relayout() {
 }
 
 func (m *Model) layout() {
-	m.rows = nil
+	m.rows = make([]row, 0, len(m.rows))
+	width := m.diffWidth()
 	for fi, f := range m.files {
 		m.rows = append(m.rows, row{kind: rowFile, file: fi})
+		var mine []int
 		for ci, c := range m.comments {
-			if m.visible(c, f.Path) && (c.FileLevel() || !m.anchored(c, fi)) {
+			if m.visible(c, f.Path) {
+				mine = append(mine, ci)
+			}
+		}
+		for _, ci := range mine {
+			if c := m.comments[ci]; c.FileLevel() || !m.anchored(c, fi) {
 				m.addComment(ci, fi)
 			}
 		}
@@ -1066,11 +1080,11 @@ func (m *Model) layout() {
 				continue
 			}
 			m.rows = append(m.rows, row{kind: rowLine, file: fi, line: li})
-			for part := range len(wrapTokens(m.tokens[fi][li], m.diffWidth())) - 1 {
+			for part := range len(wrapTokens(m.tokens[fi][li], width)) - 1 {
 				m.rows = append(m.rows, row{kind: rowText, file: fi, line: li, part: part + 1})
 			}
-			for ci, c := range m.comments {
-				if m.visible(c, f.Path) && !c.FileLevel() && anchoredAt(c, l) {
+			for _, ci := range mine {
+				if c := m.comments[ci]; !c.FileLevel() && anchoredAt(c, l) {
 					m.addComment(ci, fi)
 				}
 			}

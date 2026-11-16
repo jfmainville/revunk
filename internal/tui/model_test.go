@@ -1578,3 +1578,40 @@ func TestCommentsOnDeletedFilesArePruned(t *testing.T) {
 		t.Fatal("prune errors should fail the load")
 	}
 }
+
+func TestRefreshReusesHighlightingForUnchangedFiles(t *testing.T) {
+	m, _ := loaded(t)
+	marker := []token{{text: "cached", style: lipgloss.NewStyle()}}
+	for i := range m.tokens[0] {
+		m.tokens[0][i] = marker
+	}
+	files := slices.Clone(m.files)
+	files[1].Patch = "@@ -1 +1 @@\n-x\n+changed"
+	m.refreshFiles(files)
+	if m.tokens[0][1][0].text != "cached" {
+		t.Fatal("unchanged file should keep its highlighting")
+	}
+	if got := m.tokens[1][2]; len(got) == 0 || !strings.Contains(got[0].text+got[len(got)-1].text, "changed") {
+		t.Fatalf("changed file should be highlighted again: %+v", got)
+	}
+	if m.lines[1][2].Text != "changed" {
+		t.Fatalf("changed file should be parsed again: %+v", m.lines[1])
+	}
+
+	renamed := slices.Clone(files)
+	renamed[0].Path = "OTHER.md"
+	m.setFiles(renamed)
+	if m.tokens[0][1][0].text == "cached" {
+		t.Fatal("a file with a different path should be highlighted again")
+	}
+}
+
+func TestWrapTokensKeepsShortLinesWhole(t *testing.T) {
+	short := []token{{text: "ab"}, {text: "cd"}}
+	if parts := wrapTokens(short, lineGutter+4); len(parts) != 1 || len(parts[0]) != 2 {
+		t.Fatalf("a line that fits should stay one part: %+v", parts)
+	}
+	if parts := wrapTokens([]token{{text: "日本語"}}, lineGutter+6); len(parts) != 1 {
+		t.Fatalf("wide runes with more bytes than cells should still fit: %+v", parts)
+	}
+}

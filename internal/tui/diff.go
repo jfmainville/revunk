@@ -124,6 +124,18 @@ func number(n int) string {
 
 func wrapTokens(tokens []token, width int) [][]token {
 	width = max(width-lineGutter, 1)
+	bytes, cells := 0, 0
+	for _, t := range tokens {
+		bytes += len(t.text)
+	}
+	if bytes > width {
+		for _, t := range tokens {
+			cells += ansi.StringWidth(t.text)
+		}
+	}
+	if cells <= width {
+		return [][]token{tokens}
+	}
 	parts := [][]token{nil}
 	used := 0
 	for _, t := range tokens {
