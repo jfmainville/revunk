@@ -38,7 +38,9 @@ func (s failingStore) AddComment(context.Context, string, review.Comment) error 
 func (s failingStore) Comments(context.Context, string) ([]review.Comment, error) {
 	return nil, s.viewedErr
 }
-func (s failingStore) DeleteComments(context.Context, string, int, int) error { return s.setErr }
+func (s failingStore) DeleteComments(context.Context, string, []review.Comment) error {
+	return s.setErr
+}
 
 func newStore(t *testing.T) *store.JSON {
 	t.Helper()
@@ -238,7 +240,7 @@ func TestAddCommentRejectsBlankBodyAndReturnsStoreErrors(t *testing.T) {
 	if _, err := failing.Comments(ctx); !errors.Is(err, storeErr) {
 		t.Fatalf("Comments: got %v", err)
 	}
-	if err := failing.DeleteComment(ctx, 0); !errors.Is(err, storeErr) {
+	if err := failing.DeleteComment(ctx, review.Comment{Body: "hi"}); !errors.Is(err, storeErr) {
 		t.Fatalf("DeleteComment: got %v", err)
 	}
 }
@@ -252,16 +254,13 @@ func TestDeleteCommentRemovesOnlyThatComment(t *testing.T) {
 		}
 	}
 
-	if err := svc.DeleteComment(ctx, 1); err != nil {
+	if err := svc.DeleteComment(ctx, review.Comment{Path: "a.go", Body: "two"}); err != nil {
 		t.Fatal(err)
 	}
 
 	got, _ := svc.Comments(ctx)
 	if len(got) != 2 || got[0].Body != "one" || got[1].Body != "three" {
 		t.Fatalf("Comments after delete = %v", got)
-	}
-	if err := svc.DeleteComment(ctx, 5); err == nil {
-		t.Fatal("deleting a missing comment should fail")
 	}
 }
 
@@ -295,12 +294,16 @@ func TestDeleteAllCommentsClearsOnlyThisBranch(t *testing.T) {
 }
 
 type fakeAgent struct {
-	text string
-	err  error
+	text   string
+	err    error
+	during func()
 }
 
 func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
 	a.text = text
+	if a.during != nil {
+		a.during()
+	}
 	return "opencode", a.err
 }
 
@@ -375,6 +378,18 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	}
 	if left, _ := failing.Comments(ctx); len(left) != 4 {
 		t.Fatalf("comments removed after a failed send: %v", left)
+	}
+	busy := &fakeAgent{}
+	svc = promptService(t, busy)
+	busy.during = func() {
+		_ = svc.DeleteComment(ctx, review.Comment{Kind: "nit", Path: "a.go", Body: "whole file"})
+		_ = svc.AddComment(ctx, review.Comment{Kind: "issue", Path: "a.go", Body: "added while working"})
+	}
+	if _, err := svc.SendComments(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := svc.Comments(ctx); len(left) != 1 || left[0].Body != "added while working" {
+		t.Fatalf("comments after a send with changes in between = %v", left)
 	}
 	if _, err := promptService(t, nil).SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
 		t.Fatalf("missing agent error = %v", err)

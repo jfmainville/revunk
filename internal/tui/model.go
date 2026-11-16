@@ -71,6 +71,8 @@ type commentsMsg struct {
 	err      error
 }
 
+type sentMsg commentsMsg
+
 type actionMsg struct {
 	notice    string
 	clipboard string
@@ -104,6 +106,7 @@ type Model struct {
 	loading    bool
 	err        error
 	notice     string
+	sending    int
 	width      int
 	height     int
 }
@@ -179,6 +182,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
+	case sentMsg:
+		m.sending = 0
+		return m.Update(commentsMsg(msg))
 	case actionMsg:
 		m.err, m.notice = msg.err, msg.notice
 		if msg.clipboard != "" {
@@ -572,9 +578,9 @@ func (m *Model) deleteComment() tea.Cmd {
 		m.notice = "no comment here to delete"
 		return nil
 	}
-	svc := m.svc
+	svc, c := m.svc, m.comments[index]
 	return func() tea.Msg {
-		if err := svc.DeleteComment(context.Background(), index); err != nil {
+		if err := svc.DeleteComment(context.Background(), c); err != nil {
 			return commentsMsg{err: err}
 		}
 		comments, err := svc.Comments(context.Background())
@@ -583,20 +589,24 @@ func (m *Model) deleteComment() tea.Cmd {
 }
 
 func (m *Model) sendComments() tea.Cmd {
-	if len(m.comments) == 0 {
+	switch {
+	case m.sending > 0:
+		m.notice = "still waiting for the agent"
+		return nil
+	case len(m.comments) == 0:
 		m.notice = "no comments to send"
 		return nil
 	}
 	svc, n := m.svc, len(m.comments)
-	m.notice = "sending comments to the coding agent…"
+	m.sending = n
 	return func() tea.Msg {
 		ctx := context.Background()
 		agent, err := svc.SendComments(ctx)
 		if err != nil {
-			return commentsMsg{err: err}
+			return sentMsg{err: err}
 		}
 		comments, err := svc.Comments(ctx)
-		return commentsMsg{comments: comments, notice: fmt.Sprintf("sent %d comments to %s", n, agent), err: err}
+		return sentMsg{comments: comments, notice: fmt.Sprintf("%s finished, removed %d comments", agent, n), err: err}
 	}
 }
 
@@ -968,6 +978,8 @@ func (m Model) statusLine() string {
 		message = errorStyle.Render(m.err.Error())
 	case m.notice != "":
 		message = primaryStyle.Render(m.notice)
+	case m.sending > 0:
+		message = primaryStyle.Render(fmt.Sprintf("the agent is working on %d comments…", m.sending))
 	}
 	viewed := 0
 	for _, f := range m.files {
@@ -1010,7 +1022,7 @@ func helpLines() []string {
 		{"dd", "delete comment under cursor"},
 		{"DD", "delete every comment"},
 		{"r", "mark file viewed until it changes"},
-		{"S", "send every comment to Claude Code or opencode, then remove them"},
+		{"S", "send every comment to the agent, removed when it finishes"},
 		{"y", "copy every comment"},
 		{"", ""},
 		{"comment editor", ""},

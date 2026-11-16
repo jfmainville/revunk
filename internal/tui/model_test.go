@@ -55,11 +55,11 @@ func (s *fakeStore) AddComment(_ context.Context, _ string, c review.Comment) er
 func (s *fakeStore) Comments(context.Context, string) ([]review.Comment, error) {
 	return slices.Clone(s.comments), nil
 }
-func (s *fakeStore) DeleteComments(_ context.Context, _ string, from, to int) error {
+func (s *fakeStore) DeleteComments(_ context.Context, _ string, remove []review.Comment) error {
 	if s.err != nil {
 		return s.err
 	}
-	s.comments = slices.Delete(s.comments, from, to)
+	s.comments = slices.DeleteFunc(s.comments, func(c review.Comment) bool { return slices.Contains(remove, c) })
 	return nil
 }
 
@@ -715,15 +715,18 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	m := withComment(t, agent)
 
 	m, cmd := press(t, m, "S")
-	if !strings.Contains(screen(m), "sending comments to the coding agent") {
-		t.Fatal("no sending notice")
+	if !strings.Contains(screen(m), "the agent is working on 1 comments") {
+		t.Fatal("no waiting status")
+	}
+	if again, again2 := press(t, m, "S"); again2 != nil || !strings.Contains(screen(again), "still waiting for the agent") {
+		t.Fatal("S while waiting should not send twice")
 	}
 	m = run(t, m, cmd)
 
 	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
 		t.Fatalf("prompts = %q", agent.prompts)
 	}
-	if out := screen(m); !strings.Contains(out, "sent 1 comments to opencode") || strings.Contains(out, "◆ nit") || len(m.comments) != 0 {
+	if out := screen(m); !strings.Contains(out, "opencode finished, removed 1 comments") || strings.Contains(out, "◆ nit") || len(m.comments) != 0 {
 		t.Fatalf("sent comments not removed:\n%s", out)
 	}
 

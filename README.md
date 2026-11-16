@@ -6,7 +6,7 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 
 - Go 1.26 or later
 - `git`
-- `claude` (Claude Code), and optionally [herdr](https://herdr.dev) or `tmux`, only to send comments with `S`
+- [herdr](https://herdr.dev) with Claude Code or opencode, only to send comments with `S`
 
 ## Commands
 
@@ -30,35 +30,31 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 Comments and viewed state are saved per branch in `.git/revunk.json`.
 
-`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. Comments are removed once the agent accepts them and kept when sending fails. The text lists each comment with its file, lines, commit, and the commented code. `S` picks the first Claude Code or opencode session whose directory is inside the repository, skipping the pane Revunk runs in, and tries these in order.
-
-1. A `herdr` pane listed by `herdr agent list`, prompted with `herdr agent prompt`.
-2. A `tmux` pane running `claude` or `opencode`, pasted into with `tmux paste-buffer` and submitted with `Enter`.
-3. With no session open, a new Claude Code session that gets the comments as its first message, in a new `herdr` pane when Revunk runs in `herdr`, a new `tmux` window when it runs in `tmux`, and otherwise in the background with `claude --bg` (list it with `claude agents`).
+`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its file, lines, commit, and the commented code. `S` uses `herdr agent list` to pick the first Claude Code or opencode pane whose directory is inside the repository, skipping the pane Revunk runs in. With no such pane, it starts Claude Code in a new pane next to Revunk. It submits the text with `herdr agent prompt --wait` and removes the sent comments once the agent finishes its turn. Comments stay when sending fails or when Revunk is closed before the agent finishes, and comments added in the meantime are kept.
 
 ### Keys
 
-| Key                    | Action                                                 |
-| ---------------------- | ------------------------------------------------------ |
-| `tab`, `shift+tab`     | Cycle focus between commits, files, and diff           |
-| `h`, `l`               | Focus the files or the diff                            |
-| `j`/`↓`, `k`/`↑`       | Move down or up                                        |
-| `gg`, `G`              | Go to the top or bottom of the diff                    |
-| `ctrl+d`, `ctrl+u`     | Move half a page down or up                            |
-| `pgdn`/`f`, `pgup`/`b` | Move a page down or up                                 |
-| `]f`, `[f`             | Next or previous file                                  |
-| `}`, `{`               | Next or previous hunk                                  |
-| `v`, `V`               | Start or stop selecting a range of lines               |
-| `c`                    | Comment on the current line, the range, or file header |
-| `C`                    | Comment on the whole file                              |
-| `dd`                   | Delete the comment under the cursor                    |
-| `DD`                   | Delete every comment on the branch                     |
-| `r`                    | Toggle the file's viewed state                         |
-| `S`                    | Send every comment to the agent and remove them        |
-| `y`                    | Copy every comment to the clipboard                    |
-| `?`                    | Show every key                                         |
-| `esc`                  | Stop selecting or close the help                       |
-| `q`, `ctrl+c`          | Quit                                                   |
+| Key                    | Action                                                    |
+| ---------------------- | --------------------------------------------------------- |
+| `tab`, `shift+tab`     | Cycle focus between commits, files, and diff              |
+| `h`, `l`               | Focus the files or the diff                               |
+| `j`/`↓`, `k`/`↑`       | Move down or up                                           |
+| `gg`, `G`              | Go to the top or bottom of the diff                       |
+| `ctrl+d`, `ctrl+u`     | Move half a page down or up                               |
+| `pgdn`/`f`, `pgup`/`b` | Move a page down or up                                    |
+| `]f`, `[f`             | Next or previous file                                     |
+| `}`, `{`               | Next or previous hunk                                     |
+| `v`, `V`               | Start or stop selecting a range of lines                  |
+| `c`                    | Comment on the current line, the range, or file header    |
+| `C`                    | Comment on the whole file                                 |
+| `dd`                   | Delete the comment under the cursor                       |
+| `DD`                   | Delete every comment on the branch                        |
+| `r`                    | Toggle the file's viewed state                            |
+| `S`                    | Send every comment to the agent, removed when it finishes |
+| `y`                    | Copy every comment to the clipboard                       |
+| `?`                    | Show every key                                            |
+| `esc`                  | Stop selecting or close the help                          |
+| `q`, `ctrl+c`          | Quit                                                      |
 
 ### Comment editor
 
@@ -85,6 +81,6 @@ revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
 | `cmd/revunk`            | CLI entry point and dependency wiring                                                                                                           |
 | `internal/review`       | Review domain types, diff line parsing, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
 | `internal/provider/git` | Local git provider implementing `review.Source` for the commits on the current branch. Code hosts such as GitHub go in sibling packages.        |
-| `internal/agent`        | Sends prompts to a Claude Code or opencode session through `herdr` or `tmux`, or starts a new Claude Code session, implementing `review.Agent`  |
+| `internal/agent`        | Sends prompts to a Claude Code or opencode session in a `herdr` pane, or starts one, implementing `review.Agent`                                |
 | `internal/store`        | JSON file store implementing `review.Store`                                                                                                     |
 | `internal/tui`          | Bubble Tea presentation layer, with `chroma` for syntax highlighting and `glamour` for Markdown comments                                        |

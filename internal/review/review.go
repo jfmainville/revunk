@@ -118,7 +118,7 @@ type Store interface {
 	Viewed(ctx context.Context, branch string) (map[string]string, error)
 	AddComment(ctx context.Context, branch string, c Comment) error
 	Comments(ctx context.Context, branch string) ([]Comment, error)
-	DeleteComments(ctx context.Context, branch string, from, to int) error
+	DeleteComments(ctx context.Context, branch string, comments []Comment) error
 }
 
 type Agent interface {
@@ -212,16 +212,16 @@ func (s *Service) AddComment(ctx context.Context, c Comment) error {
 	return s.store.AddComment(ctx, s.branch, c)
 }
 
-func (s *Service) DeleteComment(ctx context.Context, index int) error {
-	return s.store.DeleteComments(ctx, s.branch, index, index+1)
+func (s *Service) DeleteComment(ctx context.Context, c Comment) error {
+	return s.store.DeleteComments(ctx, s.branch, []Comment{c})
 }
 
 func (s *Service) DeleteAllComments(ctx context.Context) error {
 	comments, err := s.Comments(ctx)
-	if err != nil || len(comments) == 0 {
+	if err != nil {
 		return err
 	}
-	return s.store.DeleteComments(ctx, s.branch, 0, len(comments))
+	return s.store.DeleteComments(ctx, s.branch, comments)
 }
 
 func (s *Service) Prompt(ctx context.Context) (string, error) {
@@ -229,13 +229,13 @@ func (s *Service) Prompt(ctx context.Context) (string, error) {
 	return text, err
 }
 
-func (s *Service) prompt(ctx context.Context) (string, int, error) {
+func (s *Service) prompt(ctx context.Context) (string, []Comment, error) {
 	comments, err := s.Comments(ctx)
 	if err != nil {
-		return "", 0, err
+		return "", nil, err
 	}
 	if len(comments) == 0 {
-		return "", 0, errors.New("no comments on " + s.branch)
+		return "", nil, errors.New("no comments on " + s.branch)
 	}
 	files := map[string][]File{}
 	var b strings.Builder
@@ -243,7 +243,7 @@ func (s *Service) prompt(ctx context.Context) (string, int, error) {
 	for i, c := range comments {
 		if _, ok := files[c.Commit]; !ok {
 			if files[c.Commit], err = s.Files(ctx, c.Commit); err != nil {
-				return "", 0, err
+				return "", nil, err
 			}
 		}
 		fmt.Fprintf(&b, "\n## %d. %s on %s", i+1, c.Kind, c.Path)
@@ -267,7 +267,7 @@ func (s *Service) prompt(ctx context.Context) (string, int, error) {
 		}
 		b.WriteString(c.Body + "\n")
 	}
-	return b.String(), len(comments), nil
+	return b.String(), comments, nil
 }
 
 func commented(files []File, c Comment) []string {
@@ -304,5 +304,5 @@ func (s *Service) SendComments(ctx context.Context) (string, error) {
 	if err != nil {
 		return name, err
 	}
-	return name, s.store.DeleteComments(ctx, s.branch, 0, sent)
+	return name, s.store.DeleteComments(ctx, s.branch, sent)
 }

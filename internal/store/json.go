@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -93,14 +92,16 @@ func (s *JSON) AddComment(_ context.Context, branch string, c review.Comment) er
 	return s.save()
 }
 
-func (s *JSON) DeleteComments(_ context.Context, branch string, from, to int) error {
+func (s *JSON) DeleteComments(_ context.Context, branch string, remove []review.Comment) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	comments := s.state.Comments[branch]
-	if from < 0 || to > len(comments) || from >= to {
-		return fmt.Errorf("no comments %d to %d on %s", from, to, branch)
+	for _, c := range remove {
+		if i := slices.Index(comments, c); i >= 0 {
+			comments = slices.Delete(comments, i, i+1)
+		}
 	}
-	s.state.Comments[branch] = slices.Delete(comments, from, to)
+	s.state.Comments[branch] = comments
 	return s.save()
 }
 

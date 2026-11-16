@@ -106,30 +106,26 @@ func TestWritesFailWhenDirectoryIsNotWritable(t *testing.T) {
 	if err := s.AddComment(ctx, "b", review.Comment{Body: "x"}); err == nil {
 		t.Fatal("AddComment succeeded without a writable directory")
 	}
-	if err := s.DeleteComments(ctx, "b", 0, 1); err == nil {
+	if err := s.DeleteComments(ctx, "b", []review.Comment{{Body: "x"}}); err == nil {
 		t.Fatal("DeleteComments succeeded without a writable directory")
 	}
 }
 
-func TestDeleteCommentsPersistsRangeAndRejectsBadRange(t *testing.T) {
+func TestDeleteCommentsRemovesOneMatchEachAndPersists(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "s.json")
 	s, _ := Open(path)
-	for _, body := range []string{"drop", "drop too", "keep"} {
+	for _, body := range []string{"dup", "keep", "dup", "drop"} {
 		_ = s.AddComment(ctx, "b", review.Comment{Body: body})
 	}
 
-	if err := s.DeleteComments(ctx, "b", 0, 2); err != nil {
+	if err := s.DeleteComments(ctx, "b", []review.Comment{{Body: "drop"}, {Body: "dup"}, {Body: "missing"}}); err != nil {
 		t.Fatal(err)
-	}
-	for _, r := range [][2]int{{-1, 0}, {0, 2}, {1, 1}} {
-		if err := s.DeleteComments(ctx, "b", r[0], r[1]); err == nil {
-			t.Fatalf("DeleteComments(%d, %d) succeeded on a one-comment branch", r[0], r[1])
-		}
 	}
 
 	reopened, _ := Open(path)
-	if got, _ := reopened.Comments(ctx, "b"); len(got) != 1 || got[0].Body != "keep" {
+	got, _ := reopened.Comments(ctx, "b")
+	if len(got) != 2 || got[0].Body != "keep" || got[1].Body != "dup" {
 		t.Fatalf("persisted comments = %v", got)
 	}
 }
