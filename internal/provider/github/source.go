@@ -1,4 +1,4 @@
-// Package github is the GitHub integration boundary implementing review.Source.
+// Package github is the GitHub provider implementing review.Source.
 package github
 
 import (

@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/jfmainville/revunk/internal/github"
+	"github.com/jfmainville/revunk/internal/provider/github"
 	"github.com/jfmainville/revunk/internal/review"
 	"github.com/jfmainville/revunk/internal/store"
 	"github.com/jfmainville/revunk/internal/tui"
