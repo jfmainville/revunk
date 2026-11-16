@@ -193,3 +193,68 @@ func TestBranchDefaultBaseAndStatePath(t *testing.T) {
 		t.Fatal("StatePath outside a repository should fail")
 	}
 }
+
+func TestFilesIncludesUncommittedAndUntrackedChanges(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "keep.go", "package keep\n\nfunc A() { _ = 1 }\n")
+	commit(t, dir, "change keep")
+	write(t, dir, "keep.go", "package keep\n\nfunc A() { _ = 2 }\n")
+	write(t, dir, "old.txt", "staged\n")
+	git(t, dir, "add", "old.txt")
+	write(t, dir, "new file.go", "package keep\nvar X = 1\n")
+	write(t, dir, "empty.txt", "")
+	write(t, dir, "blob.bin", "a\x00b")
+	write(t, dir, ".gitignore", "*.log\n")
+	write(t, dir, "debug.log", "ignored\n")
+
+	files, err := Source{Dir: dir, Base: "main"}.Files(context.Background(), "")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	if want := []string{".gitignore", "blob.bin", "empty.txt", "keep.go", "new file.go", "old.txt"}; strings.Join(paths, ",") != strings.Join(want, ",") {
+		t.Fatalf("paths = %q, want %q", paths, want)
+	}
+	got := byPath(files)
+	if !strings.Contains(got["keep.go"].Patch, "+func A() { _ = 2 }") {
+		t.Fatalf("unstaged change missing: %q", got["keep.go"].Patch)
+	}
+	if !strings.Contains(got["old.txt"].Patch, "+staged") {
+		t.Fatalf("staged change missing: %q", got["old.txt"].Patch)
+	}
+	added := got["new file.go"]
+	if added.Status != review.StatusAdded || added.Additions != 2 || added.Patch != "@@ -0,0 +1,2 @@\n+package keep\n+var X = 1" {
+		t.Fatalf("untracked file = %+v", added)
+	}
+	if got["blob.bin"].Patch != "" || got["empty.txt"].Patch != "" || got["empty.txt"].Status != review.StatusAdded {
+		t.Fatalf("binary or empty untracked files = %+v %+v", got["blob.bin"], got["empty.txt"])
+	}
+	if lines := review.ParseLines(added.Patch); len(lines) != 3 || lines[2].New != 2 {
+		t.Fatalf("untracked patch does not parse: %+v", lines)
+	}
+}
+
+func TestNewFileSkipsUnreadableAndLargeFiles(t *testing.T) {
+	dir := t.TempDir()
+	if f := newFile(filepath.Join(dir, "missing"), "missing"); f.Patch != "" || f.Status != review.StatusAdded {
+		t.Fatalf("missing file = %+v", f)
+	}
+	write(t, dir, "big.txt", strings.Repeat("x\n", maxUntrackedSize))
+	if f := newFile(filepath.Join(dir, "big.txt"), "big.txt"); f.Patch != "" {
+		t.Fatal("large file should have no patch")
+	}
+}
+
+func TestFilesReportsListingErrors(t *testing.T) {
+	dir := repo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Source{Dir: dir, Base: "main"}).Files(context.Background(), ""); err == nil {
+		t.Fatal("expected an error with a corrupt index")
+	}
+}

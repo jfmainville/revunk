@@ -82,6 +82,10 @@ type actionMsg struct {
 type tickMsg struct{}
 
 type polledMsg struct {
+	commits  []review.Commit
+	commit   string
+	files    []review.File
+	viewed   map[string]bool
 	comments []review.Comment
 	err      error
 }
@@ -175,16 +179,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setFiles(msg.files)
 		return m, tick()
 	case tickMsg:
-		svc := m.svc
-		return m, func() tea.Msg {
-			comments, err := svc.Comments(context.Background())
-			return polledMsg{comments: comments, err: err}
-		}
+		return m, m.poll()
 	case polledMsg:
-		if msg.err == nil && !reflect.DeepEqual(msg.comments, m.comments) {
-			m.comments = msg.comments
-			m.rendered = map[int][]string{}
-			m.relayout()
+		if msg.err == nil {
+			m.applyPoll(msg)
 		}
 		return m, tick()
 	case filesMsg:
@@ -234,6 +232,88 @@ func (m *Model) setFiles(files []review.File) {
 	}
 	m.cursor, m.offset, m.fileCursor, m.anchor = 0, 0, 0, -1
 	m.layout()
+}
+
+func (m Model) poll() tea.Cmd {
+	svc, sha := m.svc, m.commitSHA()
+	return func() tea.Msg {
+		ctx := context.Background()
+		msg := polledMsg{commit: sha}
+		if msg.commits, msg.err = svc.Commits(ctx); msg.err != nil {
+			return msg
+		}
+		if msg.files, msg.err = svc.Files(ctx, sha); msg.err != nil {
+			return msg
+		}
+		if msg.viewed, msg.err = svc.Viewed(ctx); msg.err != nil {
+			return msg
+		}
+		msg.comments, msg.err = svc.Comments(ctx)
+		return msg
+	}
+}
+
+func (m *Model) applyPoll(msg polledMsg) {
+	sha := m.commitSHA()
+	m.commits, m.commit = msg.commits, 0
+	for i, c := range msg.commits {
+		if c.SHA == sha {
+			m.commit = i + 1
+		}
+	}
+	changed := !reflect.DeepEqual(msg.viewed, m.viewed) || !reflect.DeepEqual(msg.comments, m.comments)
+	m.viewed, m.comments = msg.viewed, msg.comments
+	if m.commitSHA() != msg.commit {
+		return
+	}
+	if !reflect.DeepEqual(msg.files, m.files) {
+		m.refreshFiles(msg.files)
+		return
+	}
+	if changed {
+		m.rendered = map[int][]string{}
+		m.relayout()
+	}
+}
+
+func (m *Model) refreshFiles(files []review.File) {
+	var path, selected string
+	cur := row{line: -1}
+	if len(m.rows) > 0 {
+		cur = m.rows[m.cursor]
+		path = m.files[cur.file].Path
+	}
+	if len(m.files) > 0 {
+		selected = m.files[m.fileCursor].Path
+	}
+	screenRow := m.cursor - m.offset
+	m.files, m.anchor, m.rendered = files, -1, map[int][]string{}
+	m.lines = make([][]review.Line, len(files))
+	m.tokens = make([][][]token, len(files))
+	m.fileCursor = 0
+	for i, f := range files {
+		m.lines[i] = review.ParseLines(f.Patch)
+		m.tokens[i] = highlight(f.Path, m.lines[i])
+		if f.Path == selected {
+			m.fileCursor = i
+		}
+	}
+	m.layout()
+	m.cursor = min(m.cursor, max(len(m.rows)-1, 0))
+	for i, r := range m.rows {
+		if r.kind == rowFile && files[r.file].Path == path {
+			m.cursor = i
+		}
+	}
+	for i, r := range m.rows {
+		if r.kind == cur.kind && r.line == cur.line && files[r.file].Path == path {
+			m.cursor = i
+		}
+	}
+	m.offset = max(m.cursor-screenRow, 0)
+	if len(m.rows) > 0 && m.focus == focusDiff {
+		m.syncFile()
+	}
 }
 
 func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -903,7 +983,7 @@ func (m Model) filesCounter() string {
 
 func (m Model) commitLines() []string {
 	inner := m.leftWidth() - 2
-	entries := []string{"all commits"}
+	entries := []string{"all changes"}
 	for _, c := range m.commits {
 		entries = append(entries, c.Short()+" "+c.Subject)
 	}

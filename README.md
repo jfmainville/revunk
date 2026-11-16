@@ -20,9 +20,9 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 
 ## Agent tab
 
-Run Revunk from inside a git repository. The **Agent** tab compares the current branch with its base branch (`base...HEAD`).
+Run Revunk from inside a git repository. The **Agent** tab compares the current branch with its base branch, from their merge base to the working tree, so commits, staged and unstaged edits, and untracked files all show. Untracked files that are binary or larger than 1 MB are listed without a diff.
 
-- **commits** lists `all commits` and each commit on the branch. Selecting one shows only that commit's diff.
+- **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff.
 - **files** lists the changed files grouped by directory. Selecting a file scrolls the diff to it.
 - **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, both line numbers are shown, and code is syntax highlighted.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
@@ -32,7 +32,7 @@ Comments and viewed state are saved per branch in `.git/revunk.json`.
 
 `S` sends the comments not sent yet to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its ID, file, lines, commit, and the commented code, and asks the agent to answer each one with `revunk reply <id> "<text>"`. `S` uses `herdr agent list` to pick the first Claude Code or opencode pane whose directory is inside the repository, skipping the pane Revunk runs in. With no such pane, it starts Claude Code in a new pane next to Revunk. It submits the text with `herdr agent prompt` and marks the comments sent. Comments stay drafts when sending fails.
 
-Revunk reloads comments every 2 seconds, so agent replies appear under their comment, which moves from `draft` to `sent` to `replied`. A comment stays until you resolve it with `dd` or `DD`. Replies work with any agent that can run shell commands, since the prompt gives the full path of the running `revunk` binary.
+Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, keeping the cursor on the same line. New commits and file edits therefore show up on their own, and agent replies appear under their comment, which moves from `draft` to `sent` to `replied`. A comment stays until you resolve it with `dd` or `DD`. Replies work with any agent that can run shell commands, since the prompt gives the full path of the running `revunk` binary.
 
 ### Keys
 

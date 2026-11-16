@@ -178,7 +178,7 @@ func TestLoadedScreenMatchesDesignLayout(t *testing.T) {
 	m, _ := loaded(t)
 	out := screen(m)
 
-	for _, want := range []string{"Agent", "revunk · local changes on feature", "commits", "all commits", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
+	for _, want := range []string{"Agent", "revunk · local changes on feature", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
 		}
@@ -869,5 +869,98 @@ func TestPollingShowsAgentRepliesUnderComments(t *testing.T) {
 	same, _ := got.Update(polled)
 	if !reflect.DeepEqual(same.(Model).comments, got.comments) {
 		t.Fatal("unchanged poll altered comments")
+	}
+}
+
+func pollOnce(t *testing.T, m Model) (Model, tea.Cmd) {
+	t.Helper()
+	ticked, cmd := m.Update(tickMsg{})
+	updated, next := ticked.(Model).Update(cmd())
+	return updated.(Model), next
+}
+
+func mutableSample() *fakeSource {
+	files := map[string][]review.File{}
+	for k, v := range sample.files {
+		files[k] = slices.Clone(v)
+	}
+	return &fakeSource{commits: slices.Clone(sample.commits), files: files}
+}
+
+func TestRefreshShowsNewChangesAndKeepsCursorOnSameLine(t *testing.T) {
+	src := mutableSample()
+	m := newModel(t, src, &fakeStore{viewed: map[string]string{}})
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 4)
+	m.offset = m.cursor - 3
+
+	src.files[""] = append([]review.File{{Path: "0new.go", Status: review.StatusAdded, Additions: 1, Patch: "@@ -0,0 +1 @@\n+package zero"}}, src.files[""]...)
+	m, next := pollOnce(t, m)
+
+	if next == nil {
+		t.Fatal("polling stopped")
+	}
+	if out := screen(m); !strings.Contains(out, "0new.go") {
+		t.Fatalf("new file not shown:\n%s", out)
+	}
+	r := m.rows[m.cursor]
+	if m.files[r.file].Path != "a/main.go" || r.line != 4 || m.cursor-m.offset != 3 || m.fileCursor != 2 {
+		t.Fatalf("cursor moved to %s line %d, screen row %d, fileCursor %d", m.files[r.file].Path, r.line, m.cursor-m.offset, m.fileCursor)
+	}
+
+	src.files[""] = []review.File{{Path: "a/main.go", Status: review.StatusModified, Patch: "@@ -1 +1 @@\n-x\n+y"}}
+	m, _ = pollOnce(t, m)
+	if r := m.rows[m.cursor]; r.kind != rowFile || m.files[r.file].Path != "a/main.go" {
+		t.Fatalf("cursor not moved to the file header when its line vanished: %+v", r)
+	}
+	src.files[""] = nil
+	m, _ = pollOnce(t, m)
+	if out := screen(m); !strings.Contains(out, "no changes between main and feature") {
+		t.Fatalf("emptied branch not shown:\n%s", out)
+	}
+}
+
+func TestRefreshKeepsSelectedCommitBySHA(t *testing.T) {
+	src := mutableSample()
+	m := newModel(t, src, &fakeStore{viewed: map[string]string{}})
+	m, _ = press(t, m, "tab", "tab")
+	m, cmd := press(t, m, "j", "j")
+	m = run(t, m, cmd)
+
+	src.commits = append(src.commits, review.Commit{SHA: "3333333cccc", Subject: "follow up"})
+	src.files["2222222bbbb"] = []review.File{{Path: "a/main.go", Status: review.StatusModified, Patch: "@@ -1 +1,2 @@\n package main\n+func again() {}"}}
+	m, _ = pollOnce(t, m)
+	if out := screen(m); m.commitSHA() != "2222222bbbb" || !strings.Contains(out, "3333333 follow up") || !strings.Contains(out, "func again() {}") {
+		t.Fatalf("selected commit lost or not refreshed (commit %d):\n%s", m.commit, out)
+	}
+
+	src.commits = []review.Commit{{SHA: "9999999dddd", Subject: "rebased"}}
+	m, _ = pollOnce(t, m)
+	if m.commit != 0 || !strings.Contains(screen(m), "func again() {}") {
+		t.Fatalf("rebased away commit should fall back to all changes without loading stale files, commit=%d", m.commit)
+	}
+	m, _ = pollOnce(t, m)
+	if strings.Contains(screen(m), "func again() {}") || !strings.Contains(screen(m), "README.md") {
+		t.Fatalf("all changes not loaded on the next poll:\n%s", screen(m))
+	}
+}
+
+func TestRefreshAppliesViewedStateAndIgnoresErrors(t *testing.T) {
+	src := mutableSample()
+	st := &fakeStore{viewed: map[string]string{}}
+	m := newModel(t, src, st)
+	m, cmd := press(t, m, "j", "r")
+	m = run(t, m, cmd)
+	st.viewed = map[string]string{}
+
+	m, _ = pollOnce(t, m)
+	if m.viewed["a/main.go"] || !strings.Contains(screen(m), "func a() {}") {
+		t.Fatal("viewed state cleared elsewhere was not picked up")
+	}
+
+	src.err = errors.New("index.lock exists")
+	m, next := pollOnce(t, m)
+	if next == nil || m.err != nil || len(m.files) != 3 {
+		t.Fatalf("poll error should be ignored and polling continue, err=%v files=%d", m.err, len(m.files))
 	}
 }
