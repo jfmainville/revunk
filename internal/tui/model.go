@@ -1235,7 +1235,12 @@ func (m Model) filesCounter() string {
 	if len(m.files) == 0 {
 		return "0/0"
 	}
-	return fmt.Sprintf("%d/%d", m.fileCursor+1, len(m.files))
+	additions, deletions := 0, 0
+	for _, f := range m.files {
+		additions += f.Additions
+		deletions += f.Deletions
+	}
+	return counts(additions, deletions, lipgloss.NewStyle()) + dimStyle.Render(fmt.Sprintf(" · %d/%d", m.fileCursor+1, len(m.files)))
 }
 
 func (m Model) commitLines() []string {
@@ -1291,7 +1296,7 @@ func (m Model) fileLines() ([]string, []int) {
 			mark = "✓"
 		}
 		left := base.Render(indent) + statusStyle(f.Status).Inherit(base).Render(statusLetter(f.Status)) + base.Foreground(colorForeground).Render(" "+name)
-		right := base.Foreground(colorAdd).Render(mark + " ")
+		right := base.Render(" ") + counts(f.Additions, f.Deletions, base) + base.Foreground(colorAdd).Render(" "+mark+" ")
 		gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
 		lines = append(lines, fit(left+base.Render(strings.Repeat(" ", max(gap, 0))), inner-lipgloss.Width(right), base)+right)
 		files = append(files, i)

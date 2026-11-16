@@ -197,7 +197,7 @@ func renderFileHeader(f review.File, viewed, cursor bool, width int) string {
 		bar = base.Foreground(colorPrimary).Render("▌")
 	}
 	left := bar + base.Foreground(colorDim).Render(arrow+" ") + statusStyle(f.Status).Inherit(base).Render(statusLetter(f.Status)) + base.Foreground(colorForeground).Bold(true).Render("  "+f.Path)
-	right := base.Foreground(colorAdd).Render(fmt.Sprintf("+%d ", f.Additions)) + base.Foreground(colorDel).Render(fmt.Sprintf("-%d", f.Deletions)) + base.Foreground(colorDim).Render("   "+state+" ")
+	right := counts(f.Additions, f.Deletions, base) + base.Foreground(colorDim).Render("   "+state+" ")
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return fit(left, width, base)
@@ -213,6 +213,10 @@ func renderHunk(text string, width int, cursor bool) string {
 		bar = base.Foreground(colorPrimary).Render("▌")
 	}
 	return fit(bar+base.Foreground(colorThread).Render(text), width, base)
+}
+
+func counts(additions, deletions int, base lipgloss.Style) string {
+	return base.Foreground(colorAdd).Render(fmt.Sprintf("+%d ", additions)) + base.Foreground(colorDel).Render(fmt.Sprintf("-%d", deletions))
 }
 
 func statusLetter(s review.FileStatus) string {

@@ -23,7 +23,7 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 Run Revunk from inside a git repository. The **Agent** tab compares the current branch with its base branch, from their merge base to the working tree, so commits, staged and unstaged edits, and untracked files all show. Untracked files that are binary or larger than 1 MB are listed without a diff.
 
 - **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff.
-- **files** lists the changed files grouped by directory. Selecting a file scrolls the diff to it.
+- **files** lists the changed files grouped by directory, each with its added and removed line counts, and the totals in the pane title. Selecting a file scrolls the diff to it.
 - **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, both line numbers are shown, and code is syntax highlighted. Lines wider than the pane wrap onto the next rows without changing the file.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
 - **comments**, hidden until `n` is pressed, lists every comment on the branch with its file, lines, commit, and state. `enter` jumps to the selected comment, switching to its commit view when needed, and `dd` deletes it.

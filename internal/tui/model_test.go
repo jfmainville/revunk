@@ -1474,3 +1474,27 @@ func TestTallWrappedLineKeepsCursorVisible(t *testing.T) {
 		t.Fatalf("a line taller than the pane should start at the top, cursor=%d offset=%d", m.cursor, m.offset)
 	}
 }
+
+func TestExplorerShowsLineCounts(t *testing.T) {
+	m, _ := loaded(t)
+	out := screen(m)
+	for _, want := range []string{"files ──", "+4 -1 · 1/3", "A README.md              +2 -0", "M main.go              +2 -1", "M img.png                +0 -0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("explorer missing %q:\n%s", want, out)
+		}
+	}
+	m, cmd := press(t, m, "r")
+	m = run(t, m, cmd)
+	if !strings.Contains(screen(m), "A README.md              +2 -0 ✓") {
+		t.Fatalf("viewed mark should follow the counts:\n%s", screen(m))
+	}
+
+	name := strings.Repeat("n", 60) + ".go"
+	l := newModel(t, fakeSource{files: map[string][]review.File{"": {{Path: name, Status: review.StatusAdded, Additions: 12, Deletions: 3}}}}, &fakeStore{viewed: map[string]string{}})
+	out = screen(l)
+	row := out[strings.Index(out, "│ A nnn"):]
+	row = row[:strings.Index(row, "\n")]
+	if !strings.Contains(row, "n +12 -3") || !strings.Contains(out, "+12 -3 · 1/1") {
+		t.Fatalf("long names should be cut before the counts:\n%s", out)
+	}
+}
