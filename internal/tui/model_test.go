@@ -1500,7 +1500,7 @@ func TestExplorerShowsLineCounts(t *testing.T) {
 	name := strings.Repeat("n", 60) + ".go"
 	l := newModel(t, fakeSource{files: map[string][]review.File{"": {{Path: name, Status: review.StatusAdded, Additions: 12, Deletions: 3}}}}, &fakeStore{viewed: map[string]string{}})
 	out = screen(l)
-	row := out[strings.Index(out, "│ A nnn"):]
+	row := out[strings.Index(out, "│▌A nnn"):]
 	row = row[:strings.Index(row, "\n")]
 	if !strings.Contains(row, "n +12 -3") || !strings.Contains(out, "+12 -3 · 1/1") {
 		t.Fatalf("long names should be cut before the counts:\n%s", out)
@@ -1639,7 +1639,7 @@ func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	for _, l := range lines {
 		text = append(text, strings.TrimRight(ansi.Strip(l), " "))
 	}
-	want := []string{" A README.md              +2 -0", " M img.png                +0 -0", "", " Reviewed", " M a/main.go              +2 -1 ✓"}
+	want := []string{"▌A README.md              +2 -0", " M img.png                +0 -0", "", " Reviewed", " M a/main.go              +2 -1 ✓"}
 	if !reflect.DeepEqual(text, want) {
 		t.Fatalf("explorer = %q", text)
 	}
@@ -2016,5 +2016,35 @@ func TestNAndShiftNStepThroughMatches(t *testing.T) {
 	}
 	if m, _ = press(t, m, "t"); !m.showList || m.focus != focusComments {
 		t.Fatal("t should open the comments pane")
+	}
+}
+
+func TestExplorerSelectionFollowsTheDiffCursor(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	selected := func(m Model) string {
+		lines, _ := m.fileLines()
+		for _, l := range lines {
+			if strings.HasPrefix(ansi.Strip(l), "▌") {
+				return strings.TrimSpace(ansi.Strip(l))
+			}
+		}
+		return ""
+	}
+	for _, tc := range []struct {
+		file int
+		want string
+	}{{0, "▌A README.md"}, {1, "▌  M main.go"}, {2, "▌M img.png"}} {
+		for m.rows[m.cursor].file != tc.file {
+			m, _ = press(t, m, "j")
+		}
+		if got := selected(m); !strings.HasPrefix(got, tc.want) {
+			t.Fatalf("cursor in file %d: explorer selection %q, want %q", tc.file, got, tc.want)
+		}
+	}
+	accent, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(colorPrimary).Render("x"), "x")
+	lines, _ := m.fileLines()
+	if !strings.Contains(strings.Join(lines, ""), accent) {
+		t.Fatal("the selected file should use the accent color even when the diff has focus")
 	}
 }

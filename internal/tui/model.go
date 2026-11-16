@@ -1627,7 +1627,11 @@ func (m Model) fileLines() ([]string, []int) {
 		if m.viewed[f.Path] {
 			mark = "✓"
 		}
-		left := base.Render(indent) + statusStyle(f.Status).Inherit(base).Render(statusLetter(f.Status)) + base.Foreground(colorForeground).Render(" "+name)
+		bar, nameColor := base.Render(indent), colorForeground
+		if i == m.fileCursor {
+			bar, nameColor = base.Foreground(colorPrimary).Render("▌"+indent[1:]), colorPrimary
+		}
+		left := bar + statusStyle(f.Status).Inherit(base).Render(statusLetter(f.Status)) + base.Foreground(nameColor).Render(" "+name)
 		right := base.Render(" ") + counts(f.Additions, f.Deletions, base) + base.Foreground(colorAdd).Render(" "+mark+" ")
 		gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
 		lines = append(lines, fit(left+base.Render(strings.Repeat(" ", max(gap, 0))), inner-lipgloss.Width(right), base)+right)
