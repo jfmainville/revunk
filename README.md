@@ -34,18 +34,10 @@ revunk serve   Start the review API server
 
 ## Project layout
 
-| Package           | Responsibility                                                                                                               |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `cmd/revunk`      | CLI entry point and dependency wiring                                                                                        |
-| `internal/review` | Review domain types, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
-| `internal/github` | GitHub integration boundary implementing `review.Source`                                                                     |
-| `internal/store`  | Persistence boundary implementing `review.Store`                                                                             |
-| `internal/tui`    | Bubble Tea presentation layer                                                                                                |
-
-## Current limitations
-
-This is the bootstrap version, so a few parts are still placeholders:
-
-- `revunk serve` is not implemented yet. It exits with an error.
-- `internal/github` returns fixed sample files instead of calling the GitHub API.
-- `internal/store` keeps viewed state in memory, so it is lost when the program exits.
+| Package                    | Responsibility                                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `cmd/revunk`               | CLI entry point and dependency wiring                                                                                        |
+| `internal/review`          | Review domain types, the `Source` and `Store` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
+| `internal/provider/github` | GitHub provider implementing `review.Source`. Other hosts such as GitLab go in sibling packages.                             |
+| `internal/store`           | Persistence boundary implementing `review.Store`                                                                             |
+| `internal/tui`             | Bubble Tea presentation layer                                                                                                |
