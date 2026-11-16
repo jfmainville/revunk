@@ -124,7 +124,6 @@ var specialKeys = map[string]tea.KeyPressMsg{
 	"ctrl+c":    {Code: 'c', Mod: tea.ModCtrl},
 	"ctrl+d":    {Code: 'd', Mod: tea.ModCtrl},
 	"ctrl+u":    {Code: 'u', Mod: tea.ModCtrl},
-	"ctrl+g":    {Code: 'g', Mod: tea.ModCtrl},
 	"ctrl+s":    {Code: 's', Mod: tea.ModCtrl},
 }
 
@@ -351,17 +350,17 @@ func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
 		t.Fatalf("editor not open on L2:\n%s", screen(m))
 	}
 	m = typeText(t, m, "Rename `a`.")
-	m, _ = press(t, m, "tab", "tab", "tab")
+	m, _ = press(t, m, "tab")
 	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 
-	want := review.Comment{ID: "id1", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "Rename `a`."}
+	want := review.Comment{ID: "id1", Kind: "note", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "Rename `a`."}
 	if len(st.comments) != 1 || !reflect.DeepEqual(st.comments[0], want) {
 		t.Fatalf("stored %+v, want %+v", st.comments, want)
 	}
 	out := screen(m)
 	lineAt := strings.Index(out, "func a() {}")
-	commentAt := strings.Index(out, "◆ nit")
+	commentAt := strings.Index(out, "◆ note")
 	if m.editing || commentAt < lineAt || !strings.Contains(out, "L2 · draft") || !strings.Contains(out, "Rename") || !strings.Contains(out, "1 comments") {
 		t.Fatalf("comment not rendered under its line:\n%s", out)
 	}
@@ -467,8 +466,9 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	if !m.editing || !strings.Contains(screen(m), "write something") {
 		t.Fatal("blank comment should keep the editor open with a notice")
 	}
-	m, _ = press(t, m, "ctrl+g")
-	if want := "```suggestion\nfunc a() {}\nfunc b() {}\n```"; m.editor.area.Value() != want {
+	m.editor.area.SetValue("Use this:")
+	m, _ = press(t, m, "tab", "tab")
+	if want := "Use this:\n\n```suggestion\nfunc a() {}\nfunc b() {}\n```"; m.editor.area.Value() != want {
 		t.Fatalf("suggestion block = %q, want %q", m.editor.area.Value(), want)
 	}
 	m.editor.area.SetValue("first")
@@ -479,8 +479,12 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	if m.editor.area.Value() != "first\nsecond\n" {
 		t.Fatalf("newlines not inserted: %q", m.editor.area.Value())
 	}
+	m, _ = press(t, m, "tab", "tab", "tab")
+	if strings.Count(m.editor.area.Value(), "```suggestion") != 1 {
+		t.Fatalf("suggestion injected twice: %q", m.editor.area.Value())
+	}
 	m, _ = press(t, m, "shift+tab")
-	if commentKinds[m.editor.kind] != "praise" {
+	if commentKinds[m.editor.kind] != "note" {
 		t.Fatalf("shift+tab kind = %s", commentKinds[m.editor.kind])
 	}
 	m, _ = press(t, m, "esc")
@@ -489,7 +493,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	}
 
 	m.cursor = rowOf(t, m, rowLine, 1, 2)
-	m, _ = press(t, m, "c", "ctrl+g")
+	m, _ = press(t, m, "c", "tab", "tab")
 	if m.editor.area.Value() != "" || !strings.Contains(screen(m), "suggestions apply") {
 		t.Fatal("suggestions on removed lines should be refused")
 	}
@@ -1000,5 +1004,115 @@ func TestFileAndHunkKeysJumpForwardAndBackward(t *testing.T) {
 	paged, _ = press(t, paged, "l", "pgdown")
 	if paged.cursor == 0 {
 		t.Fatal("pgdown no longer pages")
+	}
+}
+
+func listModel(t *testing.T) (Model, *fakeStore) {
+	t.Helper()
+	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{
+		{ID: "a", Kind: "note", Path: "a/main.go", Side: review.SideRight, Start: 3, End: 3, Body: "second func\nmore"},
+		{ID: "b", Kind: "comment", Path: "README.md", Body: "title?"},
+		{ID: "c", Kind: "suggestion", Commit: "2222222bbbb", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename only", Sent: true},
+	}}
+	return newModel(t, sample, st), st
+}
+
+func TestCommentsPaneIsHiddenUntilToggled(t *testing.T) {
+	m, _ := listModel(t)
+	if strings.Contains(screen(m), "╭─ comments") {
+		t.Fatal("comments pane should start hidden")
+	}
+
+	m, _ = press(t, m, "n")
+
+	out := screen(m)
+	for _, want := range []string{"╭─ comments", "◆ note", "a/main.go L3  draft  second func", "README.md file", "a/main.go L2 @2222222  sent  rename only"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("comments pane missing %q:\n%s", want, out)
+		}
+	}
+	if m.focus != focusComments || lipgloss.Height(m.render()) != 40 {
+		t.Fatalf("focus=%d height=%d", m.focus, lipgloss.Height(m.render()))
+	}
+	m, _ = press(t, m, "tab")
+	if m.focus != focusCommits {
+		t.Fatalf("tab from comments should wrap to commits, got %d", m.focus)
+	}
+	m, _ = press(t, m, "shift+tab")
+	if m.focus != focusComments {
+		t.Fatalf("shift+tab should come back to comments, got %d", m.focus)
+	}
+	m, _ = press(t, m, "n")
+	if strings.Contains(screen(m), "╭─ comments") || m.focus != focusDiff {
+		t.Fatal("n should hide the pane and return to the diff")
+	}
+
+	empty, _ := loaded(t)
+	empty, _ = press(t, empty, "n")
+	if !strings.Contains(screen(empty), "no comments, press c on a line") {
+		t.Fatal("empty pane should explain how to add a comment")
+	}
+	if _, cmd := press(t, empty, "enter"); cmd != nil {
+		t.Fatal("enter with no comments should do nothing")
+	}
+	if empty, cmd := press(t, empty, "d", "d"); cmd != nil || !strings.Contains(screen(empty), "no comment here") {
+		t.Fatal("dd with no comments should explain")
+	}
+}
+
+func TestCommentsPaneNavigatesToComments(t *testing.T) {
+	m, _ := listModel(t)
+	m, _ = press(t, m, "n", "j", "k", "k", "enter")
+	if m.focus != focusDiff || m.cursor != rowOf(t, m, rowLine, 1, 4) {
+		t.Fatalf("enter did not jump to the line comment: focus=%d cursor=%d", m.focus, m.cursor)
+	}
+
+	m, _ = press(t, m, "tab", "j", "enter")
+	if m.cursor != rowOf(t, m, rowFile, 0, 0) {
+		t.Fatalf("file comment should jump to its header, cursor=%d", m.cursor)
+	}
+
+	m.focus = focusComments
+	m, cmd := press(t, m, "j", "j", "j")
+	if m.listCursor != 2 {
+		t.Fatalf("list cursor = %d, want clamped to 2", m.listCursor)
+	}
+	m, cmd = press(t, m, "enter")
+	m = run(t, m, cmd)
+	if m.commitSHA() != "2222222bbbb" || m.focus != focusDiff || m.rows[m.cursor].kind != rowLine || m.lines[0][m.rows[m.cursor].line].New != 2 {
+		t.Fatalf("did not switch to the commit and jump: commit=%q focus=%d", m.commitSHA(), m.focus)
+	}
+
+	m.focus = focusComments
+	m.listCursor = 0
+	m, cmd = press(t, m, "enter")
+	m = run(t, m, cmd)
+	if m.commit != 0 || m.cursor != rowOf(t, m, rowLine, 1, 4) {
+		t.Fatalf("did not switch back to all changes: commit=%d", m.commit)
+	}
+}
+
+func TestCommentsPaneHandlesMissingTargetsAndDeletes(t *testing.T) {
+	m, st := listModel(t)
+	st.comments = append(st.comments, review.Comment{ID: "d", Commit: "gone", Path: "x.go", Body: "old"}, review.Comment{ID: "e", Path: "gone.go", Body: "moved"})
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "n", "j", "j", "j")
+
+	m, cmd := press(t, m, "enter")
+	if cmd != nil || !strings.Contains(screen(m), "no longer on the branch") {
+		t.Fatal("comment on a vanished commit should explain")
+	}
+	m, _ = press(t, m, "j", "enter")
+	if !strings.Contains(screen(m), "gone.go is not in this diff") || m.focus != focusComments {
+		t.Fatal("comment on a missing file should explain and keep focus")
+	}
+
+	m, cmd = press(t, m, "d", "d")
+	m = run(t, m, cmd)
+	if len(st.comments) != 4 || slices.ContainsFunc(st.comments, func(c review.Comment) bool { return c.ID == "e" }) {
+		t.Fatalf("dd in the pane deleted the wrong comment: %+v", st.comments)
+	}
+	if out := screen(m); strings.Contains(out, "gone.go") {
+		t.Fatalf("deleted comment still listed:\n%s", out)
 	}
 }

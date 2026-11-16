@@ -26,6 +26,7 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 - **files** lists the changed files grouped by directory. Selecting a file scrolls the diff to it.
 - **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, both line numbers are shown, and code is syntax highlighted.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
+- **comments**, hidden until `n` is pressed, lists every comment on the branch with its file, lines, commit, and state. `enter` jumps to the selected comment, switching to its commit view when needed, and `dd` deletes it.
 - A file marked viewed collapses and stays viewed until its diff changes.
 
 Comments and viewed state are saved per branch in `.git/revunk.json`.
@@ -50,6 +51,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `c`                      | Comment on the current line, the range, or file header |
 | `C`                      | Comment on the whole file                              |
 | `dd`                     | Delete or resolve the comment under the cursor         |
+| `n`                      | Show or hide the comments pane                         |
 | `DD`                     | Delete every comment on the branch                     |
 | `r`                      | Toggle the file's viewed state                         |
 | `S`                      | Send unsent comments to the agent                      |
@@ -60,13 +62,12 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 
 ### Comment editor
 
-| Key                | Action                                                             |
-| ------------------ | ------------------------------------------------------------------ |
-| `ctrl+s`           | Save the comment                                                   |
-| `enter`            | Insert a newline                                                   |
-| `tab`, `shift+tab` | Cycle the type (comment, issue, suggestion, nit, question, praise) |
-| `ctrl+g`           | Insert a ` ```suggestion ` block with the commented lines          |
-| `esc`              | Cancel                                                             |
+| Key                | Action                                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `ctrl+s`           | Save the comment                                                                                                             |
+| `enter`            | Insert a newline                                                                                                             |
+| `tab`, `shift+tab` | Cycle the type (comment, note, suggestion). Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit |
+| `esc`              | Cancel                                                                                                                       |
 
 ## CLI
 

@@ -22,9 +22,10 @@ const (
 	focusCommits focusArea = iota
 	focusFiles
 	focusDiff
+	focusComments
 )
 
-var commentKinds = []string{"comment", "issue", "suggestion", "nit", "question", "praise"}
+var commentKinds = []string{"comment", "note", "suggestion"}
 
 type rowKind int
 
@@ -121,6 +122,9 @@ type Model struct {
 	editor     editorState
 	prefix     string
 	help       bool
+	showList   bool
+	listCursor int
+	pendingID  string
 	loading    bool
 	err        error
 	notice     string
@@ -193,6 +197,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.setFiles(msg.files)
 		}
+		for _, c := range m.comments {
+			if m.pendingID != "" && c.ID == m.pendingID {
+				m.jumpTo(c)
+			}
+		}
+		m.pendingID = ""
 	case viewedMsg:
 		m.err = msg.err
 		if msg.err == nil {
@@ -357,9 +367,16 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.prefix = key
 		m.notice = fmt.Sprintf("press D again to delete all %d comments", len(m.comments))
 	case "tab":
-		m.focus = (m.focus + 1) % 3
+		m.focus = (m.focus + 1) % m.focusCount()
 	case "shift+tab":
-		m.focus = (m.focus + 2) % 3
+		m.focus = (m.focus + m.focusCount() - 1) % m.focusCount()
+	case "n":
+		m.showList = !m.showList
+		m.focus = focusComments
+		if !m.showList {
+			m.focus = focusDiff
+		}
+		m.relayout()
 	case "f":
 		m.jump(rowFile, 1)
 	case "F":
@@ -388,6 +405,17 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.selectCommit(1)
 		case "k", "up":
 			return m, m.selectCommit(-1)
+		}
+	case focusComments:
+		switch key {
+		case "j", "down":
+			m.listCursor = min(m.listCursor+1, max(len(m.comments)-1, 0))
+		case "k", "up":
+			m.listCursor = max(m.listCursor-1, 0)
+		case "enter":
+			if c, ok := m.selectedComment(); ok {
+				return m, m.goToComment(c)
+			}
 		}
 	case focusFiles:
 		switch key {
@@ -459,17 +487,15 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.editing = false
 		m.relayout()
 		return m, m.saveComment(c)
-	case "tab":
-		m.editor.kind = (m.editor.kind + 1) % len(commentKinds)
-	case "shift+tab":
-		m.editor.kind = (m.editor.kind + len(commentKinds) - 1) % len(commentKinds)
-	case "ctrl+g":
-		t := m.editor.target
-		if t.FileLevel() || t.Side == review.SideLeft {
-			m.notice = "suggestions apply to added or unchanged lines"
-			return m, nil
+	case "tab", "shift+tab":
+		step := 1
+		if msg.String() == "shift+tab" {
+			step = len(commentKinds) - 1
 		}
-		m.editor.area.InsertString("```suggestion\n" + strings.Join(m.original(t), "\n") + "\n```")
+		m.editor.kind = (m.editor.kind + step) % len(commentKinds)
+		if commentKinds[m.editor.kind] == "suggestion" {
+			m.injectSuggestion()
+		}
 	default:
 		m.editor.area, cmd = m.editor.area.Update(msg)
 	}
@@ -477,6 +503,75 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.relayout()
 	m.revealEditor()
 	return m, cmd
+}
+
+func (m *Model) injectSuggestion() {
+	t, body := m.editor.target, m.editor.area.Value()
+	switch {
+	case t.FileLevel() || t.Side == review.SideLeft:
+		m.notice = "suggestions apply to added or unchanged lines"
+		return
+	case strings.Contains(body, "```suggestion"):
+		return
+	case body != "":
+		body += "\n\n"
+	}
+	m.editor.area.SetValue(body + "```suggestion\n" + strings.Join(m.original(t), "\n") + "\n```")
+}
+
+func (m Model) focusCount() focusArea {
+	if m.showList {
+		return 4
+	}
+	return 3
+}
+
+func (m Model) selectedComment() (review.Comment, bool) {
+	if len(m.comments) == 0 {
+		return review.Comment{}, false
+	}
+	return m.comments[min(m.listCursor, len(m.comments)-1)], true
+}
+
+func (m *Model) goToComment(c review.Comment) tea.Cmd {
+	if c.Commit == m.commitSHA() {
+		m.jumpTo(c)
+		return nil
+	}
+	target := 0
+	for i, cm := range m.commits {
+		if cm.SHA == c.Commit {
+			target = i + 1
+		}
+	}
+	if c.Commit != "" && target == 0 {
+		m.notice = "that comment's commit is no longer on the branch"
+		return nil
+	}
+	m.pendingID = c.ID
+	return m.selectCommit(target - m.commit)
+}
+
+func (m *Model) jumpTo(c review.Comment) {
+	target := -1
+	for i, r := range m.rows {
+		if len(m.files) == 0 || m.files[r.file].Path != c.Path {
+			continue
+		}
+		if r.kind == rowFile && target < 0 {
+			target = i
+		}
+		if r.kind == rowLine && !c.FileLevel() && anchoredAt(c, m.lines[r.file][r.line]) {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		m.notice = c.Path + " is not in this diff"
+		return
+	}
+	m.focus, m.cursor, m.offset = focusDiff, target, max(target-2, 0)
+	m.syncFile()
 }
 
 func (m Model) commitSHA() string {
@@ -671,6 +766,14 @@ func (m Model) saveComment(c review.Comment) tea.Cmd {
 }
 
 func (m *Model) deleteComment() tea.Cmd {
+	if m.focus == focusComments {
+		c, ok := m.selectedComment()
+		if !ok {
+			m.notice = "no comment here to delete"
+			return nil
+		}
+		return m.deleteByID(c.ID)
+	}
 	if len(m.rows) == 0 {
 		return nil
 	}
@@ -688,7 +791,11 @@ func (m *Model) deleteComment() tea.Cmd {
 		m.notice = "no comment here to delete"
 		return nil
 	}
-	svc, id := m.svc, m.comments[index].ID
+	return m.deleteByID(m.comments[index].ID)
+}
+
+func (m Model) deleteByID(id string) tea.Cmd {
+	svc := m.svc
 	return func() tea.Msg {
 		if err := svc.DeleteComment(context.Background(), id); err != nil {
 			return commentsMsg{err: err}
@@ -876,7 +983,7 @@ func (m *Model) addEditor(file int) {
 	m.rows = append(m.rows, row{kind: rowText, file: file})
 }
 
-var editorHints = []string{"^s", "save", "⏎", "newline", "⇥", "type", "^g", "suggestion", "esc", "cancel"}
+var editorHints = []string{"^s", "save", "⏎", "newline", "⇥", "type", "esc", "cancel"}
 
 func hints(pairs ...string) string {
 	parts := make([]string, 0, len(pairs)/2)
@@ -895,7 +1002,36 @@ func (m Model) diffWidth() int {
 }
 
 func (m Model) panesHeight() int {
-	return max(m.height-3, 0)
+	return max(m.height-3-m.listHeight(), 0)
+}
+
+func (m Model) listHeight() int {
+	if !m.showList {
+		return 0
+	}
+	return min(max(len(m.comments), 1), 8, max(m.height/3-2, 1)) + 2
+}
+
+func (m Model) listLines() []string {
+	if len(m.comments) == 0 {
+		return []string{dimStyle.Render(" no comments, press c on a line to add one")}
+	}
+	cursor := min(m.listCursor, len(m.comments)-1)
+	lines := make([]string, len(m.comments))
+	for i, c := range m.comments {
+		where := c.Path + " " + lineLabel(c)
+		if c.Commit != "" {
+			where += " @" + review.Commit{SHA: c.Commit}.Short()
+		}
+		first, _, _ := strings.Cut(strings.TrimSpace(c.Body), "\n")
+		base := lipgloss.NewStyle()
+		if i == cursor {
+			base = base.Background(colorCursorline)
+		}
+		line := base.Foreground(colorPrimary).Render(fmt.Sprintf(" ◆ %-10s ", c.Kind)) + base.Foreground(colorForeground).Render(where) + base.Foreground(colorDim).Render("  "+commentState(c)+"  "+first)
+		lines[i] = fit(line, m.width-2, base)
+	}
+	return lines[max(cursor-(m.listHeight()-2)+1, 0):]
 }
 
 func (m Model) diffHeight() int {
@@ -926,7 +1062,11 @@ func (m Model) render() string {
 		)
 		panes = lipgloss.JoinHorizontal(lipgloss.Top, left, box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), m.focus == focusDiff))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, m.tabBar(), panes, m.statusLine(), ansiFit(m.footer(), m.width))
+	parts := []string{m.tabBar(), panes}
+	if m.showList && !m.help {
+		parts = append(parts, box("comments", fmt.Sprintf("%d", len(m.comments)), m.listLines(), m.width, m.listHeight(), m.focus == focusComments))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, append(parts, m.statusLine(), ansiFit(m.footer(), m.width))...)
 }
 
 func ansiFit(s string, width int) string {
@@ -1115,8 +1255,10 @@ func (m Model) footer() string {
 		return hints(editorHints...)
 	case m.anchor >= 0:
 		return hints("c", "comment range", "j k", "extend", "esc", "cancel")
+	case m.focus == focusComments:
+		return hints("j k", "move", "⏎", "go to", "dd", "delete", "tab", "focus", "n", "close")
 	}
-	return hints("f F", "file", "h H", "hunk", "c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
+	return hints("f F", "file", "h H", "hunk", "n", "comments", "c", "comment", "C", "file comment", "v", "range", "r", "viewed", "dd", "delete", "S", "send", "y", "copy", "tab", "focus", "?", "help")
 }
 
 func helpLines() []string {
@@ -1134,6 +1276,7 @@ func helpLines() []string {
 		{"c", "comment on line, range or file header"},
 		{"C", "comment on the whole file"},
 		{"dd", "delete or resolve comment under cursor"},
+		{"n", "show or hide the comments pane"},
 		{"DD", "delete every comment"},
 		{"r", "mark file viewed until it changes"},
 		{"S", "send unsent comments to the agent"},
@@ -1142,8 +1285,7 @@ func helpLines() []string {
 		{"comment editor", ""},
 		{"C-s", "save"},
 		{"⏎", "newline"},
-		{"⇥", "cycle type"},
-		{"C-g", "insert a suggestion block for the lines"},
+		{"⇥", "cycle type, suggestion adds the lines as a code block"},
 		{"esc", "cancel"},
 		{"", ""},
 		{"anywhere", ""},
