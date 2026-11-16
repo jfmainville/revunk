@@ -93,7 +93,7 @@ func newFile(abs, path string) review.File {
 
 func parseDiff(out string) []review.File {
 	var files []review.File
-	for _, chunk := range strings.Split(out, "diff --git ")[1:] {
+	for _, chunk := range strings.Split("\n"+out, "\ndiff --git ")[1:] {
 		header, patch, _ := strings.Cut(chunk, "\n@@")
 		if patch != "" {
 			patch = "@@" + strings.TrimSuffix(patch, "\n")

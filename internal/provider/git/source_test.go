@@ -258,3 +258,11 @@ func TestFilesReportsListingErrors(t *testing.T) {
 		t.Fatal("expected an error with a corrupt index")
 	}
 }
+
+func TestParseDiffIgnoresDiffHeadersInsidePatchLines(t *testing.T) {
+	out := "diff --git a/x_test.go b/x_test.go\nindex 1..2 100644\n--- a/x_test.go\n+++ b/x_test.go\n@@ -1 +1,2 @@\n package x\n+var s = \"diff --git a/img.png b/img.png\"\n"
+	files := parseDiff(out)
+	if len(files) != 1 || files[0].Path != "x_test.go" || files[0].Additions != 1 {
+		t.Fatalf("files = %+v", files)
+	}
+}
