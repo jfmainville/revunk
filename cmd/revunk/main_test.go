@@ -15,6 +15,12 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
+func TestUsageHidesAgentCommands(t *testing.T) {
+	if strings.Contains(usage, "reply") || !strings.Contains(usage, "tui") {
+		t.Fatalf("usage should list tui and hide reply:\n%s", usage)
+	}
+}
+
 func TestRunHelpSucceeds(t *testing.T) {
 	for _, arg := range []string{"help", "-h", "--help"} {
 		if err := run([]string{arg}); err != nil {

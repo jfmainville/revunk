@@ -24,7 +24,6 @@ Reviews the commits on the current git branch against its base branch.
 
 Commands:
   tui                  Launch the terminal review interface (default)
-  reply <id> <text>    Reply to a review comment, used by the coding agent
 
 Flags:
   -base  Branch to compare against (default: origin's default branch, else main)

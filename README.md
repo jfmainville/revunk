@@ -78,8 +78,9 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 
 ```
 revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
-revunk reply <id> <text>        Reply to a review comment, used by the coding agent
 ```
+
+Coding agents answer comments with `revunk reply <id> <text>`, which the prompt sent by `S` explains, so it is left out of `--help`.
 
 `-base` sets the branch to compare against. It defaults to the remote's default branch (`origin/HEAD`), or `main` when there is none.
 
