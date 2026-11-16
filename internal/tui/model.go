@@ -105,12 +105,17 @@ type polledMsg struct {
 }
 
 var (
-	writeClipboard = clipboard.WriteAll
-	pollEvery      = 2 * time.Second
+	writeClipboard  = clipboard.WriteAll
+	pollEvery       = 2 * time.Second
+	reviewPollEvery = 15 * time.Second
 )
 
-func tick() tea.Cmd {
-	return tea.Tick(pollEvery, func(time.Time) tea.Msg { return tickMsg{} })
+func (m Model) tick() tea.Cmd {
+	every := pollEvery
+	if m.pr.Number > 0 {
+		every = reviewPollEvery
+	}
+	return tea.Tick(every, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 type Model struct {
@@ -148,9 +153,19 @@ type Model struct {
 	notice     string
 	width      int
 	height     int
+	tab        int
+	host       review.Host
+	openReview func(review.PullRequest) *review.Service
+	pulls      pullsState
+	diff       *Model
+	diffGen    int
+	pr         review.PullRequest
+	modal      modalState
 }
 
 func New(svc *review.Service, root, base string) Model {
+	keys := defaultKeys()
+	keys.Submit.SetEnabled(false)
 	return Model{
 		svc:      svc,
 		root:     root,
@@ -158,9 +173,10 @@ func New(svc *review.Service, root, base string) Model {
 		viewed:   map[string]bool{},
 		rendered: map[int][]string{},
 		anchor:   -1,
-		keys:     defaultKeys(),
+		keys:     keys,
 		focus:    focusFiles,
 		loading:  true,
+		pulls:    pullsState{details: map[string]review.PullRequest{}, markdown: map[string][]string{}},
 	}
 }
 
@@ -195,6 +211,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editor.area.SetWidth(m.editorWidth())
 		}
 		m.relayout()
+		if m.diff != nil {
+			return m.updateNested(msg)
+		}
 	case loadedMsg:
 		m.loading, m.err = false, msg.err
 		if msg.pruned > 0 {
@@ -206,14 +225,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.comments = msg.comments
 		m.setFiles(msg.files)
-		return m, tick()
+		return m, m.tick()
 	case tickMsg:
 		return m, m.poll()
 	case polledMsg:
 		if msg.err == nil {
 			m.applyPoll(msg)
 		}
-		return m, tick()
+		return m, m.tick()
 	case filesMsg:
 		if msg.commit != m.commit {
 			return m, nil
@@ -242,7 +261,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
+	case pullsMsg:
+		return m, m.applyPulls(msg)
+	case detailMsg:
+		return m, m.applyDetail(msg)
+	case pullsTickMsg:
+		return m, m.pullsTicked()
+	case nestedMsg:
+		if m.diff != nil && msg.gen == m.diffGen {
+			return m.updateNested(msg.msg)
+		}
 	case editedMsg:
+		if m.diff != nil && m.tab == tabPulls {
+			return m.updateNested(msg)
+		}
 		m.err, m.notice = msg.err, "edited "+msg.path
 		if msg.err != nil {
 			m.notice = ""
@@ -253,6 +285,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.clipboard != "" {
 			return m, tea.SetClipboard(msg.clipboard)
 		}
+	case tea.MouseClickMsg, tea.MouseWheelMsg:
+		if m.tab == tabPulls && m.pr.Number == 0 {
+			return m.pullsMouse(msg)
+		}
+	}
+	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft && !m.editing && !m.help {
 			m.notice, m.prefix = "", ""
@@ -265,11 +303,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		m.notice = ""
-		if m.editing {
+		switch {
+		case m.modal.open:
+			return m.updateModal(msg)
+		case m.editing:
 			return m.updateEditor(msg)
-		}
-		if m.searching {
+		case m.searching:
 			return m.updateSearch(msg)
+		}
+		key, d := msg.String(), m.diff
+		if m.pr.Number == 0 && !m.help && m.prefix == "" && (d == nil || m.tab != tabPulls || (!d.typing() && !d.help && d.prefix == "")) {
+			switch {
+			case is(key, m.keys.AgentTab):
+				m.tab = tabAgent
+				return m, nil
+			case is(key, m.keys.PullsTab):
+				return m, m.showPulls()
+			}
+		}
+		if m.tab == tabPulls && m.pr.Number == 0 {
+			return m.updatePullsKey(msg)
 		}
 		return m.updateKey(msg)
 	}
@@ -412,6 +465,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.deleteAllComments()
 		case is(seq, k.OpenFile):
 			return m, m.openFile()
+		case is(seq, k.Submit):
+			return m, m.openModal(modalSubmit, m.pr)
 		}
 		return m, nil
 	}
@@ -1378,9 +1433,11 @@ func (m *Model) addEditor(file int) {
 }
 
 func hints(list []hint) string {
-	parts := make([]string, len(list))
-	for i, h := range list {
-		parts[i] = primaryStyle.Render(h.text(false)) + " " + dimStyle.Render(h.desc)
+	var parts []string
+	for _, h := range list {
+		if text := h.text(false); text != "" {
+			parts = append(parts, primaryStyle.Render(text)+" "+dimStyle.Render(h.desc))
+		}
 	}
 	return strings.Join(parts, "  ")
 }
@@ -1448,9 +1505,17 @@ func (m Model) render() string {
 	if m.width == 0 {
 		return ""
 	}
+	if m.tab == tabPulls && m.pr.Number == 0 {
+		if m.diff != nil {
+			return m.diff.render()
+		}
+		return m.renderPulls()
+	}
 	var panes string
 	if m.help {
 		panes = box("help · "+label(m.keys.CloseHelp)+" closes", "", m.helpLines(), m.width, m.panesHeight(), colorPrimary)
+	} else if m.modal.open {
+		panes = m.renderModal()
 	} else {
 		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), focusColor(m.focus == focusDiff))
 		if !m.hideTree {
@@ -1511,8 +1576,14 @@ func box(title, right string, lines []string, width, height int, accent color.Co
 }
 
 func (m Model) tabBar() string {
-	tab := lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render(" Agent ")
-	left := tab
+	var left string
+	for i, name := range []string{"Agent", "Pull Request"} {
+		style := dimStyle
+		if i == m.tab {
+			style = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary)
+		}
+		left += style.Render(" "+name+" ") + " "
+	}
 	right := dimStyle.Render("▌ ") + "revunk"
 	if gap := m.width - lipgloss.Width(left) - lipgloss.Width(right); gap > 0 {
 		return left + strings.Repeat(" ", gap) + right
@@ -1699,7 +1770,7 @@ func (m Model) diffLines() []string {
 func (m Model) statusLine() string {
 	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" NORMAL ")
 	switch {
-	case m.editing:
+	case m.editing, m.modal.open:
 		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorAdd).Render(" INSERT ")
 	case m.searching:
 		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorNote).Render(" SEARCH ")
@@ -1740,6 +1811,8 @@ func (m Model) statusLine() string {
 
 func (m Model) footer() string {
 	switch {
+	case m.modal.open:
+		return hints(m.keys.modalHints(len(m.modal.choices) > 0))
 	case m.editing:
 		return hints(m.keys.editorHints())
 	case m.searching:
@@ -1754,15 +1827,42 @@ func (m Model) footer() string {
 
 func (m Model) helpLines() []string {
 	var lines []string
+	var breaks []int
 	for i, sec := range m.keys.helpSections() {
 		if i > 0 {
+			breaks = append(breaks, len(lines))
 			lines = append(lines, "")
 		}
 		lines = append(lines, "  "+dimStyle.Render(sec.title))
 		for _, h := range sec.hints {
 			keys := h.text(true)
+			if keys == "" {
+				continue
+			}
 			lines = append(lines, "  "+primaryStyle.Render(keys)+strings.Repeat(" ", max(12-lipgloss.Width(keys), 1))+h.desc)
 		}
 	}
-	return lines
+	if len(lines) <= m.panesHeight()-2 || len(breaks) == 0 {
+		return lines
+	}
+	split := breaks[0]
+	for _, b := range breaks {
+		if max(b, len(lines)-b-1) < max(split, len(lines)-split-1) {
+			split = b
+		}
+	}
+	left, right := lines[:split], lines[split+1:]
+	half := (m.width - 2) / 2
+	out := make([]string, max(len(left), len(right)))
+	for i := range out {
+		if i < len(left) {
+			out[i] = fit(left[i], half, lipgloss.NewStyle())
+		} else {
+			out[i] = strings.Repeat(" ", half)
+		}
+		if i < len(right) {
+			out[i] += right[i]
+		}
+	}
+	return out
 }

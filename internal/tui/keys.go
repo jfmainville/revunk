@@ -49,6 +49,16 @@ type keyMap struct {
 	PrevMatch   key.Binding
 	DeleteChar  key.Binding
 	OpenFile    key.Binding
+	AgentTab    key.Binding
+	PullsTab    key.Binding
+	NextFilter  key.Binding
+	EditPR      key.Binding
+	OpenDiff    key.Binding
+	Submit      key.Binding
+	People      key.Binding
+	Reply       key.Binding
+	React       key.Binding
+	Resolve     key.Binding
 }
 
 func bind(keys ...string) key.Binding {
@@ -97,6 +107,16 @@ func defaultKeys() keyMap {
 		PrevMatch:   bind("N", "ctrl+p"),
 		DeleteChar:  bind("backspace"),
 		OpenFile:    bind("g f"),
+		AgentTab:    bind("1"),
+		PullsTab:    bind("2"),
+		NextFilter:  bind("s"),
+		EditPR:      bind("g e"),
+		OpenDiff:    bind("g d"),
+		Submit:      bind("g s"),
+		People:      bind("A"),
+		Reply:       bind("r"),
+		React:       bind("+"),
+		Resolve:     bind("x"),
 	}
 }
 
@@ -145,6 +165,9 @@ func (h hint) text(all bool) string {
 	}
 	var labels []string
 	for _, b := range h.keys {
+		if !b.Enabled() {
+			continue
+		}
 		keys := b.Keys()
 		if !all {
 			keys = keys[:min(len(keys), 1)]
@@ -193,6 +216,19 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
 			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
 		}},
+		{"pull requests", []hint{
+			{desc: "next filter: assigned, review requested, authored, involved", keys: []key.Binding{k.NextFilter}},
+			{desc: "focus the details sidebar, back to the list", keys: []key.Binding{k.Open, k.Cancel}},
+			{desc: "next / previous details tab", keys: []key.Binding{k.NextFocus, k.PrevFocus}},
+			{desc: "edit the title and description", keys: []key.Binding{k.EditPR}},
+			{desc: "review the diff with GitHub comments", keys: []key.Binding{k.OpenDiff}},
+			{desc: "submit the review: comment, approve, request changes", keys: []key.Binding{k.Submit}},
+			{desc: "edit assignees and reviewers", keys: []key.Binding{k.People}},
+			{desc: "comment on the pull request", keys: []key.Binding{k.Comment}},
+			{desc: "reply to the selected comment", keys: []key.Binding{k.Reply}},
+			{desc: "react to the selected comment", keys: []key.Binding{k.React}},
+			{desc: "resolve or unresolve the selected thread", keys: []key.Binding{k.Resolve}},
+		}},
 		{"comment editor", []hint{
 			{desc: "save", keys: []key.Binding{k.Save}},
 			{desc: "newline", keys: []key.Binding{k.Newline}},
@@ -200,6 +236,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "cancel", keys: []key.Binding{k.Cancel}},
 		}},
 		{"anywhere", []hint{
+			{desc: "Agent / Pull Request tab", keys: []key.Binding{k.AgentTab, k.PullsTab}},
 			{desc: "this help", keys: []key.Binding{k.Help}},
 			{desc: "quit", keys: []key.Binding{k.Quit}},
 		}},
@@ -254,7 +291,48 @@ func (k keyMap) mainHints() []hint {
 		{desc: "delete", keys: []key.Binding{k.Delete}},
 		{desc: "send", keys: []key.Binding{k.Send}},
 		{desc: "copy", keys: []key.Binding{k.Copy}},
+		{desc: "submit review", keys: []key.Binding{k.Submit}},
 		{desc: "focus", keys: []key.Binding{k.NextFocus}},
 		{desc: "help", keys: []key.Binding{k.Help}},
 	}
+}
+
+func (k keyMap) pullsHints() []hint {
+	return []hint{
+		{desc: "move", keys: []key.Binding{k.Down, k.Up}},
+		{desc: "details", keys: []key.Binding{k.Open}},
+		{desc: "filter", keys: []key.Binding{k.NextFilter}},
+		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
+		{desc: "edit", keys: []key.Binding{k.EditPR}},
+		{desc: "people", keys: []key.Binding{k.People}},
+		{desc: "comment", keys: []key.Binding{k.Comment}},
+		{desc: "agent", keys: []key.Binding{k.AgentTab}},
+		{desc: "help", keys: []key.Binding{k.Help}},
+	}
+}
+
+func (k keyMap) detailsHints() []hint {
+	return []hint{
+		{desc: "next tab", keys: []key.Binding{k.NextFocus}},
+		{desc: "move", keys: []key.Binding{k.Down, k.Up}},
+		{desc: "comment", keys: []key.Binding{k.Comment}},
+		{desc: "reply", keys: []key.Binding{k.Reply}},
+		{desc: "react", keys: []key.Binding{k.React}},
+		{desc: "resolve", keys: []key.Binding{k.Resolve}},
+		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
+		{desc: "edit", keys: []key.Binding{k.EditPR}},
+		{desc: "list", keys: []key.Binding{k.Cancel}},
+	}
+}
+
+func (k keyMap) modalHints(choices bool) []hint {
+	list := []hint{
+		{desc: "save", keys: []key.Binding{k.Save}},
+		{desc: "next field", keys: []key.Binding{k.NextFocus}},
+		{desc: "cancel", keys: []key.Binding{k.Cancel}},
+	}
+	if choices {
+		list = append(list, hint{desc: "pick", keys: []key.Binding{k.Down, k.Up}})
+	}
+	return list
 }

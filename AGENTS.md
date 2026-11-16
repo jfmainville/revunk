@@ -15,8 +15,8 @@ Run format, vet, and tests before every commit. All must pass. CI runs the same 
 
 ## Architecture
 
-- `internal/review` holds the domain types, the `Source`, `Store`, and `Agent` interfaces, and `Service`. It must never import UI, provider, or storage packages.
-- `internal/provider/<name>` implements `review.Source` for one source of changes (local git now, code hosts such as GitHub later).
+- `internal/review` holds the domain types, the `Source`, `Store`, `Host`, and `Agent` interfaces, and `Service`. It must never import UI, provider, or storage packages.
+- `internal/provider/<name>` implements `review.Source` for one source of changes: `git` for the local branch, `github` for pull requests through `gh`, which also implements `review.Host` and the `review.Store` comments of a pull request's review.
 - `internal/agent` implements `review.Agent` by reaching a coding agent through `herdr`.
 - `internal/store` implements `review.Store`.
 - `internal/tui` is the only package allowed to import Charm libraries (`bubbletea`, `bubbles`, `lipgloss`).
