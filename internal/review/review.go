@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -95,13 +96,16 @@ const (
 )
 
 type Comment struct {
-	Commit string
-	Kind   string
-	Path   string
-	Side   Side
-	Start  int
-	End    int
-	Body   string
+	ID      string
+	Commit  string
+	Kind    string
+	Path    string
+	Side    Side
+	Start   int
+	End     int
+	Body    string
+	Sent    bool
+	Replies []string
 }
 
 func (c Comment) FileLevel() bool {
@@ -118,7 +122,8 @@ type Store interface {
 	Viewed(ctx context.Context, branch string) (map[string]string, error)
 	AddComment(ctx context.Context, branch string, c Comment) error
 	Comments(ctx context.Context, branch string) ([]Comment, error)
-	DeleteComments(ctx context.Context, branch string, comments []Comment) error
+	UpdateComments(ctx context.Context, branch string, ids []string, update func(*Comment)) error
+	DeleteComments(ctx context.Context, branch string, ids []string) error
 }
 
 type Agent interface {
@@ -126,10 +131,11 @@ type Agent interface {
 }
 
 type Service struct {
-	source Source
-	store  Store
-	agent  Agent
-	branch string
+	source       Source
+	store        Store
+	agent        Agent
+	branch       string
+	ReplyCommand string
 }
 
 func NewService(source Source, store Store, agent Agent, branch string) *Service {
@@ -212,8 +218,8 @@ func (s *Service) AddComment(ctx context.Context, c Comment) error {
 	return s.store.AddComment(ctx, s.branch, c)
 }
 
-func (s *Service) DeleteComment(ctx context.Context, c Comment) error {
-	return s.store.DeleteComments(ctx, s.branch, []Comment{c})
+func (s *Service) DeleteComment(ctx context.Context, id string) error {
+	return s.store.DeleteComments(ctx, s.branch, []string{id})
 }
 
 func (s *Service) DeleteAllComments(ctx context.Context) error {
@@ -221,7 +227,31 @@ func (s *Service) DeleteAllComments(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.store.DeleteComments(ctx, s.branch, comments)
+	return s.store.DeleteComments(ctx, s.branch, ids(comments))
+}
+
+func ids(comments []Comment) []string {
+	out := make([]string, len(comments))
+	for i, c := range comments {
+		out[i] = c.ID
+	}
+	return out
+}
+
+func (s *Service) Reply(ctx context.Context, id, body string) error {
+	if strings.TrimSpace(body) == "" {
+		return errors.New("reply is empty")
+	}
+	comments, err := s.Comments(ctx)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(comments, func(c Comment) bool { return c.ID == id }) {
+		return fmt.Errorf("no comment %s on %s", id, s.branch)
+	}
+	return s.store.UpdateComments(ctx, s.branch, []string{id}, func(c *Comment) {
+		c.Replies = append(c.Replies, body)
+	})
 }
 
 func (s *Service) Prompt(ctx context.Context) (string, error) {
@@ -230,16 +260,26 @@ func (s *Service) Prompt(ctx context.Context) (string, error) {
 }
 
 func (s *Service) prompt(ctx context.Context) (string, []Comment, error) {
-	comments, err := s.Comments(ctx)
+	all, err := s.Comments(ctx)
 	if err != nil {
 		return "", nil, err
 	}
+	var comments []Comment
+	for _, c := range all {
+		if !c.Sent {
+			comments = append(comments, c)
+		}
+	}
 	if len(comments) == 0 {
-		return "", nil, errors.New("no comments on " + s.branch)
+		return "", nil, errors.New("no unsent comments on " + s.branch)
+	}
+	command := s.ReplyCommand
+	if command == "" {
+		command = "revunk"
 	}
 	files := map[string][]File{}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Address these review comments on branch %s.\n", s.branch)
+	fmt.Fprintf(&b, "Address these review comments on branch %s. After handling each comment, reply to it with `%s reply <id> \"<what you changed, or your answer>\"`.\n", s.branch, command)
 	for i, c := range comments {
 		if _, ok := files[c.Commit]; !ok {
 			if files[c.Commit], err = s.Files(ctx, c.Commit); err != nil {
@@ -261,7 +301,7 @@ func (s *Service) prompt(ctx context.Context) (string, []Comment, error) {
 		if c.Commit != "" {
 			fmt.Fprintf(&b, " in commit %s", Commit{SHA: c.Commit}.Short())
 		}
-		b.WriteString("\n\n")
+		fmt.Fprintf(&b, " (id %s)\n\n", c.ID)
 		if code := commented(files[c.Commit], c); len(code) > 0 {
 			b.WriteString("```\n" + strings.Join(code, "\n") + "\n```\n\n")
 		}
@@ -304,5 +344,5 @@ func (s *Service) SendComments(ctx context.Context) (string, error) {
 	if err != nil {
 		return name, err
 	}
-	return name, s.store.DeleteComments(ctx, s.branch, sent)
+	return name, s.store.UpdateComments(ctx, s.branch, ids(sent), func(c *Comment) { c.Sent = true })
 }

@@ -34,6 +34,10 @@ func TestStatePersistsAcrossOpen(t *testing.T) {
 		t.Fatalf("viewed hash not persisted: %v", viewed)
 	}
 	comments, _ := reopened.Comments(ctx, "feature")
+	if len(comments) != 1 || len(comments[0].ID) != 8 {
+		t.Fatalf("comment ID not assigned: %v", comments)
+	}
+	comment.ID = comments[0].ID
 	if !reflect.DeepEqual(comments, []review.Comment{comment}) {
 		t.Fatalf("comments not persisted: %v", comments)
 	}
@@ -95,7 +99,6 @@ func TestWritesFailWhenDirectoryIsNotWritable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.state.Comments["b"] = []review.Comment{{Body: "x"}}
 	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -106,26 +109,89 @@ func TestWritesFailWhenDirectoryIsNotWritable(t *testing.T) {
 	if err := s.AddComment(ctx, "b", review.Comment{Body: "x"}); err == nil {
 		t.Fatal("AddComment succeeded without a writable directory")
 	}
-	if err := s.DeleteComments(ctx, "b", []review.Comment{{Body: "x"}}); err == nil {
+	if err := s.DeleteComments(ctx, "b", []string{"x"}); err == nil {
 		t.Fatal("DeleteComments succeeded without a writable directory")
+	}
+	if err := s.UpdateComments(ctx, "b", []string{"x"}, func(*review.Comment) {}); err == nil {
+		t.Fatal("UpdateComments succeeded without a writable directory")
+	}
+	if _, err := s.Comments(ctx, "b"); err == nil {
+		t.Fatal("Comments succeeded on an unreadable path")
+	}
+	if _, err := s.Viewed(ctx, "b"); err == nil {
+		t.Fatal("Viewed succeeded on an unreadable path")
 	}
 }
 
-func TestDeleteCommentsRemovesOneMatchEachAndPersists(t *testing.T) {
+func commentIDs(t *testing.T, s *JSON, branch string) map[string]string {
+	t.Helper()
+	comments, err := s.Comments(context.Background(), branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	for _, c := range comments {
+		ids[c.Body] = c.ID
+	}
+	return ids
+}
+
+func TestUpdateAndDeleteCommentsByID(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "s.json")
 	s, _ := Open(path)
-	for _, body := range []string{"dup", "keep", "dup", "drop"} {
+	for _, body := range []string{"keep", "reply", "drop"} {
 		_ = s.AddComment(ctx, "b", review.Comment{Body: body})
 	}
+	ids := commentIDs(t, s, "b")
 
-	if err := s.DeleteComments(ctx, "b", []review.Comment{{Body: "drop"}, {Body: "dup"}, {Body: "missing"}}); err != nil {
+	if err := s.UpdateComments(ctx, "b", []string{ids["reply"], "missing"}, func(c *review.Comment) { c.Replies = append(c.Replies, "done") }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteComments(ctx, "b", []string{ids["drop"], "missing"}); err != nil {
 		t.Fatal(err)
 	}
 
 	reopened, _ := Open(path)
 	got, _ := reopened.Comments(ctx, "b")
-	if len(got) != 2 || got[0].Body != "keep" || got[1].Body != "dup" {
-		t.Fatalf("persisted comments = %v", got)
+	if len(got) != 2 || got[0].Body != "keep" || got[0].Replies != nil || got[1].Body != "reply" || !reflect.DeepEqual(got[1].Replies, []string{"done"}) {
+		t.Fatalf("persisted comments = %+v", got)
+	}
+}
+
+func TestWritesFromAnotherInstanceAreKept(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "s.json")
+	tui, _ := Open(path)
+	cli, _ := Open(path)
+	_ = tui.AddComment(ctx, "b", review.Comment{Body: "question"})
+	id := commentIDs(t, tui, "b")["question"]
+
+	if err := cli.UpdateComments(ctx, "b", []string{id}, func(c *review.Comment) { c.Replies = []string{"answer"} }); err != nil {
+		t.Fatal(err)
+	}
+	if err := tui.SetViewed(ctx, "b", "a.go", "h"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := tui.Comments(ctx, "b")
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Replies, []string{"answer"}) {
+		t.Fatalf("reply from another instance lost: %+v", got)
+	}
+}
+
+func TestOpenGivesOlderCommentsAnID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	if err := os.WriteFile(path, []byte(`{"Comments":{"b":[{"Body":"old"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := commentIDs(t, s, "b")["old"]
+	again, _ := Open(path)
+	if first == "" || commentIDs(t, again, "b")["old"] != first {
+		t.Fatalf("ID not assigned once and saved: %q", first)
 	}
 }

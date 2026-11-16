@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -22,7 +23,8 @@ const usage = `Usage: revunk [-base <branch>] [command]
 Reviews the commits on the current git branch against its base branch.
 
 Commands:
-  tui    Launch the terminal review interface (default)
+  tui                  Launch the terminal review interface (default)
+  reply <id> <text>    Reply to a review comment, used by the coding agent
 
 Flags:
   -base  Branch to compare against (default: origin's default branch, else main)
@@ -57,6 +59,20 @@ func run(args []string) error {
 		}
 		_, err = tea.NewProgram(model).Run()
 		return err
+	case "reply":
+		if flags.NArg() < 3 {
+			return errors.New("usage: revunk reply <id> <text>")
+		}
+		ctx := context.Background()
+		svc, _, _, err := service(ctx, ".", *base)
+		if err != nil {
+			return err
+		}
+		if err := svc.Reply(ctx, flags.Arg(1), strings.Join(flags.Args()[2:], " ")); err != nil {
+			return err
+		}
+		fmt.Println("replied to", flags.Arg(1))
+		return nil
 	case "help":
 		fmt.Print(usage)
 		return nil
@@ -67,25 +83,34 @@ func run(args []string) error {
 }
 
 func setup(ctx context.Context, dir, base string) (tui.Model, error) {
+	svc, root, base, err := service(ctx, dir, base)
+	if err != nil {
+		return tui.Model{}, err
+	}
+	return tui.New(svc, filepath.Base(root), base), nil
+}
+
+func service(ctx context.Context, dir, base string) (*review.Service, string, string, error) {
 	root, err := git.Root(ctx, dir)
 	if err != nil {
-		return tui.Model{}, fmt.Errorf("run revunk inside a git repository: %w", err)
+		return nil, "", "", fmt.Errorf("run revunk inside a git repository: %w", err)
 	}
 	branch, err := git.Branch(ctx, root)
 	if err != nil {
-		return tui.Model{}, err
+		return nil, "", "", err
 	}
 	if base == "" {
 		base = git.DefaultBase(ctx, root)
 	}
 	statePath, err := git.StatePath(ctx, root)
 	if err != nil {
-		return tui.Model{}, err
+		return nil, "", "", err
 	}
 	st, err := store.Open(statePath)
 	if err != nil {
-		return tui.Model{}, err
+		return nil, "", "", err
 	}
 	svc := review.NewService(git.Source{Dir: root, Base: base}, st, agent.Agent{Dir: root}, branch)
-	return tui.New(svc, filepath.Base(root), base), nil
+	svc.ReplyCommand, _ = os.Executable()
+	return svc, root, base, nil
 }

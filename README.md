@@ -30,7 +30,9 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 Comments and viewed state are saved per branch in `.git/revunk.json`.
 
-`S` sends every comment on the branch to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its file, lines, commit, and the commented code. `S` uses `herdr agent list` to pick the first Claude Code or opencode pane whose directory is inside the repository, skipping the pane Revunk runs in. With no such pane, it starts Claude Code in a new pane next to Revunk. It submits the text with `herdr agent prompt` and removes the sent comments once the agent accepts them. Comments stay when sending fails, and comments added while sending are kept.
+`S` sends the comments not sent yet to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its ID, file, lines, commit, and the commented code, and asks the agent to answer each one with `revunk reply <id> "<text>"`. `S` uses `herdr agent list` to pick the first Claude Code or opencode pane whose directory is inside the repository, skipping the pane Revunk runs in. With no such pane, it starts Claude Code in a new pane next to Revunk. It submits the text with `herdr agent prompt` and marks the comments sent. Comments stay drafts when sending fails.
+
+Revunk reloads comments every 2 seconds, so agent replies appear under their comment, which moves from `draft` to `sent` to `replied`. A comment stays until you resolve it with `dd` or `DD`. Replies work with any agent that can run shell commands, since the prompt gives the full path of the running `revunk` binary.
 
 ### Keys
 
@@ -47,11 +49,11 @@ Comments and viewed state are saved per branch in `.git/revunk.json`.
 | `v`, `V`               | Start or stop selecting a range of lines               |
 | `c`                    | Comment on the current line, the range, or file header |
 | `C`                    | Comment on the whole file                              |
-| `dd`                   | Delete the comment under the cursor                    |
+| `dd`                   | Delete or resolve the comment under the cursor         |
 | `DD`                   | Delete every comment on the branch                     |
 | `r`                    | Toggle the file's viewed state                         |
-| `S`                    | Send every comment to the agent and remove them        |
-| `y`                    | Copy every comment to the clipboard                    |
+| `S`                    | Send unsent comments to the agent                      |
+| `y`                    | Copy unsent comments to the clipboard                  |
 | `?`                    | Show every key                                         |
 | `esc`                  | Stop selecting or close the help                       |
 | `q`, `ctrl+c`          | Quit                                                   |
@@ -70,6 +72,7 @@ Comments and viewed state are saved per branch in `.git/revunk.json`.
 
 ```
 revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
+revunk reply <id> <text>        Reply to a review comment, used by the coding agent
 ```
 
 `-base` sets the branch to compare against. It defaults to the remote's default branch (`origin/HEAD`), or `main` when there is none.

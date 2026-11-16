@@ -38,8 +38,26 @@ func (s failingStore) AddComment(context.Context, string, review.Comment) error 
 func (s failingStore) Comments(context.Context, string) ([]review.Comment, error) {
 	return nil, s.viewedErr
 }
-func (s failingStore) DeleteComments(context.Context, string, []review.Comment) error {
+func (s failingStore) UpdateComments(context.Context, string, []string, func(*review.Comment)) error {
 	return s.setErr
+}
+func (s failingStore) DeleteComments(context.Context, string, []string) error {
+	return s.setErr
+}
+
+func idOf(t *testing.T, svc *review.Service, body string) string {
+	t.Helper()
+	comments, err := svc.Comments(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range comments {
+		if c.Body == body {
+			return c.ID
+		}
+	}
+	t.Fatalf("no comment %q", body)
+	return ""
 }
 
 func newStore(t *testing.T) *store.JSON {
@@ -214,8 +232,12 @@ func TestAddCommentStoresCommentsPerBranch(t *testing.T) {
 	}
 
 	got, err := svc.Comments(ctx)
-	if err != nil || !reflect.DeepEqual(got, []review.Comment{c}) {
+	if err != nil || len(got) != 1 {
 		t.Fatalf("Comments = %v, %v", got, err)
+	}
+	c.ID = got[0].ID
+	if !reflect.DeepEqual(got, []review.Comment{c}) {
+		t.Fatalf("Comments = %v", got)
 	}
 	if other, _ := review.NewService(&fakeSource{}, st, nil, "other").Comments(ctx); len(other) != 0 {
 		t.Fatalf("comments leaked to another branch: %v", other)
@@ -240,7 +262,7 @@ func TestAddCommentRejectsBlankBodyAndReturnsStoreErrors(t *testing.T) {
 	if _, err := failing.Comments(ctx); !errors.Is(err, storeErr) {
 		t.Fatalf("Comments: got %v", err)
 	}
-	if err := failing.DeleteComment(ctx, review.Comment{Body: "hi"}); !errors.Is(err, storeErr) {
+	if err := failing.DeleteComment(ctx, "id"); !errors.Is(err, storeErr) {
 		t.Fatalf("DeleteComment: got %v", err)
 	}
 }
@@ -254,7 +276,7 @@ func TestDeleteCommentRemovesOnlyThatComment(t *testing.T) {
 		}
 	}
 
-	if err := svc.DeleteComment(ctx, review.Comment{Path: "a.go", Body: "two"}); err != nil {
+	if err := svc.DeleteComment(ctx, idOf(t, svc, "two")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -328,15 +350,17 @@ func promptService(t *testing.T, agent review.Agent) *review.Service {
 }
 
 func TestPromptListsEveryCommentWithItsCode(t *testing.T) {
-	got, err := promptService(t, nil).Prompt(context.Background())
+	svc := promptService(t, nil)
+	svc.ReplyCommand = "/bin/revunk"
+	got, err := svc.Prompt(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Address these review comments on branch feature.\n" +
-		"\n## 1. issue on a.go lines 1-2\n\n```\nkeep\nnew\n```\n\nfix it\n" +
-		"\n## 2. question on a.go removed line 2\n\n```\nold\n```\n\nwhy remove?\n" +
-		"\n## 3. nit on a.go\n\nwhole file\n" +
-		"\n## 4. praise on b.go line 1 in commit abcdef1\n\n```\nb\n```\n\nnice\n"
+	want := "Address these review comments on branch feature. After handling each comment, reply to it with `/bin/revunk reply <id> \"<what you changed, or your answer>\"`.\n" +
+		"\n## 1. issue on a.go lines 1-2 (id " + idOf(t, svc, "fix it") + ")\n\n```\nkeep\nnew\n```\n\nfix it\n" +
+		"\n## 2. question on a.go removed line 2 (id " + idOf(t, svc, "why remove?") + ")\n\n```\nold\n```\n\nwhy remove?\n" +
+		"\n## 3. nit on a.go (id " + idOf(t, svc, "whole file") + ")\n\nwhole file\n" +
+		"\n## 4. praise on b.go line 1 in commit abcdef1 (id " + idOf(t, svc, "nice") + ")\n\n```\nb\n```\n\nnice\n"
 	if got != want {
 		t.Fatalf("prompt =\n%s\nwant\n%s", got, want)
 	}
@@ -344,7 +368,7 @@ func TestPromptListsEveryCommentWithItsCode(t *testing.T) {
 
 func TestPromptErrors(t *testing.T) {
 	ctx := context.Background()
-	if _, err := review.NewService(&fakeSource{}, newStore(t), nil, "feature").Prompt(ctx); err == nil || !strings.Contains(err.Error(), "no comments on feature") {
+	if _, err := review.NewService(&fakeSource{}, newStore(t), nil, "feature").Prompt(ctx); err == nil || !strings.Contains(err.Error(), "no unsent comments on feature") {
 		t.Fatalf("empty prompt error = %v", err)
 	}
 	storeErr := errors.New("locked")
@@ -368,28 +392,33 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	if name, err := svc.SendComments(ctx); err != nil || name != "opencode" || !strings.Contains(agent.text, "## 4. praise") {
 		t.Fatalf("SendComments = %q, %v, sent %q", name, err, agent.text)
 	}
-	if left, _ := svc.Comments(ctx); len(left) != 0 {
-		t.Fatalf("sent comments were kept: %v", left)
+	if left, _ := svc.Comments(ctx); len(left) != 4 || !left[0].Sent || !left[3].Sent {
+		t.Fatalf("sent comments not marked sent: %+v", left)
+	}
+	if _, err := svc.SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no unsent comments") {
+		t.Fatalf("second send = %v", err)
 	}
 	agentErr := errors.New("blocked")
 	failing := promptService(t, &fakeAgent{err: agentErr})
 	if _, err := failing.SendComments(ctx); !errors.Is(err, agentErr) {
 		t.Fatalf("agent error = %v", err)
 	}
-	if left, _ := failing.Comments(ctx); len(left) != 4 {
-		t.Fatalf("comments removed after a failed send: %v", left)
+	if left, _ := failing.Comments(ctx); len(left) != 4 || left[0].Sent {
+		t.Fatalf("comments marked sent after a failed send: %+v", left)
 	}
 	busy := &fakeAgent{}
 	svc = promptService(t, busy)
 	busy.during = func() {
-		_ = svc.DeleteComment(ctx, review.Comment{Kind: "nit", Path: "a.go", Body: "whole file"})
 		_ = svc.AddComment(ctx, review.Comment{Kind: "issue", Path: "a.go", Body: "added while working"})
 	}
 	if _, err := svc.SendComments(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if left, _ := svc.Comments(ctx); len(left) != 1 || left[0].Body != "added while working" {
-		t.Fatalf("comments after a send with changes in between = %v", left)
+	if left, _ := svc.Comments(ctx); len(left) != 5 || left[4].Sent {
+		t.Fatalf("comment added while sending was marked sent: %+v", left)
+	}
+	if _, err := svc.Prompt(ctx); err != nil {
+		t.Fatalf("unsent comment not offered again: %v", err)
 	}
 	if _, err := promptService(t, nil).SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
 		t.Fatalf("missing agent error = %v", err)
@@ -397,5 +426,42 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	empty := &fakeAgent{}
 	if _, err := review.NewService(&fakeSource{}, newStore(t), empty, "x").SendComments(ctx); err == nil || empty.text != "" {
 		t.Fatalf("empty send = %v, sent %q", err, empty.text)
+	}
+}
+
+func TestPromptDefaultsReplyCommandToRevunk(t *testing.T) {
+	got, err := promptService(t, nil).Prompt(context.Background())
+	if err != nil || !strings.Contains(got, "`revunk reply <id>") {
+		t.Fatalf("Prompt = %q, %v", got, err)
+	}
+}
+
+func TestReplyAddsToTheComment(t *testing.T) {
+	ctx := context.Background()
+	svc := promptService(t, nil)
+	id := idOf(t, svc, "why remove?")
+
+	for _, body := range []string{"It was unused.", "Restored it."} {
+		if err := svc.Reply(ctx, id, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	comments, _ := svc.Comments(ctx)
+	if got := comments[1].Replies; !reflect.DeepEqual(got, []string{"It was unused.", "Restored it."}) {
+		t.Fatalf("replies = %q", got)
+	}
+	if comments[0].Replies != nil {
+		t.Fatal("reply landed on another comment")
+	}
+	if err := svc.Reply(ctx, id, "  "); err == nil {
+		t.Fatal("blank reply accepted")
+	}
+	if err := svc.Reply(ctx, "nope", "x"); err == nil || !strings.Contains(err.Error(), "no comment nope on feature") {
+		t.Fatalf("unknown id error = %v", err)
+	}
+	storeErr := errors.New("locked")
+	if err := review.NewService(&fakeSource{}, failingStore{viewedErr: storeErr}, nil, "b").Reply(ctx, id, "x"); !errors.Is(err, storeErr) {
+		t.Fatalf("store error = %v", err)
 	}
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"reflect"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -77,7 +79,21 @@ type actionMsg struct {
 	err       error
 }
 
-var writeClipboard = clipboard.WriteAll
+type tickMsg struct{}
+
+type polledMsg struct {
+	comments []review.Comment
+	err      error
+}
+
+var (
+	writeClipboard = clipboard.WriteAll
+	pollEvery      = 2 * time.Second
+)
+
+func tick() tea.Cmd {
+	return tea.Tick(pollEvery, func(time.Time) tea.Msg { return tickMsg{} })
+}
 
 type Model struct {
 	svc        *review.Service
@@ -157,6 +173,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.comments = msg.comments
 		m.setFiles(msg.files)
+		return m, tick()
+	case tickMsg:
+		svc := m.svc
+		return m, func() tea.Msg {
+			comments, err := svc.Comments(context.Background())
+			return polledMsg{comments: comments, err: err}
+		}
+	case polledMsg:
+		if msg.err == nil && !reflect.DeepEqual(msg.comments, m.comments) {
+			m.comments = msg.comments
+			m.rendered = map[int][]string{}
+			m.relayout()
+		}
+		return m, tick()
 	case filesMsg:
 		if msg.commit != m.commit {
 			return m, nil
@@ -572,9 +602,9 @@ func (m *Model) deleteComment() tea.Cmd {
 		m.notice = "no comment here to delete"
 		return nil
 	}
-	svc, c := m.svc, m.comments[index]
+	svc, id := m.svc, m.comments[index].ID
 	return func() tea.Msg {
-		if err := svc.DeleteComment(context.Background(), c); err != nil {
+		if err := svc.DeleteComment(context.Background(), id); err != nil {
 			return commentsMsg{err: err}
 		}
 		comments, err := svc.Comments(context.Background())
@@ -582,12 +612,22 @@ func (m *Model) deleteComment() tea.Cmd {
 	}
 }
 
+func (m Model) unsent() int {
+	n := 0
+	for _, c := range m.comments {
+		if !c.Sent {
+			n++
+		}
+	}
+	return n
+}
+
 func (m *Model) sendComments() tea.Cmd {
-	if len(m.comments) == 0 {
-		m.notice = "no comments to send"
+	if m.unsent() == 0 {
+		m.notice = "no unsent comments to send"
 		return nil
 	}
-	svc, n := m.svc, len(m.comments)
+	svc, n := m.svc, m.unsent()
 	m.notice = fmt.Sprintf("sending %d comments…", n)
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -596,7 +636,7 @@ func (m *Model) sendComments() tea.Cmd {
 			return commentsMsg{err: err}
 		}
 		comments, err := svc.Comments(ctx)
-		return commentsMsg{comments: comments, notice: fmt.Sprintf("sent %d comments to %s", n, agent), err: err}
+		return commentsMsg{comments: comments, notice: fmt.Sprintf("sent %d comments to %s, replies show under each one", n, agent), err: err}
 	}
 }
 
@@ -613,11 +653,11 @@ func (m Model) deleteAllComments() tea.Cmd {
 }
 
 func (m *Model) copyComments() tea.Cmd {
-	if len(m.comments) == 0 {
-		m.notice = "no comments to copy"
+	if m.unsent() == 0 {
+		m.notice = "no unsent comments to copy"
 		return nil
 	}
-	svc, n := m.svc, len(m.comments)
+	svc, n := m.svc, m.unsent()
 	return func() tea.Msg {
 		text, err := svc.Prompt(context.Background())
 		if err != nil {
@@ -1007,11 +1047,11 @@ func helpLines() []string {
 		{"v V", "visual range"},
 		{"c", "comment on line, range or file header"},
 		{"C", "comment on the whole file"},
-		{"dd", "delete comment under cursor"},
+		{"dd", "delete or resolve comment under cursor"},
 		{"DD", "delete every comment"},
 		{"r", "mark file viewed until it changes"},
-		{"S", "send every comment to the agent and remove them"},
-		{"y", "copy every comment"},
+		{"S", "send unsent comments to the agent"},
+		{"y", "copy unsent comments"},
 		{"", ""},
 		{"comment editor", ""},
 		{"C-s", "save"},

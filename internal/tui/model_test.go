@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +31,7 @@ type fakeStore struct {
 	viewed   map[string]string
 	comments []review.Comment
 	err      error
+	next     int
 }
 
 func (s *fakeStore) SetViewed(_ context.Context, _, path, hash string) error {
@@ -49,17 +52,30 @@ func (s *fakeStore) AddComment(_ context.Context, _ string, c review.Comment) er
 	if s.err != nil {
 		return s.err
 	}
+	s.next++
+	c.ID = fmt.Sprintf("id%d", s.next)
 	s.comments = append(s.comments, c)
 	return nil
 }
 func (s *fakeStore) Comments(context.Context, string) ([]review.Comment, error) {
 	return slices.Clone(s.comments), nil
 }
-func (s *fakeStore) DeleteComments(_ context.Context, _ string, remove []review.Comment) error {
+func (s *fakeStore) UpdateComments(_ context.Context, _ string, ids []string, update func(*review.Comment)) error {
 	if s.err != nil {
 		return s.err
 	}
-	s.comments = slices.DeleteFunc(s.comments, func(c review.Comment) bool { return slices.Contains(remove, c) })
+	for i := range s.comments {
+		if slices.Contains(ids, s.comments[i].ID) {
+			update(&s.comments[i])
+		}
+	}
+	return nil
+}
+func (s *fakeStore) DeleteComments(_ context.Context, _ string, ids []string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.comments = slices.DeleteFunc(s.comments, func(c review.Comment) bool { return slices.Contains(ids, c.ID) })
 	return nil
 }
 
@@ -339,8 +355,8 @@ func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
 	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 
-	want := review.Comment{Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "Rename `a`."}
-	if len(st.comments) != 1 || st.comments[0] != want {
+	want := review.Comment{ID: "id1", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "Rename `a`."}
+	if len(st.comments) != 1 || !reflect.DeepEqual(st.comments[0], want) {
 		t.Fatalf("stored %+v, want %+v", st.comments, want)
 	}
 	out := screen(m)
@@ -503,8 +519,8 @@ func TestSuggestionRendersAsDiffAgainstOriginalLines(t *testing.T) {
 func TestDeleteCommentUnderCursor(t *testing.T) {
 	m, st := loaded(t)
 	st.comments = []review.Comment{
-		{Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "keep me"},
-		{Kind: "issue", Path: "a/main.go", Body: "file note"},
+		{ID: "a", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "keep me"},
+		{ID: "b", Kind: "issue", Path: "a/main.go", Body: "file note"},
 	}
 	m = update(t, m, m.Init()())
 	m, _ = press(t, m, "l")
@@ -606,7 +622,7 @@ func TestCommentSaveErrorIsShown(t *testing.T) {
 	if !strings.Contains(screen(m), "disk full") {
 		t.Fatal("save error not shown")
 	}
-	st.comments = []review.Comment{{Path: "README.md", Body: "y"}}
+	st.comments = []review.Comment{{ID: "a", Path: "README.md", Body: "y"}}
 	m = update(t, m, m.Init()())
 	m, _ = press(t, m, "l", "g", "g")
 	m, cmd = press(t, m, "d", "d")
@@ -662,9 +678,14 @@ func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 }
 
 func TestSmallHelpers(t *testing.T) {
-	for c, want := range map[review.Comment]string{{}: "file", {Start: 3, End: 3}: "L3", {Start: 3, End: 5}: "L3-5"} {
+	for want, c := range map[string]review.Comment{"file": {}, "L3": {Start: 3, End: 3}, "L3-5": {Start: 3, End: 5}} {
 		if got := lineLabel(c); got != want {
 			t.Errorf("lineLabel(%+v) = %q, want %q", c, got, want)
+		}
+	}
+	for want, c := range map[string]review.Comment{"draft": {}, "sent": {Sent: true}, "replied": {Sent: true, Replies: []string{"ok"}}} {
+		if got := commentState(c); got != want {
+			t.Errorf("commentState(%+v) = %q, want %q", c, got, want)
 		}
 	}
 	for s, want := range map[review.FileStatus]string{review.StatusAdded: "A", review.StatusRemoved: "D", review.StatusRenamed: "R", review.StatusModified: "M"} {
@@ -704,7 +725,7 @@ func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
 
 func withComment(t *testing.T, agent review.Agent) Model {
 	t.Helper()
-	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename"}}}
+	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{ID: "c1", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename"}}}
 	m := New(review.NewService(sample, st, agent, "feature"), "revunk", "main")
 	m = update(t, m, m.Init()())
 	return update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -723,8 +744,11 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
 		t.Fatalf("prompts = %q", agent.prompts)
 	}
-	if out := screen(m); !strings.Contains(out, "sent 1 comments to opencode") || strings.Contains(out, "◆ nit") || len(m.comments) != 0 {
-		t.Fatalf("sent comments not removed:\n%s", out)
+	if out := screen(m); !strings.Contains(out, "sent 1 comments to opencode, replies show under each one") || !strings.Contains(out, "L2 · sent") || len(m.comments) != 1 {
+		t.Fatalf("sent comment not kept and marked sent:\n%s", out)
+	}
+	if again, cmd := press(t, m, "S"); cmd != nil || !strings.Contains(screen(again), "no unsent comments to send") {
+		t.Fatal("S should skip comments already sent")
 	}
 
 	failing := withComment(t, &fakeAgent{err: errors.New("no Claude Code session open")})
@@ -735,7 +759,7 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	}
 
 	empty, _ := loaded(t)
-	if empty, cmd = press(t, empty, "S"); cmd != nil || !strings.Contains(screen(empty), "no comments to send") {
+	if empty, cmd = press(t, empty, "S"); cmd != nil || !strings.Contains(screen(empty), "no unsent comments to send") {
 		t.Fatal("S without comments should explain")
 	}
 }
@@ -759,14 +783,14 @@ func TestCopyCommentsWritesClipboard(t *testing.T) {
 	}
 
 	empty, _ := loaded(t)
-	if empty, cmd = press(t, empty, "y"); cmd != nil || !strings.Contains(screen(empty), "no comments to copy") {
+	if empty, cmd = press(t, empty, "y"); cmd != nil || !strings.Contains(screen(empty), "no unsent comments to copy") {
 		t.Fatal("y without comments should explain")
 	}
 	stale, _ := loaded(t)
 	stale.comments = []review.Comment{{Path: "x"}}
 	stale, cmd = press(t, stale, "y")
 	stale = run(t, stale, cmd)
-	if !strings.Contains(screen(stale), "no comments on feature") {
+	if !strings.Contains(screen(stale), "no unsent comments on feature") {
 		t.Fatalf("prompt error not shown:\n%s", screen(stale))
 	}
 }
@@ -813,5 +837,37 @@ func TestDeleteAllCommentsNeedsSecondPress(t *testing.T) {
 	failing = run(t, failing, cmd)
 	if !strings.Contains(screen(failing), "disk full") {
 		t.Fatalf("delete all error not shown:\n%s", screen(failing))
+	}
+}
+
+func TestPollingShowsAgentRepliesUnderComments(t *testing.T) {
+	m := withComment(t, nil)
+	st := m.svc
+
+	tickCmd := func() tea.Cmd {
+		_, cmd := m.Update(loadedMsg{comments: m.comments})
+		return cmd
+	}()
+	if tickCmd == nil {
+		t.Fatal("loading should start polling")
+	}
+	if err := st.Reply(context.Background(), "c1", "Renamed to `start`."); err != nil {
+		t.Fatal(err)
+	}
+	ticked, cmd := m.Update(tickMsg{})
+	polled := cmd()
+	updated, next := ticked.(Model).Update(polled)
+	got := updated.(Model)
+
+	out := screen(got)
+	if !strings.Contains(out, "L2 · replied") || !strings.Contains(out, "↳ agent reply") || !strings.Contains(out, "Renamed to") || !strings.Contains(out, "start") {
+		t.Fatalf("reply not shown:\n%s", out)
+	}
+	if next == nil {
+		t.Fatal("polling should continue")
+	}
+	same, _ := got.Update(polled)
+	if !reflect.DeepEqual(same.(Model).comments, got.comments) {
+		t.Fatal("unchanged poll altered comments")
 	}
 }

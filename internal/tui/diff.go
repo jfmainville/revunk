@@ -267,6 +267,21 @@ func commentBox(title, right string, lines []string, width int, focused bool) []
 }
 
 func renderComment(c review.Comment, original []string, width int) []string {
-	body := renderMarkdown(expandSuggestions(c.Body, original), max(commentWidth(width)-4, 10))
-	return commentBox(primaryStyle.Render("◆ "+c.Kind), lineLabel(c)+" · draft", body, width, false)
+	wrap := max(commentWidth(width)-4, 10)
+	lines := renderMarkdown(expandSuggestions(c.Body, original), wrap)
+	for _, r := range c.Replies {
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render("↳ agent reply"))
+		lines = append(lines, renderMarkdown(r, wrap)...)
+	}
+	return commentBox(primaryStyle.Render("◆ "+c.Kind), lineLabel(c)+" · "+commentState(c), lines, width, false)
+}
+
+func commentState(c review.Comment) string {
+	switch {
+	case len(c.Replies) > 0:
+		return "replied"
+	case c.Sent:
+		return "sent"
+	}
+	return "draft"
 }
