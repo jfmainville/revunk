@@ -225,7 +225,7 @@ func TestLoadErrorAndEmptyBranchAreShown(t *testing.T) {
 	if out := screen(m); !strings.Contains(out, "no changes between main and feature") || !strings.Contains(out, "no changes") {
 		t.Fatalf("empty state missing:\n%s", out)
 	}
-	m, cmd := press(t, m, "r")
+	m, cmd := press(t, m, "-")
 	if cmd != nil {
 		t.Fatal("r with no files should do nothing")
 	}
@@ -560,7 +560,7 @@ func TestMarkViewedCollapsesFileUntilItChanges(t *testing.T) {
 	m, st := loaded(t)
 	m, _ = press(t, m, "j")
 
-	m, cmd := press(t, m, "r")
+	m, cmd := press(t, m, "-")
 	m = run(t, m, cmd)
 
 	out := screen(m)
@@ -571,14 +571,14 @@ func TestMarkViewedCollapsesFileUntilItChanges(t *testing.T) {
 		t.Fatal("viewed state not stored")
 	}
 
-	m, cmd = press(t, m, "r")
+	m, cmd = press(t, m, "-")
 	m = run(t, m, cmd)
 	if !strings.Contains(screen(m), "func a() {}") {
 		t.Fatal("unmarking did not expand the file")
 	}
 
 	failing := newModel(t, sample, &fakeStore{viewed: map[string]string{}, err: errors.New("read-only")})
-	failing, cmd = press(t, failing, "r")
+	failing, cmd = press(t, failing, "-")
 	failing = run(t, failing, cmd)
 	if !strings.Contains(screen(failing), "read-only") {
 		t.Fatal("store error not shown")
@@ -957,7 +957,7 @@ func TestRefreshAppliesViewedStateAndIgnoresErrors(t *testing.T) {
 	src := mutableSample()
 	st := &fakeStore{viewed: map[string]string{}}
 	m := newModel(t, src, st)
-	m, cmd := press(t, m, "j", "r")
+	m, cmd := press(t, m, "j", "-")
 	m = run(t, m, cmd)
 	st.viewed = map[string]string{}
 
@@ -1479,7 +1479,7 @@ func TestExplorerShowsLineCounts(t *testing.T) {
 			t.Errorf("explorer missing %q:\n%s", want, out)
 		}
 	}
-	m, cmd := press(t, m, "r")
+	m, cmd := press(t, m, "-")
 	m = run(t, m, cmd)
 	if !strings.Contains(screen(m), "A README.md              +2 -0 ✓") {
 		t.Fatalf("viewed mark should follow the counts:\n%s", screen(m))
@@ -1613,5 +1613,57 @@ func TestWrapTokensKeepsShortLinesWhole(t *testing.T) {
 	}
 	if parts := wrapTokens([]token{{text: "日本語"}}, lineGutter+6); len(parts) != 1 {
 		t.Fatalf("wide runes with more bytes than cells should still fit: %+v", parts)
+	}
+}
+
+func TestReviewedFilesMoveToReviewSection(t *testing.T) {
+	m, _ := loaded(t)
+	if strings.Contains(screen(m), " review ") {
+		t.Fatal("review section should only show once a file is reviewed")
+	}
+	m.viewed = map[string]bool{"a/main.go": true}
+	lines, files := m.fileLines()
+	var text []string
+	for _, l := range lines {
+		text = append(text, strings.TrimRight(ansi.Strip(l), " "))
+	}
+	want := []string{" A README.md              +2 -0", " M img.png                +0 -0", "", " review", " M a/main.go              +2 -1 ✓"}
+	if !reflect.DeepEqual(text, want) {
+		t.Fatalf("explorer = %q", text)
+	}
+	if !reflect.DeepEqual(files, []int{0, 2, -1, -1, 1}) {
+		t.Fatalf("row files = %v", files)
+	}
+
+	if m.focus != focusFiles {
+		t.Fatalf("focus=%d", m.focus)
+	}
+	var order []int
+	for range 4 {
+		order = append(order, m.fileCursor)
+		m, _ = press(t, m, "j")
+	}
+	if !reflect.DeepEqual(order, []int{0, 2, 1, 1}) {
+		t.Fatalf("j should follow the explorer order, got %v", order)
+	}
+	m, _ = press(t, m, "k")
+	if m.fileCursor != 2 {
+		t.Fatalf("k should go back up the explorer, got %d", m.fileCursor)
+	}
+	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	if m.fileCursor != 1 {
+		t.Fatalf("wheel should follow the explorer order, got %d", m.fileCursor)
+	}
+	m, _ = click(t, m, 5, 7)
+	if m.fileCursor != 0 {
+		t.Fatalf("click on the first row = %d", m.fileCursor)
+	}
+	m, _ = click(t, m, 5, 10)
+	if m.fileCursor != 0 {
+		t.Fatal("clicking the review header should not select a file")
+	}
+	m, _ = click(t, m, 5, 11)
+	if m.fileCursor != 1 {
+		t.Fatalf("clicking a reviewed file should select it, got %d", m.fileCursor)
 	}
 }

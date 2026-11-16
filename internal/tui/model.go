@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"path"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -469,9 +470,9 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case focusFiles:
 		switch {
 		case is(key, k.Down):
-			m.selectFile(m.fileCursor + 1)
+			m.stepFile(1)
 		case is(key, k.Up):
-			m.selectFile(m.fileCursor - 1)
+			m.stepFile(-1)
 		case is(key, k.Open):
 			m.focus = focusDiff
 		case is(key, k.Comment):
@@ -641,7 +642,7 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 	case focusCommits:
 		return m.selectCommit(step)
 	case focusFiles:
-		m.selectFile(m.fileCursor + step)
+		m.stepFile(step)
 	case focusDiff:
 		m.move(3 * step)
 	case focusComments:
@@ -1322,6 +1323,25 @@ func (m Model) commitLines() []string {
 	return lines[start:]
 }
 
+func (m Model) fileOrder() []int {
+	var order, reviewed []int
+	for i, f := range m.files {
+		if m.viewed[f.Path] {
+			reviewed = append(reviewed, i)
+		} else {
+			order = append(order, i)
+		}
+	}
+	return append(order, reviewed...)
+}
+
+func (m *Model) stepFile(step int) {
+	order := m.fileOrder()
+	if pos := slices.Index(order, m.fileCursor); pos >= 0 {
+		m.selectFile(order[min(max(pos+step, 0), len(order)-1)])
+	}
+}
+
 func (m Model) fileLines() ([]string, []int) {
 	if m.loading {
 		return []string{dimStyle.Render(" loading…")}, nil
@@ -1332,17 +1352,27 @@ func (m Model) fileLines() ([]string, []int) {
 	inner := m.leftWidth() - 2
 	var lines []string
 	var files []int
-	selected, lastDir := 0, ""
-	for i, f := range m.files {
+	selected, lastDir, inReview := 0, "", false
+	for _, i := range m.fileOrder() {
+		f := m.files[i]
 		dir, name, indent := path.Dir(f.Path), f.Path, " "
-		if dir != "." {
+		switch {
+		case m.viewed[f.Path]:
+			if !inReview {
+				lines = append(lines, "", " "+primaryStyle.Render("review"))
+				files = append(files, -1, -1)
+				inReview = true
+			}
+		case dir != ".":
 			name, indent = path.Base(f.Path), "   "
 			if dir != lastDir {
 				lines = append(lines, " "+dimStyle.Render(dir+"/"))
 				files = append(files, -1)
 			}
+			lastDir = dir
+		default:
+			lastDir = dir
 		}
-		lastDir = dir
 		base := lipgloss.NewStyle()
 		if i == m.fileCursor {
 			base = base.Background(colorCursorline)

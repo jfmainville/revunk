@@ -78,7 +78,7 @@ func defaultKeys() keyMap {
 		FileComment: bind("C"),
 		Delete:      bind("d d"),
 		DeleteAll:   bind("D D"),
-		Viewed:      bind("r"),
+		Viewed:      bind("-"),
 		Comments:    bind("n"),
 		Explorer:    bind("e"),
 		Send:        bind("S"),
