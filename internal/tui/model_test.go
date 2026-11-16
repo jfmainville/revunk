@@ -1301,3 +1301,11 @@ func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
 		t.Fatal("wheel should be ignored while editing")
 	}
 }
+
+func TestCommentBoxesUseAccentBorder(t *testing.T) {
+	accent, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(colorPrimary).Render("x"), "x")
+	out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80)
+	if len(out) < 3 || !strings.Contains(out[0], accent+"╭") || !strings.Contains(out[1], accent+"│") || !strings.Contains(out[len(out)-1], accent+"╰") {
+		t.Fatalf("saved comment border should use the accent color:\n%q", out)
+	}
+}

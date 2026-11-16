@@ -253,13 +253,13 @@ func commentWidth(width int) int {
 	return width - gutterWidth + 1
 }
 
-func commentBox(title, right string, lines []string, width int, focused bool) []string {
+func commentBox(title, right string, lines []string, width int) []string {
 	padded := make([]string, len(lines))
 	for i, l := range lines {
 		padded[i] = " " + l
 	}
 	indent := strings.Repeat(" ", gutterWidth-2)
-	out := strings.Split(box(title, right, padded, commentWidth(width), len(lines)+2, focused), "\n")
+	out := strings.Split(box(title, right, padded, commentWidth(width), len(lines)+2, true), "\n")
 	for i, l := range out {
 		out[i] = indent + l
 	}
@@ -273,7 +273,7 @@ func renderComment(c review.Comment, original []string, width int) []string {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render("↳ agent reply"))
 		lines = append(lines, renderMarkdown(r, wrap)...)
 	}
-	return commentBox(primaryStyle.Render("◆ "+c.Kind), lineLabel(c)+" · "+commentState(c), lines, width, false)
+	return commentBox(primaryStyle.Render("◆ "+c.Kind), lineLabel(c)+" · "+commentState(c), lines, width)
 }
 
 func commentState(c review.Comment) string {

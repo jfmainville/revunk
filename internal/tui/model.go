@@ -1051,7 +1051,7 @@ func (m *Model) addEditor(file int) {
 	}
 	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(m.editor.area.View(), "\n")...)
 	lines = append(lines, hints(editorHints...))
-	for _, l := range commentBox("comment", lineLabel(m.editor.target), lines, m.diffWidth(), true) {
+	for _, l := range commentBox("comment", lineLabel(m.editor.target), lines, m.diffWidth()) {
 		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
 	}
 	m.rows = append(m.rows, row{kind: rowText, file: file})
