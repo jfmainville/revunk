@@ -2,6 +2,7 @@ package tui
 
 import (
 	"charm.land/bubbles/v2/key"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -925,48 +926,48 @@ func mergeWarning(state string) string {
 
 const dropdownRows = 8
 
+func (d drop) width() int {
+	width := len("default branch") + 4
+	for _, c := range d.choices {
+		width = max(width, len(c)+4)
+	}
+	return width
+}
+
 func (m Model) dropdownLines() []string {
 	d := m.modal
 	var lines []string
 	for n, dr := range d.drops {
-		width := 2
-		for _, c := range dr.choices {
-			width = max(width, len(c)+4)
-		}
 		labelStyle, value := dimStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorRule)
 		if d.focus == n {
 			labelStyle, value = primaryStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary)
 		}
-		expanded := d.expanded && d.focus == n
 		arrow := "▾"
-		if expanded {
+		if d.expanded && d.focus == n {
 			arrow = "▴"
 		}
-		shown := dr.value()
-		if shown == "" {
-			shown = "default branch"
-			width = max(width, len(shown)+4)
-		}
-		lines = append(lines, " "+labelStyle.Render(fmt.Sprintf("%-10s", dr.name))+" "+value.Render(fmt.Sprintf(" %-*s%s ", width-2, shown, arrow)))
-		if !expanded {
-			continue
-		}
-		var items []string
-		top := max(dr.choice-dropdownRows+1, 0)
-		for i, c := range dr.choices[top:min(top+dropdownRows, len(dr.choices))] {
-			i += top
-			style, mark := dimStyle, "  "
-			if i == dr.choice {
-				style, mark = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary), "▸ "
-			}
-			items = append(items, style.Render(fmt.Sprintf("%-*s", width, mark+c)))
-		}
-		list := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorPrimary).Render(strings.Join(items, "\n"))
-		for l := range strings.SplitSeq(list, "\n") {
-			lines = append(lines, strings.Repeat(" ", 12)+l)
-		}
+		shown := cmp.Or(dr.value(), "default branch")
+		lines = append(lines, " "+labelStyle.Render(fmt.Sprintf("%-10s", dr.name))+" "+value.Render(fmt.Sprintf(" %-*s%s ", dr.width()-2, shown, arrow)))
 	}
 	return append(lines, "")
+}
+
+func (m Model) dropdownList() string {
+	d := m.modal
+	if !d.expanded || !d.onChoices() {
+		return ""
+	}
+	dr := d.drops[d.focus]
+	var items []string
+	top := max(dr.choice-dropdownRows+1, 0)
+	for i, c := range dr.choices[top:min(top+dropdownRows, len(dr.choices))] {
+		style, mark := lipgloss.NewStyle().Foreground(colorDim).Background(colorPanel), "  "
+		if i+top == dr.choice {
+			style, mark = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary), "▸ "
+		}
+		items = append(items, style.Render(fmt.Sprintf("%-*s", dr.width(), mark+c)))
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorPrimary).BorderBackground(colorPanel).Render(strings.Join(items, "\n"))
 }
 
 func (m Model) modalHints() []hint {
@@ -1659,6 +1660,7 @@ func (m Model) renderModal(background string) string {
 	if d.warning != "" {
 		lines = append(lines, " "+errorStyle.Render(d.warning), "")
 	}
+	dropRow := len(lines) + d.focus + 1
 	if d.dropdown() {
 		lines = append(lines, m.dropdownLines()...)
 	} else if len(d.drops) > 0 {
@@ -1756,7 +1758,11 @@ func (m Model) renderModal(background string) string {
 	lines = append(lines, "", " "+hints(m.modalHints()))
 	modal := box(d.title, "", lines, m.modalWidth(d.kind), min(len(lines)+2, m.panesHeight()), colorPrimary)
 	x, y := max((m.width-lipgloss.Width(modal))/2, 0), max((m.panesHeight()-lipgloss.Height(modal))/2, 0)
-	return lipgloss.NewCompositor(lipgloss.NewLayer(background), lipgloss.NewLayer(modal).X(x).Y(y).Z(1)).Render()
+	layers := []*lipgloss.Layer{lipgloss.NewLayer(background), lipgloss.NewLayer(modal).X(x).Y(y).Z(1)}
+	if list := m.dropdownList(); list != "" {
+		layers = append(layers, lipgloss.NewLayer(list).X(x+13).Y(y+1+dropRow).Z(2))
+	}
+	return lipgloss.NewCompositor(layers...).Render()
 }
 
 func (m Model) pullsMouse(msg tea.Msg) (tea.Model, tea.Cmd) {

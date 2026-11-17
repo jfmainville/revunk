@@ -1711,7 +1711,7 @@ func TestOpenDropdownShowsAWindowOfChoices(t *testing.T) {
 	}
 	m.modal.setFocus(0)
 	m.modal.expanded, m.modal.drops[0].choice = true, 13
-	lines := strings.Join(m.dropdownLines(), "\n")
+	lines := m.dropdownList()
 	if strings.Contains(lines, "branch-04") || !strings.Contains(lines, "branch-05") || !strings.Contains(lines, "▸ branch-12") || strings.Contains(lines, "branch-13") {
 		t.Fatalf("the open dropdown should show the %d rows ending at the picked one:\n%s", dropdownRows, ansi.Strip(lines))
 	}
@@ -1942,5 +1942,35 @@ func TestPullRequestsLoadInTheBackgroundOnceTheBranchLoads(t *testing.T) {
 	nested.pulls.started = false
 	if nested.startPulls(); nested.pulls.started {
 		t.Fatal("a pull request's review diff should not load the list")
+	}
+}
+
+func TestOpenDropdownOverlaysTheModal(t *testing.T) {
+	m, host := pullsModel(t)
+	host.branches = []string{"main", "feature", "login", "release"}
+	m = runAction(t, m, "create")
+	closed := strings.Split(screen(m), "\n")
+	m = pressRun(t, m, "enter")
+	open := strings.Split(screen(m), "\n")
+	row := slices.IndexFunc(closed, func(r string) bool { return strings.Contains(r, "branch      feature") })
+	if row < 0 || !strings.Contains(open[row], "branch      feature") || !strings.Contains(open[row], "▴") {
+		t.Fatalf("the dropdown should stay on its row:\n%s", strings.Join(open, "\n"))
+	}
+	for _, label := range []string{"into ", "│ title", "│ description"} {
+		before := slices.IndexFunc(closed, func(r string) bool { return strings.Contains(r, label) })
+		after := slices.IndexFunc(open, func(r string) bool { return strings.Contains(r, label) && !strings.Contains(r, "▸") })
+		if before < 0 || label != "into " && before != after {
+			t.Fatalf("%q moved from row %d to %d when the dropdown opened", label, before, after)
+		}
+	}
+	col := strings.Index(open[row], "feature")
+	for i, want := range []string{"▸ feature", "  main", "  login", "  release"} {
+		got := open[row+2+i]
+		if !strings.Contains(got, want) || ansi.StringWidth(got[:strings.Index(got, want)]) != ansi.StringWidth(open[row][:col]) {
+			t.Fatalf("the list should open under the dropdown, row %d = %q", i, got)
+		}
+	}
+	if m = pressRun(t, m, "enter"); strings.Contains(screen(m), "▸ feature") || len(strings.Split(screen(m), "\n")) != len(closed) {
+		t.Fatal("closing the dropdown should remove the list")
 	}
 }
