@@ -470,6 +470,9 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	m, _ = press(t, m, "l")
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 	m, _ = press(t, m, "V", "j", "c")
+	if strings.Contains(screen(m), "```suggestion") {
+		t.Fatal("an empty comment should not show a suggestion block")
+	}
 
 	m, _ = press(t, m, "ctrl+s")
 	if !m.editing || !strings.Contains(screen(m), "write something") {

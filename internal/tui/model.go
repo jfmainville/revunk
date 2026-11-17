@@ -1170,7 +1170,7 @@ func (m *Model) openEditor(target review.Comment) tea.Cmd {
 	area.ShowLineNumbers = false
 	area.Prompt = ""
 	area.KeyMap.InsertNewline = m.keys.Newline
-	area.Placeholder = "write it like you'd say it… markdown and ```suggestion blocks work"
+	area.Placeholder = "write it like you'd say it… markdown works"
 	area.SetWidth(m.editorWidth())
 	area.SetHeight(3)
 	cmd := area.Focus()
