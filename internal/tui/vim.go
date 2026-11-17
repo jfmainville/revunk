@@ -3,8 +3,11 @@ package tui
 import (
 	"slices"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -154,45 +157,107 @@ func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 	}
 }
 
-func markdownView(a textarea.Model) string {
+var markdownCache struct {
+	sync.Mutex
+	text     string
+	tokens   [][]token
+	rendered []string
+}
+
+func markdownLines(plain []string) ([][]token, []string) {
+	text := strings.Join(plain, "\n")
+	c := &markdownCache
+	c.Lock()
+	defer c.Unlock()
+	if c.tokens == nil || c.text != text {
+		lines := make([]review.Line, len(plain))
+		for i, l := range plain {
+			lines[i] = review.Line{Text: l}
+		}
+		c.text, c.tokens, c.rendered = text, highlight(markdownLexer, lines), make([]string, len(plain))
+		for i, tokens := range c.tokens {
+			var b strings.Builder
+			for _, t := range tokens {
+				b.WriteString(t.style.Render(t.text))
+			}
+			c.rendered[i] = b.String()
+		}
+	}
+	return c.tokens, c.rendered
+}
+
+func markdownView(a textarea.Model, insert bool) string {
 	if a.Value() == "" {
 		return a.View()
 	}
 	a.SetVirtualCursor(false)
 	cursor := a.Cursor()
-	plain := strings.Split(ansi.Strip(a.View()), "\n")
-	lines := make([]review.Line, len(plain))
-	for i, l := range plain {
-		lines[i] = review.Line{Text: l}
+	tokens, rendered := markdownLines(strings.Split(ansi.Strip(a.View()), "\n"))
+	out := slices.Clone(rendered)
+	if cursor == nil || cursor.Y < 0 || cursor.Y >= len(out) {
+		return strings.Join(out, "\n")
 	}
-	out := make([]string, len(plain))
-	for i, tokens := range highlight(markdownLexer, lines) {
-		col := -1
-		if cursor != nil && cursor.Y == i {
-			col = cursor.X
-		}
-		var b strings.Builder
-		x := 0
-		for _, t := range tokens {
-			w := ansi.StringWidth(t.text)
-			if col < x || col >= x+w {
-				b.WriteString(t.style.Render(t.text))
-				x += w
-				continue
-			}
-			if before := ansi.Truncate(t.text, col-x, ""); before != "" {
-				b.WriteString(t.style.Render(before))
-			}
-			b.WriteString(t.style.Reverse(true).Render(ansi.Truncate(ansi.TruncateLeft(t.text, col-x, ""), 1, "")))
-			if after := ansi.TruncateLeft(t.text, col-x+1, ""); after != "" {
-				b.WriteString(t.style.Render(after))
-			}
+	col := cursor.X
+	var b strings.Builder
+	x := 0
+	for _, t := range tokens[cursor.Y] {
+		w := ansi.StringWidth(t.text)
+		if col < x || col >= x+w {
+			b.WriteString(t.style.Render(t.text))
 			x += w
+			continue
 		}
-		if col >= x {
-			b.WriteString(strings.Repeat(" ", col-x) + lipgloss.NewStyle().Reverse(true).Render(" "))
+		if before := ansi.Truncate(t.text, col-x, ""); before != "" {
+			b.WriteString(t.style.Render(before))
 		}
-		out[i] = b.String()
+		if insert {
+			b.WriteString(t.style.Render(mark(ansi.Truncate(ansi.TruncateLeft(t.text, col-x, ""), 1, ""))))
+		} else {
+			b.WriteString(t.style.Reverse(true).Render(ansi.Truncate(ansi.TruncateLeft(t.text, col-x, ""), 1, "")))
+		}
+		if after := ansi.TruncateLeft(t.text, col-x+1, ""); after != "" {
+			b.WriteString(t.style.Render(after))
+		}
+		x += w
 	}
+	switch {
+	case col >= x && insert:
+		b.WriteString(strings.Repeat(" ", col-x) + mark(" "))
+	case col >= x:
+		b.WriteString(strings.Repeat(" ", col-x) + lipgloss.NewStyle().Reverse(true).Render(" "))
+	}
+	out[cursor.Y] = b.String()
 	return strings.Join(out, "\n")
+}
+
+const cursorBase = 0xF0000
+
+func mark(cell string) string {
+	r := []rune(cell)
+	if len(r) != 1 || r[0] >= 0xFFFE {
+		return string(rune(cursorBase + ' '))
+	}
+	return string(cursorBase + r[0])
+}
+
+func barCursor(screen string) (string, *tea.Cursor) {
+	i := strings.IndexFunc(screen, func(r rune) bool { return r >= cursorBase && r < cursorBase+0xFFFE })
+	if i < 0 {
+		return screen, nil
+	}
+	r, size := utf8.DecodeRuneInString(screen[i:])
+	before := screen[:i]
+	c := tea.NewCursor(ansi.StringWidth(before[strings.LastIndex(before, "\n")+1:]), strings.Count(before, "\n"))
+	c.Shape = tea.CursorBar
+	return before + string(r-cursorBase) + screen[i+size:], c
+}
+
+func fieldView(f textinput.Model) string {
+	view := f.View()
+	c := f.Cursor()
+	if c == nil {
+		return view
+	}
+	cell := ansi.Truncate(ansi.Strip(ansi.TruncateLeft(view, c.X, "")), 1, "")
+	return ansi.Truncate(view, c.X, "") + mark(cell) + ansi.TruncateLeft(view, c.X+1, "")
 }

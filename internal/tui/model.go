@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"charm.land/bubbles/v2/key"
 	"context"
 	"fmt"
 	"image/color"
@@ -18,6 +19,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jfmainville/revunk/internal/review"
 )
@@ -162,6 +164,11 @@ type Model struct {
 	loading    bool
 	err        error
 	notice     string
+	warning    string
+	shown      string
+	shownAt    time.Time
+	ticking    bool
+	spin       int
 	width      int
 	height     int
 	tab        int
@@ -179,7 +186,6 @@ type Model struct {
 
 func New(svc *review.Service, root, base string) Model {
 	keys := defaultKeys()
-	keys.Submit.SetEnabled(false)
 	return Model{
 		svc:      svc,
 		root:     root,
@@ -219,7 +225,84 @@ func (m Model) Init() tea.Cmd {
 	}
 }
 
+type statusTickMsg struct{}
+
+var (
+	statusEvery   = time.Second
+	spinEvery     = 100 * time.Millisecond
+	statusFor     = 5 * time.Second
+	spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+)
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if _, ok := msg.(statusTickMsg); ok {
+		m.spin++
+		if icon, text := m.status(); text != "" && icon != "sync" && now().Sub(m.shownAt) >= statusFor {
+			m.err, m.pulls.err, m.notice, m.warning = nil, nil, "", ""
+		}
+		cmd = m.statusTick()
+	} else {
+		var updated tea.Model
+		updated, cmd = m.update(msg)
+		m = updated.(Model)
+	}
+	if _, text := m.status(); text != m.shown {
+		m.shown, m.shownAt = text, now()
+	}
+	if _, ok := msg.(loadedMsg); ok && !m.ticking {
+		m.ticking = true
+		cmd = tea.Batch(cmd, m.statusTick())
+	}
+	return m, cmd
+}
+
+func (m Model) statusTick() tea.Cmd {
+	every := statusEvery
+	if icon, _ := m.status(); icon == "sync" {
+		every = spinEvery
+	}
+	return tea.Tick(every, func(time.Time) tea.Msg { return statusTickMsg{} })
+}
+
+func (m Model) status() (string, string) {
+	list := m.tab == tabPulls && m.pr.Number == 0
+	err := m.err
+	if list {
+		err = m.pulls.err
+	}
+	switch {
+	case err != nil:
+		return "error", err.Error()
+	case list && m.pulls.loading:
+		return "sync", "loading pull requests"
+	case !list && m.loading:
+		return "sync", "loading the branch"
+	case strings.HasSuffix(m.notice, "…"):
+		return "sync", strings.TrimSuffix(m.notice, "…")
+	case m.warning != "":
+		return "warning", m.warning
+	case m.notice != "":
+		return "info", m.notice
+	}
+	return "", ""
+}
+
+func (m Model) statusMessage(room int) string {
+	icon, text := m.status()
+	if text == "" || room < 3 {
+		return ""
+	}
+	marks := map[string]string{
+		"error":   errorStyle.Render("✗"),
+		"warning": primaryStyle.Render("⚠"),
+		"info":    lipgloss.NewStyle().Foreground(colorAdd).Render("✓"),
+		"sync":    primaryStyle.Render(spinnerFrames[m.spin%len(spinnerFrames)]),
+	}
+	return marks[icon] + " " + lipgloss.NewStyle().Foreground(colorForeground).Render(ansi.Truncate(text, room-2, "…"))
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -282,6 +365,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewed = msg.viewed
 			m.relayout()
 		}
+	case generalMsg:
+		m.applyGeneral(msg)
+		return m, nil
 	case commentsMsg:
 		m.err = msg.err
 		if msg.err == nil {
@@ -290,8 +376,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
-	case assignableMsg:
-		m.modal.applyAssignable(msg)
+	case pickerMsg:
+		m.modal.applyPicker(msg)
 		return m, nil
 	case pullsMsg:
 		return m, m.applyPulls(msg)
@@ -312,11 +398,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err, m.notice = msg.err, "edited "+msg.path
 		if msg.err != nil {
-			m.notice = ""
+			m.notice, m.warning = "", ""
 		}
 		return m, m.poll()
 	case openPRMsg:
 		return m, m.openPR(msg)
+	case branchesMsg:
+		return m, m.openCreate(msg)
+	case createdMsg:
+		return m, m.applyCreated(msg)
 	case tea.PasteMsg:
 		var cmd tea.Cmd
 		switch {
@@ -351,7 +441,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft && !m.editing && !m.help {
-			m.notice, m.prefix = "", ""
+			m.notice, m.warning, m.prefix = "", "", ""
 			return m, m.click(msg.X, msg.Y)
 		}
 	case tea.MouseWheelMsg:
@@ -360,7 +450,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.scroll(msg.X, msg.Y, step)
 		}
 	case tea.KeyPressMsg:
-		m.notice = ""
+		m.notice, m.warning = "", ""
 		switch {
 		case m.modal.open:
 			return m.updateModal(msg)
@@ -514,7 +604,7 @@ func (m *Model) refreshFiles(p parsed) {
 func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key, k := msg.String(), m.keys
 	if m.help {
-		if is(key, k.CloseHelp) {
+		if is(key, k.Cancel) {
 			m.help = false
 		}
 		return m, nil
@@ -536,31 +626,25 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.deleteAllComments()
 		case is(seq, k.OpenFile):
 			return m, m.openFile()
-		case is(seq, k.Submit):
-			return m, m.openModal(modalSubmit, m.pr)
 		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
 			m.focus = m.window(seq)
 		case is(seq, k.EditPR) && m.pr.Number > 0:
 			return m, m.openModal(modalEdit, m.pr)
-		case is(seq, k.Merge) && m.pr.Number > 0:
-			return m, m.openMerge(m.pr)
 		case m.host == nil || m.pr.Number > 0:
 		case is(seq, k.OpenURL):
 			return m, m.openModal(modalURL, review.PullRequest{})
-		case is(seq, k.EditPR):
-			return m, m.fetchBranchPR(false)
 		case is(seq, k.OpenDiff):
-			return m, m.fetchBranchPR(true)
+			return m, m.fetchBranchPR()
 		}
 		return m, nil
 	}
 	if k.isPrefix(key) {
 		if again, ok := rest(k.DeleteAll, key); ok {
 			if len(m.comments) == 0 {
-				m.notice = "no comments to delete"
+				m.warning = "no comments to delete"
 				return m, nil
 			}
-			m.notice = fmt.Sprintf("press %s again to delete all %d comments", again, len(m.comments))
+			m.warning = fmt.Sprintf("press %s again to delete all %d comments", again, len(m.comments))
 		}
 		m.prefix = key
 		return m, nil
@@ -570,6 +654,10 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case is(key, k.Help):
 		m.help = true
+	case is(key, k.General):
+		return m, m.openModal(modalGeneral, review.PullRequest{})
+	case is(key, k.Actions) && m.pr.Number > 0:
+		return m, m.openModal(modalActions, m.pr)
 	case is(key, k.NextFocus):
 		m.cycleFocus(1)
 	case is(key, k.PrevFocus):
@@ -686,7 +774,7 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case is(key, k.Comment):
 			target, ok := m.lineTarget()
 			if !ok {
-				m.notice = "move to a line or file header to comment"
+				m.warning = "move to a line or file header to comment"
 				return m, nil
 			}
 			return m, m.openEditor(target)
@@ -832,14 +920,14 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case is(key, k.ForceQuit):
 		return m, tea.Quit
-	case (is(key, k.Cancel) || is(key, k.Quit)) && m.editor.normal:
+	case is(key, k.Cancel) && m.editor.normal:
 		m.editing = false
 		m.relayout()
 		return m, nil
 	case is(key, k.Save):
 		body := strings.TrimSpace(m.editor.area.Value())
 		if body == "" {
-			m.notice = "write something before saving"
+			m.warning = "write something before saving"
 			return m, nil
 		}
 		c := m.editor.target
@@ -893,7 +981,7 @@ func (m *Model) injectSuggestion() {
 	t, body := m.editor.target, m.editor.area.Value()
 	switch {
 	case t.FileLevel() || t.Side == review.SideLeft:
-		m.notice = "suggestions apply to added or unchanged lines"
+		m.warning = "suggestions apply to added or unchanged lines"
 		return
 	case strings.Contains(body, "```suggestion"):
 		return
@@ -1029,7 +1117,7 @@ func (m *Model) goToComment(c review.Comment) tea.Cmd {
 		}
 	}
 	if c.Commit != "" && target == 0 {
-		m.notice = "that comment's commit is no longer on the branch"
+		m.warning = "that comment's commit is no longer on the branch"
 		return nil
 	}
 	m.pendingID = c.ID
@@ -1051,7 +1139,7 @@ func (m *Model) jumpTo(c review.Comment) {
 		}
 	}
 	if target < 0 {
-		m.notice = c.Path + " is not in this diff"
+		m.warning = c.Path + " is not in this diff"
 		return
 	}
 	m.focus, m.cursor, m.offset = focusDiff, target, max(target-2, 0)
@@ -1113,7 +1201,7 @@ func (m *Model) openFile() tea.Cmd {
 	}
 	path := filepath.Join(m.root, rel)
 	if _, err := os.Stat(path); err != nil {
-		m.notice = rel + " is not in the working tree"
+		m.warning = rel + " is not in the working tree"
 		return nil
 	}
 	cmd := editorCommand(os.Getenv, path, m.currentLine())
@@ -1349,7 +1437,7 @@ func (m Model) targetComment() (review.Comment, bool) {
 func (m *Model) deleteComment() tea.Cmd {
 	c, ok := m.targetComment()
 	if !ok {
-		m.notice = "no comment here to delete"
+		m.warning = "no comment here to delete"
 		return nil
 	}
 	return m.deleteByID(c.ID)
@@ -1359,13 +1447,13 @@ func (m *Model) replyToComment() tea.Cmd {
 	c, ok := m.targetComment()
 	switch {
 	case !ok:
-		m.notice = "no comment here to reply to"
+		m.warning = "no comment here to reply to"
 		return nil
 	case !c.Answered():
-		m.notice = "you can reply once the agent has answered this comment"
+		m.warning = "you can reply once the agent has answered this comment"
 		return nil
 	case !m.visible(c, c.Path) || !slices.ContainsFunc(m.files, func(f review.File) bool { return f.Path == c.Path }):
-		m.notice = "press " + label(m.keys.Open) + " to go to the comment first"
+		m.warning = "press " + label(m.keys.Open) + " to go to the comment first"
 		return nil
 	}
 	cmd := m.openEditor(c)
@@ -1378,7 +1466,7 @@ func (m *Model) replyToComment() tea.Cmd {
 func (m *Model) resolveComment() tea.Cmd {
 	c, ok := m.targetComment()
 	if !ok {
-		m.notice = "no comment here to resolve"
+		m.warning = "no comment here to resolve"
 		return nil
 	}
 	svc, notice := m.svc, "resolved the comment, it stays in the comments pane"
@@ -1418,7 +1506,7 @@ func (m Model) unsent() int {
 
 func (m *Model) sendComments() tea.Cmd {
 	if m.unsent() == 0 {
-		m.notice = "no unsent comments to send"
+		m.warning = "no unsent comments to send"
 		return nil
 	}
 	svc, n := m.svc, m.unsent()
@@ -1448,7 +1536,7 @@ func (m Model) deleteAllComments() tea.Cmd {
 
 func (m *Model) copyComments() tea.Cmd {
 	if m.unsent() == 0 {
-		m.notice = "no unsent comments to copy"
+		m.warning = "no unsent comments to copy"
 		return nil
 	}
 	svc, n := m.svc, m.unsent()
@@ -1604,7 +1692,7 @@ func (m Model) editorLines() []string {
 	if m.editor.target.ID != "" {
 		top, right, list = dimStyle.Render("reply to the agent, sent with the thread on the next "+label(m.keys.Send)), right+" · reply", slices.Delete(list, 2, 3)
 	}
-	lines := append([]string{top}, strings.Split(markdownView(m.editor.area), "\n")...)
+	lines := append([]string{top}, strings.Split(markdownView(m.editor.area, m.editor.mode() == "insert"), "\n")...)
 	lines = append(lines, hints(list))
 	return commentBox(commentKinds[m.editor.kind], right, lines, m.diffWidth())
 }
@@ -1676,7 +1764,9 @@ func (m Model) commitsHeight() int {
 }
 
 func (m Model) View() tea.View {
-	v := tea.NewView(m.render())
+	screen, cursor := barCursor(m.render())
+	v := tea.NewView(screen)
+	v.Cursor = cursor
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	v.ReportFocus = true
@@ -1695,7 +1785,7 @@ func (m Model) render() string {
 	}
 	var panes string
 	if m.help {
-		panes = box("help · "+label(m.keys.CloseHelp)+" closes", "", m.helpLines(), m.width, m.panesHeight(), colorPrimary)
+		panes = box("help · "+label(m.keys.Cancel)+" closes", "", m.helpLines(), m.width, m.panesHeight(), colorPrimary)
 	} else {
 		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), focusColor(m.focus == focusDiff))
 		if !m.hideTree {
@@ -1985,8 +2075,7 @@ func (m Model) modeChip() string {
 }
 
 func (m Model) statusLine() string {
-	chip := m.modeChip()
-	message := dimStyle.Render(label(m.keys.Help) + " shows every key")
+	left := m.modeChip() + " " + primaryStyle.Render("⎇ ") + m.svc.Branch()
 	if m.searching || m.query != "" {
 		count := dimStyle.Render(fmt.Sprintf("  %d/%d", m.matchPosition(), len(m.matches)))
 		if len(m.matches) == 0 && m.query != "" {
@@ -1996,13 +2085,7 @@ func (m Model) statusLine() string {
 		if m.searching {
 			cursor = primaryStyle.Render("▌")
 		}
-		message = primaryStyle.Render(label(m.keys.Search)) + m.query + cursor + count
-	}
-	switch {
-	case m.err != nil:
-		message = errorStyle.Render(m.err.Error())
-	case m.notice != "":
-		message = primaryStyle.Render(m.notice)
+		left += "  " + primaryStyle.Render(label(m.keys.Search)) + m.query + cursor + count
 	}
 	viewed := 0
 	for _, f := range m.files {
@@ -2010,12 +2093,22 @@ func (m Model) statusLine() string {
 			viewed++
 		}
 	}
-	left := chip + " " + primaryStyle.Render("⎇ ") + m.svc.Branch() + "  " + message
-	right := dimStyle.Render(fmt.Sprintf("%d comments · %d/%d viewed ", len(m.comments), viewed, len(m.files)))
-	if gap := m.width - lipgloss.Width(left) - lipgloss.Width(right); gap > 0 {
-		return left + strings.Repeat(" ", gap) + right
+	counts := dimStyle.Render(fmt.Sprintf("%d comments · %d/%d viewed ", len(m.comments), viewed, len(m.files)))
+	return statusBar(left, m.statusMessage(m.width-lipgloss.Width(left)-lipgloss.Width(counts)-5), counts, m.width)
+}
+
+func statusBar(left, message, right string, width int) string {
+	if message != "" {
+		right = message + "   " + right
 	}
-	return ansiFit(left, m.width)
+	line := ansiFit(left, width)
+	if gap := width - lipgloss.Width(left) - lipgloss.Width(right); gap > 0 {
+		line = left + strings.Repeat(" ", gap) + right
+	}
+	bar := lipgloss.NewStyle().Background(colorRule).Foreground(colorForeground)
+	on := bar.Render(" ")
+	on = on[:strings.Index(on, " ")]
+	return bar.Width(width).Render(strings.ReplaceAll(line, "\x1b[m", "\x1b[m"+on))
 }
 
 func (m Model) footer() string {
@@ -2030,6 +2123,9 @@ func (m Model) footer() string {
 		return hints(m.keys.rangeHints())
 	case m.focus == focusComments:
 		return hints(m.keys.listHints())
+	}
+	if m.pr.Number > 0 {
+		return hints(append(m.keys.mainHints(), hint{desc: "actions", keys: []key.Binding{m.keys.Actions}}))
 	}
 	return hints(m.keys.mainHints())
 }

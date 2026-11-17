@@ -12,7 +12,6 @@ type keyMap struct {
 	Quit        key.Binding
 	ForceQuit   key.Binding
 	Help        key.Binding
-	CloseHelp   key.Binding
 	NextFocus   key.Binding
 	PrevFocus   key.Binding
 	FocusDiff   key.Binding
@@ -39,6 +38,7 @@ type keyMap struct {
 	Comments    key.Binding
 	Explorer    key.Binding
 	Send        key.Binding
+	General     key.Binding
 	Copy        key.Binding
 	Save        key.Binding
 	Newline     key.Binding
@@ -55,10 +55,7 @@ type keyMap struct {
 	EditPR      key.Binding
 	OpenDiff    key.Binding
 	OpenURL     key.Binding
-	Submit      key.Binding
-	Merge       key.Binding
-	Assignees   key.Binding
-	Reviewers   key.Binding
+	Actions     key.Binding
 	PickDown    key.Binding
 	PickUp      key.Binding
 	Toggle      key.Binding
@@ -95,7 +92,6 @@ func defaultKeys() keyMap {
 		Quit:        bind("q"),
 		ForceQuit:   bind("ctrl+c"),
 		Help:        bind("?"),
-		CloseHelp:   bind("esc", "?", "q"),
 		NextFocus:   bind("tab"),
 		PrevFocus:   bind("shift+tab"),
 		FocusDiff:   bind("l"),
@@ -122,6 +118,7 @@ func defaultKeys() keyMap {
 		Comments:    bind("t"),
 		Explorer:    bind("e"),
 		Send:        bind("S"),
+		General:     bind("M"),
 		Copy:        bind("y"),
 		Save:        bind("ctrl+s"),
 		Newline:     bind("enter"),
@@ -138,10 +135,7 @@ func defaultKeys() keyMap {
 		EditPR:      bind("g e"),
 		OpenDiff:    bind("g d"),
 		OpenURL:     bind("g u"),
-		Submit:      bind("g s"),
-		Merge:       bind("g m"),
-		Assignees:   bind("A"),
-		Reviewers:   bind("R"),
+		Actions:     bind("A"),
 		PickDown:    bind("down", "ctrl+n"),
 		PickUp:      bind("up", "ctrl+p"),
 		Toggle:      bind("space"),
@@ -266,9 +260,10 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "delete every comment", keys: []key.Binding{k.DeleteAll}},
 			{desc: "mark file viewed until it changes", keys: []key.Binding{k.Viewed}},
 			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
+			{desc: "write a general comment and send it straight to the agent, on either tab", keys: []key.Binding{k.General}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
 			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
-			{desc: "edit the branch's pull request, or the reviewed one in a review diff", keys: []key.Binding{k.EditPR}},
+			{desc: "edit the reviewed pull request, in a review diff", keys: []key.Binding{k.EditPR}},
 			{desc: "review the branch's pull request", keys: []key.Binding{k.OpenDiff}},
 		}},
 		{"pull requests", []hint{
@@ -277,12 +272,11 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "next / previous details tab", keys: []key.Binding{k.NextFocus, k.PrevFocus}},
 			{desc: "edit the title and description", keys: []key.Binding{k.EditPR}},
 			{desc: "review the diff with GitHub comments", keys: []key.Binding{k.OpenDiff}},
+			{desc: "close the review diff, once nothing is selected or searched", keys: []key.Binding{k.Cancel}},
 			{desc: "review the diff of a pull request from its GitHub URL, on either tab", keys: []key.Binding{k.OpenURL}},
-			{desc: "submit the review: comment, approve, request changes", keys: []key.Binding{k.Submit}},
-			{desc: "merge with a method the repository allows, also from the review diff", keys: []key.Binding{k.Merge}},
-			{desc: "pick assignees, reviewers", keys: []key.Binding{k.Assignees, k.Reviewers}},
+			{desc: "search the actions: comment, review, merge, close, assignees, reviewers, labels, Copilot, also in the review diff", keys: []key.Binding{k.Actions}},
+			{desc: "in the actions, move, run", keys: []key.Binding{k.PickDown, k.PickUp, k.Open}},
 			{desc: "in a picker, move, select, save", keys: []key.Binding{k.PickDown, k.PickUp, k.Toggle, k.Save}},
-			{desc: "comment on the pull request", keys: []key.Binding{k.Comment}},
 			{desc: "reply to the selected comment", keys: []key.Binding{k.Reply}},
 			{desc: "react to the selected comment", keys: []key.Binding{k.React}},
 			{desc: "resolve or unresolve the selected thread", keys: []key.Binding{k.Resolve}},
@@ -291,7 +285,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "save", keys: []key.Binding{k.Save}},
 			{desc: "newline", keys: []key.Binding{k.Newline}},
 			{desc: "cycle type, suggestion adds the lines as a code block", keys: []key.Binding{k.NextKind}},
-			{desc: "cancel, from normal mode", keys: []key.Binding{k.Cancel, k.Quit}},
+			{desc: "cancel, from normal mode", keys: []key.Binding{k.Cancel}},
 		}},
 		{"comment and modal text, vim style", []hint{
 			{desc: "normal mode, from insert", label: k.leaveLabel(), keys: []key.Binding{k.NormalMode, k.LeaveInsert}},
@@ -302,7 +296,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "next / previous word", keys: []key.Binding{k.WordNext, k.WordPrev}},
 			{desc: "line start / end", keys: []key.Binding{k.LineStart, k.LineEnd}},
 			{desc: "delete the character, the line", keys: []key.Binding{k.DeleteUnder, k.Delete}},
-			{desc: "cancel, from normal", keys: []key.Binding{k.Cancel, k.Quit}},
+			{desc: "cancel, from normal", keys: []key.Binding{k.Cancel}},
 		}},
 		{"anywhere", []hint{
 			{desc: "Agent / Pull Request tab", keys: []key.Binding{k.AgentTab, k.PullsTab}},
@@ -325,7 +319,7 @@ func (k keyMap) vimHints(mode string) []hint {
 	case "insert":
 		return []hint{{desc: "normal", label: k.leaveLabel()}}
 	case "normal":
-		return []hint{{desc: "insert", keys: []key.Binding{k.Insert}}, {desc: "cancel", keys: []key.Binding{k.Cancel, k.Quit}}}
+		return []hint{{desc: "insert", keys: []key.Binding{k.Insert}}, {desc: "cancel", keys: []key.Binding{k.Cancel}}}
 	}
 	return []hint{{desc: "cancel", keys: []key.Binding{k.Cancel}}}
 }
@@ -359,23 +353,11 @@ func (k keyMap) listHints() []hint {
 
 func (k keyMap) mainHints() []hint {
 	return []hint{
-		{desc: "file", keys: []key.Binding{k.NextFile, k.PrevFile}},
-		{desc: "change", keys: []key.Binding{k.NextChange, k.PrevChange}},
-		{desc: "search", keys: []key.Binding{k.Search}},
-		{desc: "comments", keys: []key.Binding{k.Comments}},
-		{desc: "explorer", keys: []key.Binding{k.Explorer}},
 		{desc: "comment", keys: []key.Binding{k.Comment}},
-		{desc: "file comment", keys: []key.Binding{k.FileComment}},
 		{desc: "range", keys: []key.Binding{k.Select}},
-		{desc: "viewed", keys: []key.Binding{k.Viewed}},
-		{desc: "delete", keys: []key.Binding{k.Delete}},
-		{desc: "resolve", keys: []key.Binding{k.Resolve}},
-		{desc: "reply", keys: []key.Binding{k.Reply}},
+		{desc: "comments", keys: []key.Binding{k.Comments}},
 		{desc: "send", keys: []key.Binding{k.Send}},
-		{desc: "copy", keys: []key.Binding{k.Copy}},
-		{desc: "submit review", keys: []key.Binding{k.Submit}},
-		{desc: "edit PR", keys: []key.Binding{k.EditPR}},
-		{desc: "focus", keys: []key.Binding{k.NextFocus}},
+		{desc: "search", keys: []key.Binding{k.Search}},
 		{desc: "help", keys: []key.Binding{k.Help}},
 	}
 }
@@ -384,14 +366,11 @@ func (k keyMap) pullsHints() []hint {
 	return []hint{
 		{desc: "move", keys: []key.Binding{k.Down, k.Up}},
 		{desc: "details", keys: []key.Binding{k.Open}},
+		{desc: "actions", keys: []key.Binding{k.Actions}},
 		{desc: "filter", keys: []key.Binding{k.NextFilter}},
 		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
 		{desc: "url", keys: []key.Binding{k.OpenURL}},
 		{desc: "edit", keys: []key.Binding{k.EditPR}},
-		{desc: "merge", keys: []key.Binding{k.Merge}},
-		{desc: "assignees", keys: []key.Binding{k.Assignees}},
-		{desc: "reviewers", keys: []key.Binding{k.Reviewers}},
-		{desc: "comment", keys: []key.Binding{k.Comment}},
 		{desc: "agent", keys: []key.Binding{k.AgentTab}},
 		{desc: "help", keys: []key.Binding{k.Help}},
 	}
@@ -401,19 +380,26 @@ func (k keyMap) detailsHints() []hint {
 	return []hint{
 		{desc: "next tab", keys: []key.Binding{k.NextFocus}},
 		{desc: "move", keys: []key.Binding{k.Down, k.Up}},
-		{desc: "comment", keys: []key.Binding{k.Comment}},
+		{desc: "actions", keys: []key.Binding{k.Actions}},
 		{desc: "reply", keys: []key.Binding{k.Reply}},
 		{desc: "react", keys: []key.Binding{k.React}},
 		{desc: "resolve", keys: []key.Binding{k.Resolve}},
 		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
 		{desc: "edit", keys: []key.Binding{k.EditPR}},
-		{desc: "merge", keys: []key.Binding{k.Merge}},
 		{desc: "list", keys: []key.Binding{k.Cancel}},
 	}
 }
 
 func (k keyMap) leaveLabel() string {
 	return label(k.NormalMode) + " " + label(k.LeaveInsert) + label(k.LeaveInsert)
+}
+
+func (k keyMap) actionsHints() []hint {
+	return []hint{
+		{desc: "move", keys: []key.Binding{k.PickDown, k.PickUp}},
+		{desc: "run", keys: []key.Binding{k.Open}},
+		{desc: "cancel", keys: []key.Binding{k.Cancel}},
+	}
 }
 
 func (k keyMap) pickerHints() []hint {
@@ -425,18 +411,10 @@ func (k keyMap) pickerHints() []hint {
 	}
 }
 
-func (k keyMap) mergeHints() []hint {
-	return []hint{
-		{desc: "merge", keys: []key.Binding{k.Open, k.Save}},
-		{desc: "pick", keys: []key.Binding{k.Down, k.Up}},
-		{desc: "cancel", keys: []key.Binding{k.Cancel, k.Quit}},
-	}
-}
-
-func (k keyMap) modalHints(choices bool, mode string) []hint {
-	list := []hint{
-		{desc: "save", keys: []key.Binding{k.Save}},
-		{desc: "next field", keys: []key.Binding{k.NextFocus}},
+func (k keyMap) modalHints(fields, choices bool, mode string) []hint {
+	list := []hint{{desc: "save", keys: []key.Binding{k.Save}}}
+	if fields {
+		list = append(list, hint{desc: "next field", keys: []key.Binding{k.NextFocus}})
 	}
 	list = append(list, k.vimHints(mode)...)
 	if choices {
