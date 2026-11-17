@@ -1165,7 +1165,7 @@ func TestViewEnablesMouse(t *testing.T) {
 
 func TestClickSelectsCommitsAndFiles(t *testing.T) {
 	m, _ := loaded(t)
-	m, cmd := click(t, m, 5, 4)
+	m, cmd := click(t, m, 5, m.panesHeight()-m.commitsHeight()+4)
 	if m.focus != focusCommits || m.commit != 2 {
 		t.Fatalf("focus=%d commit=%d", m.focus, m.commit)
 	}
@@ -1173,20 +1173,20 @@ func TestClickSelectsCommitsAndFiles(t *testing.T) {
 	if len(m.files) != 1 || m.files[0].Path != "a/main.go" {
 		t.Fatalf("files not loaded for clicked commit: %+v", m.files)
 	}
-	if _, cmd := click(t, m, 5, 3); cmd == nil {
+	if _, cmd := click(t, m, 5, m.panesHeight()-m.commitsHeight()+3); cmd == nil {
 		t.Fatal("clicking another commit should load it")
 	}
 
 	m, _ = loaded(t)
-	m, _ = click(t, m, 5, 9)
+	m, _ = click(t, m, 5, 4)
 	if m.focus != focusFiles || m.fileCursor != 1 || m.rows[m.cursor].kind != rowFile || m.rows[m.cursor].file != 1 {
 		t.Fatalf("focus=%d fileCursor=%d cursor=%d", m.focus, m.fileCursor, m.cursor)
 	}
-	m, _ = click(t, m, 5, 8)
+	m, _ = click(t, m, 5, 3)
 	if m.fileCursor != 1 {
 		t.Fatalf("clicking a directory should keep the file, got %d", m.fileCursor)
 	}
-	m, _ = click(t, m, 5, 10)
+	m, _ = click(t, m, 5, 5)
 	if m.fileCursor != 2 {
 		t.Fatalf("fileCursor=%d", m.fileCursor)
 	}
@@ -1223,7 +1223,7 @@ func TestClickOnBordersOnlyFocuses(t *testing.T) {
 	if m.focus != focusDiff || m.cursor != before || cmd != nil {
 		t.Fatalf("title click should only focus: focus=%d cursor=%d", m.focus, m.cursor)
 	}
-	m, _ = click(t, m, 5, 5)
+	m, _ = click(t, m, 5, m.panesHeight())
 	if m.focus != focusCommits || m.commit != 0 {
 		t.Fatalf("bottom border click should only focus: focus=%d commit=%d", m.focus, m.commit)
 	}
@@ -1236,7 +1236,7 @@ func TestClickOnBordersOnlyFocuses(t *testing.T) {
 	if m.focus != focusDiff || m.cursor != before {
 		t.Fatalf("diff bottom border click should only focus: cursor=%d", m.cursor)
 	}
-	right, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 9, Button: tea.MouseRight})
+	right, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 4, Button: tea.MouseRight})
 	if right.(Model).fileCursor != m.fileCursor {
 		t.Fatal("right click should be ignored")
 	}
@@ -1280,15 +1280,15 @@ func TestWheelScrollsPaneUnderPointer(t *testing.T) {
 	if m.cursor != 0 {
 		t.Fatalf("wheel up should move back, cursor=%d", m.cursor)
 	}
-	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, 5, tea.MouseWheelDown)
 	if m.fileCursor != 1 {
 		t.Fatalf("wheel over files should select the next file, got %d", m.fileCursor)
 	}
-	m, cmd := wheel(t, m, 5, 3, tea.MouseWheelDown)
+	m, cmd := wheel(t, m, 5, m.panesHeight()-m.commitsHeight()+3, tea.MouseWheelDown)
 	if m.commit != 1 || cmd == nil {
 		t.Fatalf("wheel over commits should select the next commit, got %d", m.commit)
 	}
-	if m, _ = wheel(t, m, 5, 3, tea.MouseWheelLeft); m.commit != 1 {
+	if m, _ = wheel(t, m, 5, m.panesHeight()-m.commitsHeight()+3, tea.MouseWheelLeft); m.commit != 1 {
 		t.Fatal("horizontal wheel should be ignored")
 	}
 
@@ -1310,7 +1310,7 @@ func TestWheelScrollsPaneUnderPointer(t *testing.T) {
 func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
 	m, _ := loaded(t)
 	m, _ = press(t, m, "?")
-	if m, _ = click(t, m, 5, 9); m.fileCursor != 0 {
+	if m, _ = click(t, m, 5, 4); m.fileCursor != 0 {
 		t.Fatal("clicks should be ignored on the help screen")
 	}
 	if m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown); m.cursor != 0 {
@@ -1321,7 +1321,7 @@ func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
 		t.Fatal("editor should open")
 	}
 	cursor := m.cursor
-	if m, _ = click(t, m, 5, 9); !m.editing || m.fileCursor != 0 {
+	if m, _ = click(t, m, 5, 4); !m.editing || m.fileCursor != 0 {
 		t.Fatal("clicks should be ignored while editing")
 	}
 	if m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown); m.cursor != cursor {
@@ -1359,10 +1359,13 @@ func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 	}
 
 	m, _ = press(t, m, "e")
-	if !strings.Contains(screen(m), "╭─ files") || m.focus != focusDiff {
-		t.Fatal("e again should bring the panes back and keep focus on the diff")
+	if !strings.Contains(screen(m), "╭─ files") || m.focus != focusFiles {
+		t.Fatal("e again should bring the panes back and focus the files")
 	}
-	if m, _ = press(t, m, "tab"); m.focus != focusCommits {
+	if out := screen(m); strings.Index(out, "╭─ files") > strings.Index(out, "╭─ commits") {
+		t.Fatalf("the commits pane should sit below the files:\n%s", out)
+	}
+	if m, _ = press(t, m, "shift+tab"); m.focus != focusCommits {
 		t.Fatalf("tab should reach commits again, got %d", m.focus)
 	}
 
@@ -1673,19 +1676,19 @@ func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	if m.fileCursor != 2 {
 		t.Fatalf("k should go back up the explorer, got %d", m.fileCursor)
 	}
-	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, 5, tea.MouseWheelDown)
 	if m.fileCursor != 1 {
 		t.Fatalf("wheel should follow the explorer order, got %d", m.fileCursor)
 	}
-	m, _ = click(t, m, 5, 7)
+	m, _ = click(t, m, 5, 2)
 	if m.fileCursor != 0 {
 		t.Fatalf("click on the first row = %d", m.fileCursor)
 	}
-	m, _ = click(t, m, 5, 10)
+	m, _ = click(t, m, 5, 5)
 	if m.fileCursor != 0 {
 		t.Fatal("clicking the review header should not select a file")
 	}
-	m, _ = click(t, m, 5, 11)
+	m, _ = click(t, m, 5, 6)
 	if m.fileCursor != 1 {
 		t.Fatalf("clicking a reviewed file should select it, got %d", m.fileCursor)
 	}
@@ -1738,11 +1741,11 @@ func TestScrollingTheDiffFocusesIt(t *testing.T) {
 	if !strings.Contains(strings.Join(m.diffLines(), "\n"), "▌") {
 		t.Fatal("the cursor should be visible once the diff has focus")
 	}
-	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, 5, tea.MouseWheelDown)
 	if m.focus != focusFiles {
 		t.Fatalf("wheel over the files should focus them, got %d", m.focus)
 	}
-	m, _ = wheel(t, m, 5, 3, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, m.panesHeight()-m.commitsHeight()+3, tea.MouseWheelDown)
 	if m.focus != focusCommits {
 		t.Fatalf("wheel over the commits should focus them, got %d", m.focus)
 	}

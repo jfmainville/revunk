@@ -556,7 +556,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cycleFocus(-1)
 	case is(key, k.Explorer):
 		m.hideTree = !m.hideTree
-		if m.hideTree && m.focus < focusDiff {
+		m.focus = focusFiles
+		if m.hideTree {
 			m.focus = focusDiff
 		}
 		m.rendered = map[int][]string{}
@@ -880,10 +881,10 @@ func (m Model) areaAt(x, y int) (focusArea, int) {
 		return focusComments, y - top - m.panesHeight() - 1
 	case x >= m.leftWidth():
 		return focusDiff, y - top - 1
-	case y < top+m.commitsHeight():
-		return focusCommits, y - top - 1
+	case y >= top+m.panesHeight()-m.commitsHeight():
+		return focusCommits, y - top - m.panesHeight() + m.commitsHeight() - 1
 	}
-	return focusFiles, y - top - m.commitsHeight() - 1
+	return focusFiles, y - top - 1
 }
 
 func (m *Model) click(x, y int) tea.Cmd {
@@ -1596,8 +1597,8 @@ func (m Model) render() string {
 		if !m.hideTree {
 			files, _ := m.fileLines()
 			left := lipgloss.JoinVertical(lipgloss.Left,
-				box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), focusColor(m.focus == focusCommits)),
 				box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), focusColor(m.focus == focusFiles)),
+				box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), focusColor(m.focus == focusCommits)),
 			)
 			panes = lipgloss.JoinHorizontal(lipgloss.Top, left, panes)
 		}
