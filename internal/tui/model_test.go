@@ -2183,3 +2183,22 @@ func TestMarkdownViewHighlightsAndDrawsTheCursor(t *testing.T) {
 		t.Fatal("a blurred box should not draw a cursor")
 	}
 }
+
+func TestQClosesTheCommentEditorFromNormalMode(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "q")
+	if !m.editing || m.editor.area.Value() != "q" {
+		t.Fatal("q in insert mode should type")
+	}
+	if m, _ = press(t, m, "esc", "q"); m.editing || len(st.comments) != 0 {
+		t.Fatal("q in normal mode should close the editor without saving")
+	}
+	if _, cmd := press(t, m, "q"); cmd == nil {
+		t.Fatal("q outside the editor should still quit")
+	} else if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("q outside the editor should still quit")
+	}
+}

@@ -283,7 +283,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "save", keys: []key.Binding{k.Save}},
 			{desc: "newline", keys: []key.Binding{k.Newline}},
 			{desc: "cycle type, suggestion adds the lines as a code block", keys: []key.Binding{k.NextKind}},
-			{desc: "cancel, from normal mode", keys: []key.Binding{k.Cancel}},
+			{desc: "cancel, from normal mode", keys: []key.Binding{k.Cancel, k.Quit}},
 		}},
 		{"comment and modal text, vim style", []hint{
 			{desc: "normal mode, from insert", label: k.leaveLabel(), keys: []key.Binding{k.NormalMode, k.LeaveInsert}},
@@ -294,7 +294,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "next / previous word", keys: []key.Binding{k.WordNext, k.WordPrev}},
 			{desc: "line start / end", keys: []key.Binding{k.LineStart, k.LineEnd}},
 			{desc: "delete the character, the line", keys: []key.Binding{k.DeleteUnder, k.Delete}},
-			{desc: "cancel, from normal", keys: []key.Binding{k.Cancel}},
+			{desc: "cancel, from normal", keys: []key.Binding{k.Cancel, k.Quit}},
 		}},
 		{"anywhere", []hint{
 			{desc: "Agent / Pull Request tab", keys: []key.Binding{k.AgentTab, k.PullsTab}},
@@ -317,7 +317,7 @@ func (k keyMap) vimHints(mode string) []hint {
 	case "insert":
 		return []hint{{desc: "normal", label: k.leaveLabel()}}
 	case "normal":
-		return []hint{{desc: "insert", keys: []key.Binding{k.Insert}}, {desc: "cancel", keys: []key.Binding{k.Cancel}}}
+		return []hint{{desc: "insert", keys: []key.Binding{k.Insert}}, {desc: "cancel", keys: []key.Binding{k.Cancel, k.Quit}}}
 	}
 	return []hint{{desc: "cancel", keys: []key.Binding{k.Cancel}}}
 }

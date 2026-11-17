@@ -953,7 +953,7 @@ func TestModalTextUsesVimModes(t *testing.T) {
 	if area() != "Ane YXtwoZBV\nWD" {
 		t.Fatalf("w and b should move by words and across lines, value=%q", area())
 	}
-	m = typeText(t, m, "jjk0hlqdz")
+	m = typeText(t, m, "jjk0hlydz")
 	if area() != "Ane YXtwoZBV\nWD" {
 		t.Fatalf("motions and unknown keys should not change the text, value=%q", area())
 	}
@@ -964,7 +964,7 @@ func TestModalTextUsesVimModes(t *testing.T) {
 
 func TestModalHintsFollowTheFocus(t *testing.T) {
 	k := defaultKeys()
-	for mode, want := range map[string]string{"": "esc cancel", "insert": "esc jj normal", "normal": "i insert  esc cancel"} {
+	for mode, want := range map[string]string{"": "esc cancel", "insert": "esc jj normal", "normal": "i insert  esc q cancel"} {
 		if got := ansi.Strip(hints(k.modalHints(false, mode))); !strings.Contains(got, want) {
 			t.Errorf("mode %q hints %q, want %q", mode, got, want)
 		}
@@ -1118,4 +1118,33 @@ func update1(t *testing.T, m Model, msg tea.Msg) tea.Msg {
 		t.Fatal("command did not finish")
 	}
 	return nil
+}
+
+func TestQClosesCommentBoxesFromNormalMode(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "c")
+	m = typeText(t, m, "q")
+	if !m.modal.open || m.modal.area.Value() != "q" {
+		t.Fatal("q in insert mode should type")
+	}
+	if m = pressRun(t, m, "esc", "q"); m.modal.open || host.has("comment o/r#7 q") {
+		t.Fatal("q in normal mode should close the comment modal without sending")
+	}
+	m = pressRun(t, m, "g", "e")
+	if m = typeText(t, m, "q"); !m.modal.open || !strings.HasSuffix(m.modal.fields[0].Value(), "q") {
+		t.Fatal("q in the title field should type")
+	}
+	if m = pressRun(t, m, "esc", "enter", "tab", "tab", "+"); !m.modal.open || m.modal.kind != modalReact {
+		t.Fatal("+ should open the reaction picker")
+	}
+	if m = typeText(t, m, "q"); m.modal.open {
+		t.Fatal("q should close a modal that is only a list")
+	}
+	m = pressRun(t, m, "g", "d", "l")
+	m.diff.cursor = rowOf(t, *m.diff, rowLine, 1, 3)
+	m = pressRun(t, m, "c")
+	m = typeText(t, m, "q")
+	if m = pressRun(t, m, "esc", "q"); m.diff.editing || m.diff == nil {
+		t.Fatal("q in normal mode should close the review diff comment editor and keep the diff open")
+	}
 }

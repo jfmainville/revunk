@@ -82,9 +82,9 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 | `ctrl+s`           | Save the comment                                                                                                                                                                            |
 | `enter`            | Insert a newline                                                                                                                                                                            |
 | `tab`, `shift+tab` | Cycle the type (comment, note, suggestion), each drawn in its own color. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
-| `esc`, `jj`        | Switch to normal mode, where `esc` cancels                                                                                                                                                  |
+| `esc`, `jj`        | Switch to normal mode, where `esc` or `q` cancels                                                                                                                                           |
 
-The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels.
+The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` or `q` in normal mode cancels.
 
 ## Pull Request tab
 

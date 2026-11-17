@@ -809,7 +809,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case is(key, k.ForceQuit):
 		return m, tea.Quit
-	case is(key, k.Cancel) && m.editor.normal:
+	case (is(key, k.Cancel) || is(key, k.Quit)) && m.editor.normal:
 		m.editing = false
 		m.relayout()
 		return m, nil

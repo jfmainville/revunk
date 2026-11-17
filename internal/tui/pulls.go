@@ -756,7 +756,7 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case is(key, k.Cancel) && d.expanded:
 		d.expanded = false
-	case is(key, k.Cancel) && (d.normal || !d.onArea()):
+	case is(key, k.Cancel) && (d.normal || !d.onArea()), is(key, k.Quit) && (d.onChoices() || d.onArea() && d.normal):
 		m.modal = modalState{}
 	case is(key, k.Save):
 		return m.saveModal()
