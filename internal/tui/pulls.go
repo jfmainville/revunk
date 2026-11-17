@@ -56,6 +56,7 @@ type pullsState struct {
 	list     []review.PullRequest
 	cursor   int
 	filter   int
+	failures int
 	loading  bool
 	started  bool
 	details  map[string]review.PullRequest
@@ -148,8 +149,8 @@ func prKey(pr review.PullRequest) string {
 	return fmt.Sprintf("%s#%d", pr.Repo, pr.Number)
 }
 
-func pullsTick() tea.Cmd {
-	return tea.Tick(pullsPollEvery, func(time.Time) tea.Msg { return pullsTickMsg{} })
+func (m Model) pullsTick() tea.Cmd {
+	return tea.Tick(backoff(pullsPollEvery, m.pulls.failures), func(time.Time) tea.Msg { return pullsTickMsg{} })
 }
 
 func nest(cmd tea.Cmd, gen int) tea.Cmd {
@@ -184,7 +185,7 @@ func (m *Model) showPulls() tea.Cmd {
 		return nil
 	}
 	m.pulls.started, m.pulls.loading = true, true
-	return tea.Batch(m.fetchPulls(), pullsTick())
+	return tea.Batch(m.fetchPulls(), m.pullsTick())
 }
 
 func (m Model) fetchPulls() tea.Cmd {
@@ -253,8 +254,10 @@ func (m *Model) applyPulls(msg pullsMsg) tea.Cmd {
 	}
 	m.pulls.loading, m.pulls.err = false, msg.err
 	if msg.err != nil {
+		m.pulls.failures = min(m.pulls.failures+1, maxBackoff)
 		return nil
 	}
+	m.pulls.failures = 0
 	selected := ""
 	if pr, ok := m.selectedPR(); ok {
 		selected = prKey(pr)
@@ -303,10 +306,10 @@ func (m *Model) applyDetail(msg detailMsg) tea.Cmd {
 }
 
 func (m Model) pullsTicked() tea.Cmd {
-	if m.tab != tabPulls || m.host == nil {
-		return pullsTick()
+	if m.tab != tabPulls || m.host == nil || m.diff != nil || m.blurred {
+		return m.pullsTick()
 	}
-	cmds := []tea.Cmd{pullsTick(), m.fetchPulls()}
+	cmds := []tea.Cmd{m.pullsTick(), m.fetchPulls()}
 	if pr, ok := m.selectedPR(); ok {
 		cmds = append(cmds, m.fetchDetail(pr))
 	}

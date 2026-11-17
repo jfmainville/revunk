@@ -1158,6 +1158,9 @@ func wheel(t *testing.T, m Model, x, y int, button tea.MouseButton) (Model, tea.
 
 func TestViewEnablesMouse(t *testing.T) {
 	m, _ := loaded(t)
+	if !m.View().ReportFocus {
+		t.Fatal("the view should report focus changes")
+	}
 	if m.View().MouseMode != tea.MouseModeCellMotion {
 		t.Fatal("mouse should be enabled")
 	}
@@ -1610,7 +1613,7 @@ func TestRefreshReusesHighlightingForUnchangedFiles(t *testing.T) {
 	}
 	files := slices.Clone(m.files)
 	files[1].Patch = "@@ -1 +1 @@\n-x\n+changed"
-	m.refreshFiles(files)
+	m.refreshFiles(m.parsed().parse(files))
 	if m.tokens[0][1][0].text != "cached" {
 		t.Fatal("unchanged file should keep its highlighting")
 	}
@@ -1623,7 +1626,7 @@ func TestRefreshReusesHighlightingForUnchangedFiles(t *testing.T) {
 
 	renamed := slices.Clone(files)
 	renamed[0].Path = "OTHER.md"
-	m.setFiles(renamed)
+	m.setFiles(m.parsed().parse(renamed))
 	if m.tokens[0][1][0].text == "cached" {
 		t.Fatal("a file with a different path should be highlighted again")
 	}

@@ -1037,3 +1037,85 @@ func TestCtrlHLMovesBetweenTheListAndSidebar(t *testing.T) {
 		t.Fatalf("ctrl+l should move between the review diff panes, focus=%d", m.diff.focus)
 	}
 }
+
+func TestPollingPausesWhenHiddenOrUnfocused(t *testing.T) {
+	m, host := pullsModel(t)
+	m.every = time.Millisecond
+	if _, ok := update1(t, m, tickMsg{}).(tickMsg); !ok {
+		t.Fatal("the Agent diff should not poll git while the Pull Request tab shows")
+	}
+	m = update(t, m, tea.BlurMsg{})
+	calls := len(host.calls)
+	if msg := m.pullsTicked()(); msg != (pullsTickMsg{}) || len(host.calls) != calls || !m.blurred {
+		t.Fatal("an unfocused terminal should not call GitHub")
+	}
+	m = pressRun(t, m, "1")
+	if _, ok := update1(t, m, tickMsg{}).(tickMsg); !ok {
+		t.Fatal("an unfocused terminal should not poll git")
+	}
+	m = update(t, m, tea.FocusMsg{})
+	if _, ok := update1(t, m, tickMsg{}).(polledMsg); !ok || m.blurred {
+		t.Fatal("focus should resume polling")
+	}
+	m = pressRun(t, m, "2", "g", "d")
+	m = update(t, m, tea.BlurMsg{})
+	if !m.diff.blurred {
+		t.Fatal("focus changes should reach the review diff")
+	}
+	m = update(t, m, tea.FocusMsg{})
+	calls = len(host.calls)
+	if msg := m.pullsTicked()(); msg != (pullsTickMsg{}) || len(host.calls) != calls {
+		t.Fatal("the hidden list should not refresh while the review diff is open")
+	}
+	m = pressRun(t, m, "1")
+	if msg, ok := update1(t, m, nestedMsg{gen: m.diffGen, msg: tickMsg{}}).(nestedMsg); !ok || msg.msg != (tickMsg{}) {
+		t.Fatalf("the review diff should hold its polling while hidden, got %#v", msg)
+	}
+	m = pressRun(t, m, "2")
+	if msg, ok := update1(t, m, nestedMsg{gen: m.diffGen, msg: tickMsg{}}).(nestedMsg); !ok || msg.msg == (tickMsg{}) {
+		t.Fatalf("the visible review diff should poll, got %#v", msg)
+	}
+}
+
+func TestFailuresBackOff(t *testing.T) {
+	if backoff(time.Second, 0) != time.Second || backoff(time.Second, 2) != 4*time.Second || backoff(time.Second, 9) != 32*time.Second {
+		t.Fatal("backoff should double per failure up to 32 times the interval")
+	}
+	m, host := pullsModel(t)
+	host.listErr = errors.New("API rate limit exceeded")
+	for range maxBackoff + 2 {
+		m = update(t, m, pullsMsg{err: host.listErr})
+	}
+	if m.pulls.failures != maxBackoff || !strings.Contains(screen(m), "rate limit") {
+		t.Fatalf("list failures should back off, failures=%d", m.pulls.failures)
+	}
+	if m = update(t, m, pullsMsg{}); m.pulls.failures != 0 {
+		t.Fatal("a successful refresh should reset the backoff")
+	}
+	for range maxBackoff + 2 {
+		m = update(t, m, polledMsg{err: errors.New("boom")})
+	}
+	if m.failures != maxBackoff {
+		t.Fatalf("diff poll failures should back off, failures=%d", m.failures)
+	}
+	if m = update(t, m, polledMsg{}); m.failures != 0 {
+		t.Fatal("a successful poll should reset the backoff")
+	}
+}
+
+func update1(t *testing.T, m Model, msg tea.Msg) tea.Msg {
+	t.Helper()
+	_, cmd := m.Update(msg)
+	if cmd == nil {
+		t.Fatal("expected a command")
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	select {
+	case got := <-done:
+		return got
+	case <-time.After(time.Second):
+		t.Fatal("command did not finish")
+	}
+	return nil
+}

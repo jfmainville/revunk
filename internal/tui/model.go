@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -56,10 +57,16 @@ type editorState struct {
 	kind   int
 }
 
+type parsed struct {
+	files  []review.File
+	lines  [][]review.Line
+	tokens [][][]token
+}
+
 type loadedMsg struct {
 	pruned   int
 	commits  []review.Commit
-	files    []review.File
+	diff     parsed
 	viewed   map[string]bool
 	comments []review.Comment
 	err      error
@@ -67,7 +74,7 @@ type loadedMsg struct {
 
 type filesMsg struct {
 	commit int
-	files  []review.File
+	diff   parsed
 	err    error
 }
 
@@ -99,7 +106,7 @@ type polledMsg struct {
 	pruned   int
 	commits  []review.Commit
 	commit   string
-	files    []review.File
+	diff     parsed
 	viewed   map[string]bool
 	comments []review.Comment
 	err      error
@@ -111,8 +118,14 @@ var (
 	reviewPollEvery = 15 * time.Second
 )
 
+const maxBackoff = 5
+
+func backoff(every time.Duration, failures int) time.Duration {
+	return every << min(failures, maxBackoff)
+}
+
 func (m Model) tick() tea.Cmd {
-	return tea.Tick(m.every, func(time.Time) tea.Msg { return tickMsg{} })
+	return tea.Tick(backoff(m.every, m.failures), func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 type Model struct {
@@ -159,6 +172,8 @@ type Model struct {
 	pr         review.PullRequest
 	modal      modalState
 	every      time.Duration
+	failures   int
+	blurred    bool
 }
 
 func New(svc *review.Service, root, base string) Model {
@@ -187,13 +202,15 @@ func (m Model) Init() tea.Cmd {
 		if msg.commits, msg.err = svc.Commits(ctx); msg.err != nil {
 			return msg
 		}
-		if msg.files, msg.err = svc.Files(ctx, ""); msg.err != nil {
+		files, err := svc.Files(ctx, "")
+		if msg.err = err; err != nil {
 			return msg
 		}
-		if msg.viewed, msg.err = svc.Viewed(ctx); msg.err != nil {
+		if msg.viewed, msg.err = svc.Viewed(ctx, files); msg.err != nil {
 			return msg
 		}
-		if msg.pruned, msg.err = svc.PruneComments(ctx); msg.err != nil {
+		msg.diff = parsed{}.parse(files)
+		if msg.pruned, msg.err = svc.PruneComments(ctx, files); msg.err != nil {
 			return msg
 		}
 		msg.comments, msg.err = svc.Comments(ctx)
@@ -223,22 +240,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewed = msg.viewed
 		}
 		m.comments = msg.comments
-		m.setFiles(msg.files)
+		m.setFiles(msg.diff)
 		return m, m.tick()
 	case tickMsg:
+		if m.blurred || (m.tab == tabPulls && m.pr.Number == 0) {
+			return m, m.tick()
+		}
 		return m, m.poll()
 	case polledMsg:
-		if msg.err == nil {
+		if msg.err != nil {
+			m.failures = min(m.failures+1, maxBackoff)
+		} else {
+			m.failures = 0
 			m.applyPoll(msg)
 		}
 		return m, m.tick()
+	case tea.FocusMsg, tea.BlurMsg:
+		_, m.blurred = msg.(tea.BlurMsg)
+		if m.diff != nil {
+			return m.updateNested(msg)
+		}
+		return m, nil
 	case filesMsg:
 		if msg.commit != m.commit {
 			return m, nil
 		}
 		m.err = msg.err
 		if msg.err == nil {
-			m.setFiles(msg.files)
+			m.setFiles(msg.diff)
 		}
 		for _, c := range m.comments {
 			if m.pendingID != "" && c.ID == m.pendingID {
@@ -270,6 +299,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pullsTickMsg:
 		return m, m.pullsTicked()
 	case nestedMsg:
+		if _, ok := msg.msg.(tickMsg); ok && m.diff != nil && msg.gen == m.diffGen && m.tab != tabPulls {
+			return m, nest(m.diff.tick(), m.diffGen)
+		}
 		if m.diff != nil && msg.gen == m.diffGen {
 			return m.updateNested(msg.msg)
 		}
@@ -342,44 +374,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) parse(files []review.File) {
+func (p parsed) parse(files []review.File) parsed {
 	old := map[string]int{}
-	for i, f := range m.files {
+	for i, f := range p.files {
 		old[f.Path] = i
 	}
-	lines, tokens := make([][]review.Line, len(files)), make([][][]token, len(files))
+	next := parsed{files: files, lines: make([][]review.Line, len(files)), tokens: make([][][]token, len(files))}
 	for i, f := range files {
-		if j, ok := old[f.Path]; ok && m.files[j].Patch == f.Patch {
-			lines[i], tokens[i] = m.lines[j], m.tokens[j]
+		if j, ok := old[f.Path]; ok && p.files[j].Patch == f.Patch {
+			next.lines[i], next.tokens[i] = p.lines[j], p.tokens[j]
 			continue
 		}
-		lines[i] = review.ParseLines(f.Patch)
-		tokens[i] = highlight(f.Path, lines[i])
+		next.lines[i] = review.ParseLines(f.Patch)
+		next.tokens[i] = highlight(f.Path, next.lines[i])
 	}
-	m.files, m.lines, m.tokens = files, lines, tokens
+	return next
 }
 
-func (m *Model) setFiles(files []review.File) {
-	m.parse(files)
+func (m Model) parsed() parsed {
+	return parsed{files: m.files, lines: m.lines, tokens: m.tokens}
+}
+
+func (m *Model) setFiles(p parsed) {
+	m.files, m.lines, m.tokens = p.files, p.lines, p.tokens
 	m.cursor, m.offset, m.fileCursor, m.anchor = 0, 0, 0, -1
 	m.layout()
 }
 
 func (m Model) poll() tea.Cmd {
-	svc, sha := m.svc, m.commitSHA()
+	svc, sha, prev := m.svc, m.commitSHA(), m.parsed()
 	return func() tea.Msg {
 		ctx := context.Background()
 		msg := polledMsg{commit: sha}
 		if msg.commits, msg.err = svc.Commits(ctx); msg.err != nil {
 			return msg
 		}
-		if msg.files, msg.err = svc.Files(ctx, sha); msg.err != nil {
+		files, err := svc.Files(ctx, sha)
+		if msg.err = err; err != nil {
 			return msg
 		}
-		if msg.viewed, msg.err = svc.Viewed(ctx); msg.err != nil {
+		msg.diff = prev.parse(files)
+		all := files
+		if sha != "" {
+			if all, msg.err = svc.Files(ctx, ""); msg.err != nil {
+				return msg
+			}
+		}
+		if msg.viewed, msg.err = svc.Viewed(ctx, all); msg.err != nil {
 			return msg
 		}
-		if msg.pruned, msg.err = svc.PruneComments(ctx); msg.err != nil {
+		if msg.pruned, msg.err = svc.PruneComments(ctx, all); msg.err != nil {
 			return msg
 		}
 		msg.comments, msg.err = svc.Comments(ctx)
@@ -407,8 +451,8 @@ func (m *Model) applyPoll(msg polledMsg) {
 	if m.commitSHA() != msg.commit {
 		return
 	}
-	if !reflect.DeepEqual(msg.files, m.files) {
-		m.refreshFiles(msg.files)
+	if !reflect.DeepEqual(msg.diff.files, m.files) {
+		m.refreshFiles(msg.diff)
 		return
 	}
 	if changed {
@@ -417,7 +461,8 @@ func (m *Model) applyPoll(msg polledMsg) {
 	}
 }
 
-func (m *Model) refreshFiles(files []review.File) {
+func (m *Model) refreshFiles(p parsed) {
+	files := p.files
 	var path, selected string
 	cur := row{line: -1}
 	if len(m.rows) > 0 {
@@ -428,7 +473,7 @@ func (m *Model) refreshFiles(files []review.File) {
 		selected = m.files[m.fileCursor].Path
 	}
 	screenRow := m.cursor - m.offset
-	m.parse(files)
+	m.files, m.lines, m.tokens = p.files, p.lines, p.tokens
 	m.anchor, m.rendered, m.fileCursor = -1, map[int][]string{}, 0
 	for i, f := range files {
 		if f.Path == selected {
@@ -1058,10 +1103,13 @@ func (m *Model) selectCommit(delta int) tea.Cmd {
 		return nil
 	}
 	m.commit = next
-	svc, sha := m.svc, m.commitSHA()
+	svc, sha, prev := m.svc, m.commitSHA(), m.parsed()
 	return func() tea.Msg {
 		files, err := svc.Files(context.Background(), sha)
-		return filesMsg{commit: next, files: files, err: err}
+		if err != nil {
+			return filesMsg{commit: next, err: err}
+		}
+		return filesMsg{commit: next, diff: prev.parse(files)}
 	}
 }
 
@@ -1343,14 +1391,17 @@ func (m Model) toggleViewed() tea.Cmd {
 	if p == "" {
 		return nil
 	}
-	svc := m.svc
+	svc, viewed := m.svc, maps.Clone(m.viewed)
+	if viewed == nil {
+		viewed = map[string]bool{}
+	}
 	return func() tea.Msg {
-		ctx := context.Background()
-		if _, err := svc.ToggleViewed(ctx, p); err != nil {
+		on, err := svc.ToggleViewed(context.Background(), p)
+		if err != nil {
 			return viewedMsg{err: err}
 		}
-		viewed, err := svc.Viewed(ctx)
-		return viewedMsg{viewed: viewed, err: err}
+		viewed[p] = on
+		return viewedMsg{viewed: viewed}
 	}
 }
 
@@ -1537,6 +1588,7 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
 	return v
 }
 

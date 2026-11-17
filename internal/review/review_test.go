@@ -127,9 +127,6 @@ func TestCommitsAndFilesWrapSourceErrors(t *testing.T) {
 	if _, err := svc.Files(context.Background(), ""); !errors.Is(err, sourceErr) {
 		t.Fatalf("Files: got %v", err)
 	}
-	if _, err := svc.Viewed(context.Background()); !errors.Is(err, sourceErr) {
-		t.Fatalf("Viewed: got %v", err)
-	}
 	if _, err := svc.ToggleViewed(context.Background(), "a.go"); !errors.Is(err, sourceErr) {
 		t.Fatalf("ToggleViewed: got %v", err)
 	}
@@ -162,13 +159,13 @@ func TestViewedResetsWhenFileChanges(t *testing.T) {
 	if err != nil || !viewed {
 		t.Fatalf("first toggle = %v, %v", viewed, err)
 	}
-	got, err := svc.Viewed(ctx)
+	got, err := svc.Viewed(ctx, source.files[""])
 	if err != nil || !got["a.go"] || got["b.go"] {
 		t.Fatalf("Viewed = %v, %v", got, err)
 	}
 
 	source.files[""][0].Patch = "+v2"
-	if got, _ := svc.Viewed(ctx); got["a.go"] {
+	if got, _ := svc.Viewed(ctx, source.files[""]); got["a.go"] {
 		t.Fatal("file stayed viewed after its diff changed")
 	}
 
@@ -178,7 +175,7 @@ func TestViewedResetsWhenFileChanges(t *testing.T) {
 	if viewed, _ := svc.ToggleViewed(ctx, "a.go"); viewed {
 		t.Fatal("second toggle should unmark the file")
 	}
-	if got, _ := svc.Viewed(ctx); got["a.go"] {
+	if got, _ := svc.Viewed(ctx, source.files[""]); got["a.go"] {
 		t.Fatal("unmarked file still viewed")
 	}
 }
@@ -191,7 +188,7 @@ func TestViewedIsScopedToBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, _ := review.NewService(source, st, nil, "two").Viewed(ctx); got["a.go"] {
+	if got, _ := review.NewService(source, st, nil, "two").Viewed(ctx, source.files[""]); got["a.go"] {
 		t.Fatal("viewed state leaked to another branch")
 	}
 }
@@ -209,7 +206,7 @@ func TestViewedReturnsStoreErrors(t *testing.T) {
 	source := &fakeSource{files: map[string][]review.File{"": {{Path: "a.go"}}}}
 
 	readFails := review.NewService(source, failingStore{viewedErr: storeErr}, nil, "b")
-	if _, err := readFails.Viewed(ctx); !errors.Is(err, storeErr) {
+	if _, err := readFails.Viewed(ctx, source.files[""]); !errors.Is(err, storeErr) {
 		t.Fatalf("Viewed: got %v", err)
 	}
 	if _, err := readFails.ToggleViewed(ctx, "a.go"); !errors.Is(err, storeErr) {
@@ -487,11 +484,11 @@ func TestPruneCommentsDeletesCommentsOnDeletedFiles(t *testing.T) {
 		}
 	}
 
-	if n, err := svc.PruneComments(ctx); n != 0 || err != nil {
+	if n, err := svc.PruneComments(ctx, src.files[""]); n != 0 || err != nil {
 		t.Fatalf("without Exists nothing should be pruned, got %d %v", n, err)
 	}
 	svc.Exists = func(path string) bool { return path == "kept.go" }
-	n, err := svc.PruneComments(ctx)
+	n, err := svc.PruneComments(ctx, src.files[""])
 	if err != nil || n != 3 {
 		t.Fatalf("pruned %d, err %v", n, err)
 	}
@@ -503,7 +500,7 @@ func TestPruneCommentsDeletesCommentsOnDeletedFiles(t *testing.T) {
 	if want := []string{"exists", "why remove this", "why delete the file"}; !reflect.DeepEqual(bodies, want) {
 		t.Fatalf("kept %v, want %v", bodies, want)
 	}
-	if n, err := svc.PruneComments(ctx); n != 0 || err != nil {
+	if n, err := svc.PruneComments(ctx, src.files[""]); n != 0 || err != nil {
 		t.Fatalf("second prune should find nothing, got %d %v", n, err)
 	}
 }
@@ -514,28 +511,14 @@ func TestPruneCommentsErrors(t *testing.T) {
 
 	empty := review.NewService(&fakeSource{err: errors.New("git broke")}, newStore(t), nil, "b")
 	empty.Exists = never
-	if n, err := empty.PruneComments(ctx); n != 0 || err != nil {
+	if n, err := empty.PruneComments(ctx, nil); n != 0 || err != nil {
 		t.Fatalf("no comments should skip the diff, got %d %v", n, err)
 	}
 
 	broken := review.NewService(&fakeSource{}, failingStore{viewedErr: errors.New("read failed")}, nil, "b")
 	broken.Exists = never
-	if _, err := broken.PruneComments(ctx); err == nil || !strings.Contains(err.Error(), "read failed") {
+	if _, err := broken.PruneComments(ctx, nil); err == nil || !strings.Contains(err.Error(), "read failed") {
 		t.Fatalf("comment read error not returned: %v", err)
 	}
 
-	st := newStore(t)
-	src := &fakeSource{}
-	svc := review.NewService(src, st, nil, "b")
-	svc.Exists = never
-	if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: "x"}); err != nil {
-		t.Fatal(err)
-	}
-	src.err = errors.New("git broke")
-	if _, err := svc.PruneComments(ctx); err == nil || !strings.Contains(err.Error(), "git broke") {
-		t.Fatalf("diff error not returned: %v", err)
-	}
-	if comments, _ := svc.Comments(ctx); len(comments) != 1 {
-		t.Fatal("comments should be kept when the diff fails")
-	}
 }

@@ -252,11 +252,7 @@ func (s *Service) Files(ctx context.Context, commit string) ([]File, error) {
 	return files, nil
 }
 
-func (s *Service) Viewed(ctx context.Context) (map[string]bool, error) {
-	files, err := s.Files(ctx, "")
-	if err != nil {
-		return nil, err
-	}
+func (s *Service) Viewed(ctx context.Context, files []File) (map[string]bool, error) {
 	stored, err := s.store.Viewed(ctx, s.branch)
 	if err != nil {
 		return nil, err
@@ -320,16 +316,12 @@ func (s *Service) DeleteAllComments(ctx context.Context) error {
 	return s.store.DeleteComments(ctx, s.branch, ids(comments))
 }
 
-func (s *Service) PruneComments(ctx context.Context) (int, error) {
+func (s *Service) PruneComments(ctx context.Context, files []File) (int, error) {
 	if s.Exists == nil {
 		return 0, nil
 	}
 	comments, err := s.Comments(ctx)
 	if err != nil || len(comments) == 0 {
-		return 0, err
-	}
-	files, err := s.Files(ctx, "")
-	if err != nil {
 		return 0, err
 	}
 	removed := map[string]bool{}
