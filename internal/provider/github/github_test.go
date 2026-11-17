@@ -46,8 +46,8 @@ func arg(call []string, prefix string) string {
 	return ""
 }
 
-const detailJSON = `{"data":{"viewer":{"login":"me"},"repository":{"pullRequest":{
-  "id":"PR_1","number":7,"title":"Add login","body":"Adds **login**","url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":true,
+const detailJSON = `{"data":{"viewer":{"login":"me"},"repository":{"mergeCommitAllowed":true,"squashMergeAllowed":false,"rebaseMergeAllowed":true,"pullRequest":{
+  "id":"PR_1","number":7,"title":"Add login","body":"Adds **login**","url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":true,"mergeStateStatus":"BLOCKED",
   "headRefName":"login","baseRefName":"main","updatedAt":"2026-11-16T10:00:00Z","additions":10,"deletions":2,"changedFiles":3,
   "author":{"login":"ana"},
   "assignees":{"nodes":[{"login":"me"}]},
@@ -93,6 +93,9 @@ func TestPullRequestMapsEveryDetail(t *testing.T) {
 	if pr.ID != "PR_1" || pr.Repo != "o/r" || pr.Title != "Add login" || !pr.Draft || pr.Author != "ana" || pr.Head != "login" || pr.Base != "main" ||
 		pr.Additions != 10 || pr.Deletions != 2 || pr.ChangedFiles != 3 || pr.Viewer != "me" || pr.PendingReview != "PRR_pending" || !pr.Detailed {
 		t.Fatalf("pr = %+v", pr)
+	}
+	if pr.MergeState != "BLOCKED" || !reflect.DeepEqual(pr.MergeMethods, []review.MergeMethod{review.MergeCommit, review.MergeRebase}) {
+		t.Fatalf("merge state %q methods %q should follow the repository settings", pr.MergeState, pr.MergeMethods)
 	}
 	if !reflect.DeepEqual(pr.Assignees, []string{"me"}) || !reflect.DeepEqual(pr.Labels, []string{"auth"}) {
 		t.Fatalf("assignees %q labels %q", pr.Assignees, pr.Labels)
@@ -275,6 +278,35 @@ func TestSubmitReviewUsesThePendingReview(t *testing.T) {
 	}
 	if !strings.Contains(second, "addPullRequestReview(") || !strings.Contains(second, "pr=PR_1") || !strings.Contains(second, "event=REQUEST_CHANGES") {
 		t.Fatalf("new review submit = %s", second)
+	}
+}
+
+func TestMergePinsTheReviewedHeadCommit(t *testing.T) {
+	ctx := context.Background()
+	f := &fakeGH{}
+	reviewed := pr
+	reviewed.Commits = []review.Commit{{SHA: "old1"}, {SHA: "head2"}}
+	if err := f.client().Merge(ctx, reviewed, review.MergeSquash); err != nil {
+		t.Fatal(err)
+	}
+	call := strings.Join(f.calls[0], "\n")
+	if !strings.Contains(call, "mergePullRequest(") || !strings.Contains(call, "pr=PR_1") || !strings.Contains(call, "method=SQUASH") ||
+		!strings.Contains(call, "expectedHeadOid: $head") || !strings.Contains(call, "head=head2") {
+		t.Fatalf("merge call = %s", call)
+	}
+	if err := f.client().Merge(ctx, pr, review.MergeCommit); err != nil {
+		t.Fatal(err)
+	}
+	if call := strings.Join(f.calls[1], "\n"); strings.Contains(call, "expectedHeadOid") || !strings.Contains(call, "method=MERGE") {
+		t.Fatalf("a pull request without commits should merge without a pinned head: %s", call)
+	}
+	f = &fakeGH{replies: []string{`{"errors":[{"message":"Pull request is not mergeable"}]}`}}
+	if err := f.client().Merge(ctx, reviewed, review.MergeRebase); err == nil || err.Error() != "Pull request is not mergeable" {
+		t.Fatalf("GitHub's refusal should come back as the error, got %v", err)
+	}
+	f = &fakeGH{err: errors.New("gh api: HTTP 403")}
+	if err := f.client().Merge(ctx, reviewed, review.MergeRebase); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("permission errors should come back, got %v", err)
 	}
 }
 

@@ -542,6 +542,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.focus = m.window(seq)
 		case is(seq, k.EditPR) && m.pr.Number > 0:
 			return m, m.openModal(modalEdit, m.pr)
+		case is(seq, k.Merge) && m.pr.Number > 0:
+			return m, m.openMerge(m.pr)
 		case m.host == nil || m.pr.Number > 0:
 		case is(seq, k.OpenURL):
 			return m, m.openModal(modalURL, review.PullRequest{})

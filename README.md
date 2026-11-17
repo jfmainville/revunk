@@ -108,6 +108,8 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 
 `gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. `gs` submits the review, picking comment, approve, or request changes in a dropdown that `enter` opens, with an optional Markdown message. Like on GitHub, a comment or request for changes without a message needs inline comments in the review. `ge` edits the title and description of the reviewed pull request without leaving the diff. The review diff reloads every 15 seconds, and `q` closes it. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
 
+`gm` merges the selected pull request, or the reviewed one from the review diff, after you confirm in a modal that lists only the merge methods the repository allows. `enter` or `ctrl+s` merges and `esc` or `q` cancels. The modal warns when the branch conflicts with its base, is behind it, has failing checks, or is blocked by branch protection. GitHub still decides, so a blocked merge, missing permission, or a branch that got new commits since it loaded shows GitHub's reason in the status line and leaves the pull request open. A successful merge reloads the pull request to show its merged state. Draft, closed, and merged pull requests don't open the modal.
+
 `gu`, on either tab, opens a modal that takes a pull request URL such as `https://github.com/owner/repo/pull/123` and opens its review diff, so a pull request outside the list needs no searching. `enter` or `ctrl+s` opens it. A URL that is not a `github.com` pull request keeps the modal open with the reason, and a repository or pull request you can't reach, or a `gh` sign in problem, shows the `gh` error in the status line.
 
 | Key                    | Action                                                                      |
@@ -128,6 +130,7 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `gd`                   | Review the diff with GitHub review comments                                 |
 | `gu`                   | Review the diff of a pull request from its GitHub URL                       |
 | `gs`                   | Submit the review from the review diff                                      |
+| `gm`                   | Merge the pull request after confirming, also from the review diff          |
 | Click, mouse wheel     | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 
 The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. Pasting works in every modal field and in the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.

@@ -169,8 +169,9 @@ const noteFields = `id author { login } body createdAt reactionGroups { content 
 const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
+    mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
     pullRequest(number: $number) {
-      id number title body url state isDraft headRefName baseRefName updatedAt additions deletions changedFiles
+      id number title body url state isDraft mergeStateStatus headRefName baseRefName updatedAt additions deletions changedFiles
       author { login }
       assignees(first: 50) { nodes { login } }
       reviewRequests(first: 50) { nodes { requestedReviewer { ... on User { login } ... on Team { slug } } } }
@@ -205,8 +206,10 @@ func (c Client) PullRequest(ctx context.Context, repo string, number int) (revie
 	var data struct {
 		Viewer     login
 		Repository struct {
-			PullRequest *struct {
+			MergeCommitAllowed, SquashMergeAllowed, RebaseMergeAllowed bool
+			PullRequest                                                *struct {
 				ID, Title, Body, URL, State string
+				MergeStateStatus            string
 				Number                      int
 				IsDraft                     bool
 				HeadRefName, BaseRefName    string
@@ -277,6 +280,15 @@ func (c Client) PullRequest(ctx context.Context, repo string, number int) (revie
 		ID: p.ID, Repo: repo, Number: p.Number, Title: p.Title, Body: p.Body, URL: p.URL, State: p.State,
 		Draft: p.IsDraft, Author: p.Author.Login, Head: p.HeadRefName, Base: p.BaseRefName, UpdatedAt: p.UpdatedAt,
 		Additions: p.Additions, Deletions: p.Deletions, ChangedFiles: p.ChangedFiles, Viewer: data.Viewer.Login, Detailed: true,
+		MergeState: p.MergeStateStatus,
+	}
+	for _, m := range []struct {
+		allowed bool
+		method  review.MergeMethod
+	}{{data.Repository.MergeCommitAllowed, review.MergeCommit}, {data.Repository.SquashMergeAllowed, review.MergeSquash}, {data.Repository.RebaseMergeAllowed, review.MergeRebase}} {
+		if m.allowed {
+			pr.MergeMethods = append(pr.MergeMethods, m.method)
+		}
 	}
 	for _, a := range p.Assignees.Nodes {
 		pr.Assignees = append(pr.Assignees, a.Login)
@@ -458,6 +470,17 @@ func (c Client) SubmitReview(ctx context.Context, pr review.PullRequest, event r
 	return c.graphql(ctx, `mutation($pr: ID!, $event: PullRequestReviewEvent!, $body: String!) {
   addPullRequestReview(input: {pullRequestId: $pr, event: $event, body: $body}) { clientMutationId }
 }`, map[string]any{"pr": pr.ID, "event": string(event), "body": body}, nil)
+}
+
+func (c Client) Merge(ctx context.Context, pr review.PullRequest, method review.MergeMethod) error {
+	vars := map[string]any{"pr": pr.ID, "method": string(method)}
+	params, input := "$pr: ID!, $method: PullRequestMergeMethod!", "pullRequestId: $pr, mergeMethod: $method"
+	if len(pr.Commits) > 0 {
+		vars["head"] = pr.Commits[len(pr.Commits)-1].SHA
+		params += ", $head: GitObjectID!"
+		input += ", expectedHeadOid: $head"
+	}
+	return c.graphql(ctx, "mutation("+params+") {\n  mergePullRequest(input: {"+input+"}) { clientMutationId }\n}", vars, nil)
 }
 
 func (c Client) startReview(ctx context.Context, pr review.PullRequest) (string, error) {

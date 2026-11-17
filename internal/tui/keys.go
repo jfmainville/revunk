@@ -56,6 +56,7 @@ type keyMap struct {
 	OpenDiff    key.Binding
 	OpenURL     key.Binding
 	Submit      key.Binding
+	Merge       key.Binding
 	Assignees   key.Binding
 	Reviewers   key.Binding
 	PickDown    key.Binding
@@ -138,6 +139,7 @@ func defaultKeys() keyMap {
 		OpenDiff:    bind("g d"),
 		OpenURL:     bind("g u"),
 		Submit:      bind("g s"),
+		Merge:       bind("g m"),
 		Assignees:   bind("A"),
 		Reviewers:   bind("R"),
 		PickDown:    bind("down", "ctrl+n"),
@@ -277,6 +279,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "review the diff with GitHub comments", keys: []key.Binding{k.OpenDiff}},
 			{desc: "review the diff of a pull request from its GitHub URL, on either tab", keys: []key.Binding{k.OpenURL}},
 			{desc: "submit the review: comment, approve, request changes", keys: []key.Binding{k.Submit}},
+			{desc: "merge with a method the repository allows, also from the review diff", keys: []key.Binding{k.Merge}},
 			{desc: "pick assignees, reviewers", keys: []key.Binding{k.Assignees, k.Reviewers}},
 			{desc: "in a picker, move, select, save", keys: []key.Binding{k.PickDown, k.PickUp, k.Toggle, k.Save}},
 			{desc: "comment on the pull request", keys: []key.Binding{k.Comment}},
@@ -385,6 +388,7 @@ func (k keyMap) pullsHints() []hint {
 		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
 		{desc: "url", keys: []key.Binding{k.OpenURL}},
 		{desc: "edit", keys: []key.Binding{k.EditPR}},
+		{desc: "merge", keys: []key.Binding{k.Merge}},
 		{desc: "assignees", keys: []key.Binding{k.Assignees}},
 		{desc: "reviewers", keys: []key.Binding{k.Reviewers}},
 		{desc: "comment", keys: []key.Binding{k.Comment}},
@@ -403,6 +407,7 @@ func (k keyMap) detailsHints() []hint {
 		{desc: "resolve", keys: []key.Binding{k.Resolve}},
 		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
 		{desc: "edit", keys: []key.Binding{k.EditPR}},
+		{desc: "merge", keys: []key.Binding{k.Merge}},
 		{desc: "list", keys: []key.Binding{k.Cancel}},
 	}
 }
@@ -417,6 +422,14 @@ func (k keyMap) pickerHints() []hint {
 		{desc: "select", keys: []key.Binding{k.Toggle}},
 		{desc: "save", keys: []key.Binding{k.Save}},
 		{desc: "cancel", keys: []key.Binding{k.Cancel}},
+	}
+}
+
+func (k keyMap) mergeHints() []hint {
+	return []hint{
+		{desc: "merge", keys: []key.Binding{k.Open, k.Save}},
+		{desc: "pick", keys: []key.Binding{k.Down, k.Up}},
+		{desc: "cancel", keys: []key.Binding{k.Cancel, k.Quit}},
 	}
 }
 
