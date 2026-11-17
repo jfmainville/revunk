@@ -558,24 +558,39 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 	}
 
 	m = pressRun(t, m, "g", "s")
-	if !m.diff.modal.open || !strings.Contains(screen(m), "submit your review of #7") || !strings.Contains(screen(m), "▸ Comment") {
-		t.Fatalf("gs should open the submit modal:\n%s", screen(m))
+	if out := screen(m); !m.diff.modal.open || !strings.Contains(out, "submit your review of #7") || !strings.Contains(out, "review      Comment") || strings.Contains(out, "Approve") || !strings.Contains(out, "optional message") {
+		t.Fatalf("gs should open the submit modal with a closed dropdown:\n%s", out)
 	}
 	if m = pressRun(t, m, "1"); m.tab != tabPulls {
 		t.Fatal("tab keys are text while the modal is open")
 	}
-	if m = pressRun(t, m, "ctrl+s"); !m.diff.modal.open {
-		t.Fatal("a comment review needs a body")
-	}
 	detail := host.details["o/r#7"]
 	detail.PendingReview = "PRR_9"
 	host.details["o/r#7"] = detail
-	m = pressRun(t, m, "j", "ctrl+s")
+	if m = pressRun(t, m, "ctrl+s"); !host.has("submit o/r#7 PRR_9 COMMENT ") || m.diff.modal.open {
+		t.Fatalf("the message should be optional, calls=%q", host.calls)
+	}
+	m = pressRun(t, m, "g", "s", "enter")
+	if out := screen(m); !m.diff.modal.expanded || !strings.Contains(out, "▸ Comment") || !strings.Contains(out, "Request changes") {
+		t.Fatalf("enter should open the dropdown:\n%s", out)
+	}
+	m = pressRun(t, m, "j", "enter")
+	if out := screen(m); m.diff.modal.expanded || !strings.Contains(out, "review      Approve") || strings.Contains(out, "Request changes") {
+		t.Fatalf("enter should pick and close the dropdown:\n%s", out)
+	}
+	m = pressRun(t, m, "ctrl+s")
 	if !host.has("submit o/r#7 PRR_9 APPROVE ") || m.diff.notice != "submitted approve on #7" || m.diff.modal.open {
 		t.Fatalf("calls=%q notice=%q", host.calls, m.diff.notice)
 	}
 	host.err = errors.New("can't approve your own pull request")
-	m = pressRun(t, m, "g", "s", "j", "j", "tab")
+	m = pressRun(t, m, "g", "s", "j", "j", "j", "esc")
+	if !m.diff.modal.open || m.diff.modal.expanded {
+		t.Fatal("esc should close the dropdown and keep the modal")
+	}
+	m = pressRun(t, m, "space", "tab")
+	if m.diff.modal.expanded {
+		t.Fatal("tab should close the dropdown")
+	}
 	m = typeText(t, m, "Please fix")
 	m = pressRun(t, m, "ctrl+s")
 	if !host.has("submit o/r#7 PRR_9 REQUEST_CHANGES Please fix") || !strings.Contains(screen(m), "can't approve your own") {

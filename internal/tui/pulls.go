@@ -94,11 +94,12 @@ type modalState struct {
 	choice  int
 	focus   int
 	vimState
-	people  []string
-	picked  []string
-	cursor  int
-	loading bool
-	failed  error
+	expanded bool
+	people   []string
+	picked   []string
+	cursor   int
+	loading  bool
+	failed   error
 }
 
 type assignableMsg struct {
@@ -556,6 +557,9 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		d.area.Prompt = ""
 		d.area.KeyMap.InsertNewline = m.keys.Newline
 		d.area.Placeholder = "markdown works"
+		if kind == modalSubmit {
+			d.area.Placeholder = "optional message, markdown works"
+		}
 		d.area.SetWidth(w)
 		d.area.SetHeight(max(min(m.panesHeight()-8-len(d.fields)-len(d.choices), 12), 1))
 		if kind == modalEdit {
@@ -573,6 +577,38 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		})
 	}
 	return cmd
+}
+
+func (m Model) dropdownLines() []string {
+	d := m.modal
+	width := 2
+	for _, c := range d.choices {
+		width = max(width, len(c)+4)
+	}
+	labelStyle, value := dimStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorRule)
+	if d.onChoices() {
+		labelStyle, value = primaryStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary)
+	}
+	arrow := "▾"
+	if d.expanded {
+		arrow = "▴"
+	}
+	lines := []string{" " + labelStyle.Render(fmt.Sprintf("%-10s", "review")) + " " + value.Render(fmt.Sprintf(" %-*s%s ", width-2, d.choices[d.choice], arrow))}
+	if d.expanded {
+		var items []string
+		for i, c := range d.choices {
+			style, mark := dimStyle, "  "
+			if i == d.choice {
+				style, mark = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary), "▸ "
+			}
+			items = append(items, style.Render(fmt.Sprintf("%-*s", width, mark+c)))
+		}
+		list := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorPrimary).Render(strings.Join(items, "\n"))
+		for l := range strings.SplitSeq(list, "\n") {
+			lines = append(lines, strings.Repeat(" ", 12)+l)
+		}
+	}
+	return append(lines, "")
 }
 
 func (m Model) modalHints() []hint {
@@ -682,8 +718,12 @@ func (d *modalState) field() int {
 	return -1
 }
 
+func (d *modalState) dropdown() bool {
+	return d.hasArea && len(d.choices) > 0
+}
+
 func (d *modalState) setFocus(i int) tea.Cmd {
-	d.focus = i
+	d.focus, d.expanded = i, false
 	for j := range d.fields {
 		d.fields[j].Blur()
 	}
@@ -705,6 +745,8 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch d := &m.modal; {
 	case is(key, k.ForceQuit):
 		return m, tea.Quit
+	case is(key, k.Cancel) && d.expanded:
+		d.expanded = false
 	case is(key, k.Cancel) && (d.normal || !d.onArea()):
 		m.modal = modalState{}
 	case is(key, k.Save):
@@ -716,7 +758,12 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		cmd = d.setFocus((d.focus + step) % max(d.parts(), 1))
 	case d.onChoices():
+		opens := is(key, k.Open) || is(key, k.Toggle)
 		switch {
+		case d.dropdown() && !d.expanded && (opens || is(key, k.Down) || is(key, k.Up)):
+			d.expanded = true
+		case d.dropdown() && opens:
+			d.expanded = false
 		case is(key, k.Down):
 			d.choice = min(d.choice+1, len(d.choices)-1)
 		case is(key, k.Up):
@@ -756,7 +803,7 @@ func quote(n review.Note) string {
 func (m Model) saveModal() (tea.Model, tea.Cmd) {
 	d, host := m.modal, m.host
 	body := strings.TrimSpace(d.area.Value())
-	if d.hasArea && body == "" && d.kind != modalEdit && !(d.kind == modalSubmit && d.choice == 1) {
+	if d.hasArea && body == "" && d.kind != modalEdit && d.kind != modalSubmit {
 		m.notice = "write something before saving"
 		return m, nil
 	}
@@ -1156,7 +1203,9 @@ func reactionLine(list []review.Reaction) string {
 func (m Model) renderModal() string {
 	d := m.modal
 	var lines []string
-	if len(d.choices) > 0 {
+	if d.dropdown() {
+		lines = append(lines, m.dropdownLines()...)
+	} else if len(d.choices) > 0 {
 		for i, c := range d.choices {
 			style, mark := dimStyle, "  "
 			if i == d.choice {
