@@ -5,8 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,7 +21,7 @@ import (
 	"github.com/jfmainville/revunk/internal/tui"
 )
 
-const usage = `Usage: revunk [-base <branch>] [command]
+const usage = `Usage: revunk [-base <branch>] [-cleanup] [command]
 
 Reviews the commits on the current git branch against its base branch.
 
@@ -27,7 +29,8 @@ Commands:
   tui                  Launch the terminal review interface (default)
 
 Flags:
-  -base  Branch to compare against (default: origin's default branch, else main)
+  -base     Branch to compare against (default: origin's default branch, else main)
+  -cleanup  Delete .git/revunk.json, every saved comment and viewed file, then exit
 `
 
 func main() {
@@ -41,11 +44,31 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("revunk", flag.ContinueOnError)
 	flags.Usage = func() { fmt.Fprint(flags.Output(), usage) }
 	base := flags.String("base", "", "")
+	cleanup := flags.Bool("cleanup", false, "")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	if *cleanup {
+		ctx := context.Background()
+		root, err := git.Root(ctx, ".")
+		if err != nil {
+			return fmt.Errorf("run revunk inside a git repository: %w", err)
+		}
+		path, err := git.StatePath(ctx, root)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); errors.Is(err, fs.ErrNotExist) {
+			fmt.Println("nothing to clean up, no", path)
+			return nil
+		} else if err != nil {
+			return err
+		}
+		fmt.Println("removed", path)
+		return nil
 	}
 	command := "tui"
 	if flags.NArg() > 0 {
@@ -115,6 +138,16 @@ func service(ctx context.Context, dir, base string) (*review.Service, *store.JSO
 		return nil, nil, "", "", err
 	}
 	st, err := store.Open(statePath)
+	if err != nil {
+		return nil, nil, "", "", err
+	}
+	branches, err := git.Branches(ctx, root)
+	if err != nil {
+		return nil, nil, "", "", err
+	}
+	err = st.KeepBranches(func(b string) bool {
+		return b == branch || slices.Contains(branches, b) || strings.Contains(b, "#")
+	})
 	if err != nil {
 		return nil, nil, "", "", err
 	}

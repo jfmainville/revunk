@@ -283,6 +283,48 @@ func TestDeleteCommentRemovesOnlyThatComment(t *testing.T) {
 	}
 }
 
+func TestResolveCommentTogglesStateAndLeavesItOutOfThePrompt(t *testing.T) {
+	ctx := context.Background()
+	svc := review.NewService(&fakeSource{}, newStore(t), nil, "feature")
+	for _, body := range []string{"still-open", "now-resolved"} {
+		if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := svc.ResolveComment(ctx, idOf(t, svc, "now-resolved"), true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.Comments(ctx)
+	if len(got) != 2 || got[0].Resolved || !got[1].Resolved {
+		t.Fatalf("Comments after resolve = %+v", got)
+	}
+	text, err := svc.Prompt(ctx)
+	if err != nil || !strings.Contains(text, "still-open") || strings.Contains(text, "now-resolved") {
+		t.Fatalf("prompt should skip resolved comments: %q, %v", text, err)
+	}
+
+	if err := svc.ResolveComment(ctx, idOf(t, svc, "still-open"), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Prompt(ctx); err == nil || !strings.Contains(err.Error(), "no unsent comments") {
+		t.Fatalf("prompt with only resolved comments = %v", err)
+	}
+
+	if err := svc.ResolveComment(ctx, idOf(t, svc, "now-resolved"), false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = svc.Comments(ctx); got[1].Resolved {
+		t.Fatal("resolving with false should reopen the comment")
+	}
+
+	storeErr := errors.New("locked")
+	failing := review.NewService(&fakeSource{}, failingStore{setErr: storeErr}, nil, "feature")
+	if err := failing.ResolveComment(ctx, "id", true); !errors.Is(err, storeErr) {
+		t.Fatalf("ResolveComment: got %v", err)
+	}
+}
+
 func TestDeleteAllCommentsClearsOnlyThisBranch(t *testing.T) {
 	ctx := context.Background()
 	st := newStore(t)

@@ -137,6 +137,21 @@ func Branch(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
+func Branches(ctx context.Context, dir string) ([]string, error) {
+	out, err := run(ctx, dir, "for-each-ref", "--format=%(refname:short) %(upstream:track,nobracket)", "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+	var branches []string
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		name, track, _ := strings.Cut(line, " ")
+		if name != "" && track != "gone" {
+			branches = append(branches, name)
+		}
+	}
+	return branches, nil
+}
+
 func Root(ctx context.Context, dir string) (string, error) {
 	out, err := run(ctx, dir, "rev-parse", "--show-toplevel")
 	return strings.TrimSpace(out), err

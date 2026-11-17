@@ -564,6 +564,48 @@ func TestDeleteCommentUnderCursor(t *testing.T) {
 	}
 }
 
+func TestResolveHidesCommentFromDiffButKeepsItInThePane(t *testing.T) {
+	m, st := loaded(t)
+	st.comments = []review.Comment{{ID: "a", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename this"}}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
+
+	m.cursor = rowOf(t, m, rowLine, 1, 4)
+	if m, cmd := press(t, m, "x"); cmd != nil || !strings.Contains(screen(m), "no comment here to resolve") {
+		t.Fatal("x with no comment under the cursor should explain")
+	}
+
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, cmd := press(t, m, "x")
+	m = run(t, m, cmd)
+	if !st.comments[0].Resolved || len(st.comments) != 1 {
+		t.Fatalf("x should resolve without deleting: %+v", st.comments)
+	}
+	if out := screen(m); strings.Contains(out, "rename this") || !strings.Contains(out, "resolved the comment") {
+		t.Fatalf("resolved comment should leave the diff:\n%s", out)
+	}
+	if again, cmd := press(t, m, "S"); cmd != nil || !strings.Contains(screen(again), "no unsent comments to send") {
+		t.Fatal("resolved comments should not be sent to the agent")
+	}
+
+	m, _ = press(t, m, "t")
+	if out := screen(m); !strings.Contains(out, "✓ nit") || !strings.Contains(out, "resolved  rename this") {
+		t.Fatalf("comments pane should keep the resolved comment:\n%s", out)
+	}
+
+	m, cmd = press(t, m, "x")
+	m = run(t, m, cmd)
+	if out := screen(m); st.comments[0].Resolved || !strings.Contains(out, "reopened the comment") || !strings.Contains(out, "◆ nit") || !strings.Contains(out, "L2 · draft") {
+		t.Fatalf("x in the pane should reopen the comment in the diff:\n%s", out)
+	}
+
+	st.err = errors.New("store locked")
+	m, cmd = press(t, m, "x")
+	if m = run(t, m, cmd); !strings.Contains(screen(m), "store locked") {
+		t.Fatal("resolve error not shown")
+	}
+}
+
 func TestOutdatedCommentIsShownUnderFileHeader(t *testing.T) {
 	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{Kind: "question", Path: "a/main.go", Side: review.SideRight, Start: 40, End: 40, Body: "still relevant?"}}}
 	m := newModel(t, sample, st)

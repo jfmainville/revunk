@@ -95,7 +95,7 @@ func TestEveryBindingIsDocumented(t *testing.T) {
 
 func TestReboundKeysDriveBehaviorAndLabels(t *testing.T) {
 	m, st := loaded(t)
-	m.keys.Down = bind("x")
+	m.keys.Down = bind("J")
 	m.keys.Help = bind("H1")
 	m.keys.DeleteAll = bind("z z")
 	m, _ = press(t, m, "l")
@@ -103,7 +103,7 @@ func TestReboundKeysDriveBehaviorAndLabels(t *testing.T) {
 	if m, _ = press(t, m, "j"); m.cursor != 0 {
 		t.Fatal("the old key should do nothing once rebound")
 	}
-	if m, _ = press(t, m, "x"); m.cursor != 1 {
+	if m, _ = press(t, m, "J"); m.cursor != 1 {
 		t.Fatalf("the new key should move, cursor=%d", m.cursor)
 	}
 	out := screen(m)
@@ -126,7 +126,7 @@ func TestReboundKeysDriveBehaviorAndLabels(t *testing.T) {
 	}
 
 	m.keys.Newline = bind("ctrl+j")
-	m, _ = press(t, m, "x", "c")
+	m, _ = press(t, m, "J", "c")
 	if !m.editing {
 		t.Fatal("editor should open")
 	}

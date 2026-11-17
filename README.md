@@ -31,16 +31,16 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 - **files** lists the changed files grouped by directory, each with its added and removed line counts, and the totals in the pane title. Reviewed files move to a **Reviewed** section at the bottom, listed by full path. Marking a file reviewed from this pane selects the next file still to review. Selecting a file scrolls the diff to it, and moving through the diff keeps the file under the cursor selected, marked with a yellow bar.
 - **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, each line shows its number in the current file, or in the old file for removed lines, and code is syntax highlighted. Lines wider than the pane wrap onto the next rows without changing the file.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
-- **comments**, hidden until `t` is pressed, lists every comment on the branch with its file, lines, commit, and state. `enter` jumps to the selected comment, switching to its commit view when needed, and `dd` deletes it.
+- **comments**, hidden until `t` is pressed, lists every comment on the branch with its file, lines, commit, and state. `enter` jumps to the selected comment, switching to its commit view when needed, `x` resolves or reopens it, and `dd` deletes it. Resolved comments show a `✓` and the `resolved` state.
 - A file marked viewed collapses and stays viewed until its diff changes.
 
-Comments and viewed state are saved per branch in `.git/revunk.json`.
+Comments and viewed state are saved per branch in `.git/revunk.json`. When Revunk starts, it drops the comments and viewed state of branches that no longer exist locally, or whose upstream is gone after a `git fetch --prune`. The current branch, even a detached `HEAD`, is always kept.
 
 `S` sends the comments not sent yet to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its ID, file, lines, commit, and the commented code, and asks the agent to answer each one with `revunk reply <id> "<text>"`. `S` uses `herdr agent list` to pick the first Claude Code or opencode pane whose directory is inside the repository, skipping the pane Revunk runs in. With no such pane, it starts Claude Code in a new pane next to Revunk. It submits the text with `herdr agent prompt` and marks the comments sent. Comments stay drafts when sending fails.
 
 `gf` hands the pane to `$VISUAL`, else `$EDITOR`, else `nvim`, run as `<editor> +<line> <file>` from the repository root, and Revunk comes back and refreshes when the editor exits. On a removed line it opens the nearest line that still exists.
 
-Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, keeping the cursor on the same line. New commits and file edits therefore show up on their own, and agent replies appear under their comment, which moves from `draft` to `sent` to `replied`. A comment stays until you resolve it with `dd` or `DD`. Comments on a file that no longer exists in the working tree are deleted automatically, except comments on the removed lines or the whole file when the branch deletes that file. Replies work with any agent that can run shell commands, since the prompt gives the full path of the running `revunk` binary.
+Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, keeping the cursor on the same line. New commits and file edits therefore show up on their own, and agent replies appear under their comment, which moves from `draft` to `sent` to `replied`. A comment stays until you delete it with `dd` or `DD`. `x` resolves the comment under the cursor instead: it leaves the diff and is no longer sent to the agent, but stays in the comments pane, where `x` reopens it. Comments on a file that no longer exists in the working tree are deleted automatically, except comments on the removed lines or the whole file when the branch deletes that file. Replies work with any agent that can run shell commands, since the prompt gives the full path of the running `revunk` binary.
 
 ### Keys
 
@@ -62,7 +62,8 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `v`, `V`                         | Start or stop selecting a range of lines                                     |
 | `c`                              | Comment on the current line, the range, or file header                       |
 | `C`                              | Comment on the whole file                                                    |
-| `dd`                             | Delete or resolve the comment under the cursor                               |
+| `dd`                             | Delete the comment under the cursor                                          |
+| `x`                              | Resolve or reopen the comment under the cursor                               |
 | `t`                              | Show or hide the comments pane                                               |
 | `e`                              | Show the files and commits panes and focus the files, or hide them           |
 | `DD`                             | Delete every comment on the branch                                           |
@@ -132,11 +133,14 @@ The assignee and reviewer pickers list the users who can be assigned in the repo
 
 ```
 revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
+revunk -cleanup                 Delete .git/revunk.json and exit
 ```
 
 Coding agents answer comments with `revunk reply <id> <text>`, which the prompt sent by `S` explains, so it is left out of `--help`.
 
 `-base` sets the branch to compare against. It defaults to the remote's default branch (`origin/HEAD`), or `main` when there is none.
+
+`-cleanup` deletes `.git/revunk.json`, removing every saved comment and viewed file for all branches and pull requests, then exits without opening the interface.
 
 ## Project layout
 

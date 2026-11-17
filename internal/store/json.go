@@ -149,3 +149,22 @@ func (s *JSON) DeleteComments(_ context.Context, branch string, ids []string) er
 		return true
 	})
 }
+
+func (s *JSON) KeepBranches(keep func(branch string) bool) error {
+	return s.change(func(st *state) bool {
+		changed := false
+		for branch := range st.Comments {
+			if !keep(branch) {
+				delete(st.Comments, branch)
+				changed = true
+			}
+		}
+		for branch := range st.Viewed {
+			if !keep(branch) {
+				delete(st.Viewed, branch)
+				changed = true
+			}
+		}
+		return changed
+	})
+}

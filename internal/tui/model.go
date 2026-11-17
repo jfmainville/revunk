@@ -604,6 +604,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.sendComments()
 	case is(key, k.Copy):
 		return m, m.copyComments()
+	case is(key, k.Resolve):
+		return m, m.resolveComment()
 	}
 	if is(key, k.HalfDown) || is(key, k.HalfUp) || is(key, k.PageDown) || is(key, k.PageUp) {
 		m.focus = focusDiff
@@ -1294,33 +1296,54 @@ func (m Model) saveComment(c review.Comment) tea.Cmd {
 	}
 }
 
-func (m *Model) deleteComment() tea.Cmd {
+func (m Model) targetComment() (review.Comment, bool) {
 	if m.focus == focusComments {
-		c, ok := m.selectedComment()
-		if !ok {
-			m.notice = "no comment here to delete"
-			return nil
-		}
-		return m.deleteByID(c.ID)
+		return m.selectedComment()
 	}
 	if len(m.rows) == 0 {
-		return nil
+		return review.Comment{}, false
 	}
 	r := m.rows[m.cursor]
-	index := -1
-	for i, c := range m.comments {
+	var target review.Comment
+	found := false
+	for _, c := range m.comments {
 		if !m.visible(c, m.files[r.file].Path) {
 			continue
 		}
 		if (r.kind == rowFile && c.FileLevel()) || (r.kind == rowLine && !c.FileLevel() && anchoredAt(c, m.lines[r.file][r.line])) {
-			index = i
+			target, found = c, true
 		}
 	}
-	if index < 0 {
+	return target, found
+}
+
+func (m *Model) deleteComment() tea.Cmd {
+	c, ok := m.targetComment()
+	if !ok {
 		m.notice = "no comment here to delete"
 		return nil
 	}
-	return m.deleteByID(m.comments[index].ID)
+	return m.deleteByID(c.ID)
+}
+
+func (m *Model) resolveComment() tea.Cmd {
+	c, ok := m.targetComment()
+	if !ok {
+		m.notice = "no comment here to resolve"
+		return nil
+	}
+	svc, notice := m.svc, "resolved the comment, it stays in the comments pane"
+	if c.Resolved {
+		notice = "reopened the comment"
+	}
+	return func() tea.Msg {
+		ctx := context.Background()
+		if err := svc.ResolveComment(ctx, c.ID, !c.Resolved); err != nil {
+			return commentsMsg{err: err}
+		}
+		comments, err := svc.Comments(ctx)
+		return commentsMsg{comments: comments, notice: notice, err: err}
+	}
 }
 
 func (m Model) deleteByID(id string) tea.Cmd {
@@ -1337,7 +1360,7 @@ func (m Model) deleteByID(id string) tea.Cmd {
 func (m Model) unsent() int {
 	n := 0
 	for _, c := range m.comments {
-		if !c.Sent {
+		if !c.Sent && !c.Resolved {
 			n++
 		}
 	}
@@ -1410,7 +1433,7 @@ func (m Model) toggleViewed() tea.Cmd {
 }
 
 func (m Model) visible(c review.Comment, path string) bool {
-	return c.Path == path && c.Commit == m.commitSHA()
+	return c.Path == path && c.Commit == m.commitSHA() && !(c.Resolved && m.pr.Number == 0)
 }
 
 func anchoredAt(c review.Comment, l review.Line) bool {
@@ -1578,7 +1601,11 @@ func (m Model) listLines() []string {
 		if i == cursor {
 			base = base.Background(colorCursorline)
 		}
-		line := base.Foreground(kindColor(c.Kind)).Render(fmt.Sprintf(" ◆ %-10s ", c.Kind)) + base.Foreground(colorForeground).Render(where) + base.Foreground(colorDim).Render("  "+commentState(c)+"  "+first)
+		marker, text := "◆", colorForeground
+		if c.Resolved {
+			marker, text = "✓", colorDim
+		}
+		line := base.Foreground(kindColor(c.Kind)).Render(fmt.Sprintf(" %s %-10s ", marker, c.Kind)) + base.Foreground(text).Render(where) + base.Foreground(colorDim).Render("  "+commentState(c)+"  "+first)
 		lines[i] = fit(line, m.width-2, base)
 	}
 	return lines[max(cursor-(m.listHeight()-2)+1, 0):]

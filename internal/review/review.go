@@ -308,6 +308,10 @@ func (s *Service) DeleteComment(ctx context.Context, id string) error {
 	return s.store.DeleteComments(ctx, s.branch, []string{id})
 }
 
+func (s *Service) ResolveComment(ctx context.Context, id string, resolved bool) error {
+	return s.store.UpdateComments(ctx, s.branch, []string{id}, func(c *Comment) { c.Resolved = resolved })
+}
+
 func (s *Service) DeleteAllComments(ctx context.Context) error {
 	comments, err := s.Comments(ctx)
 	if err != nil {
@@ -378,7 +382,7 @@ func (s *Service) prompt(ctx context.Context) (string, []Comment, error) {
 	}
 	var comments []Comment
 	for _, c := range all {
-		if !c.Sent {
+		if !c.Sent && !c.Resolved {
 			comments = append(comments, c)
 		}
 	}
