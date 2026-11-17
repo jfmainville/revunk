@@ -47,6 +47,15 @@ var reviewEvents = []struct {
 	{review.EventRequestChanges, "Request changes"},
 }
 
+var mergeMethods = []struct {
+	method review.MergeMethod
+	label  string
+}{
+	{review.MergeCommit, "Create a merge commit"},
+	{review.MergeSquash, "Squash and merge"},
+	{review.MergeRebase, "Rebase and merge"},
+}
+
 var (
 	pullsPollEvery = 10 * time.Second
 	now            = time.Now
@@ -79,12 +88,14 @@ const (
 	modalReact
 	modalSubmit
 	modalURL
+	modalMerge
 )
 
 type modalState struct {
 	open    bool
 	kind    modalKind
 	title   string
+	warning string
 	pr      review.PullRequest
 	thread  review.Thread
 	note    review.Note
@@ -381,6 +392,8 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.openModal(modalEdit, pr)
 		case is(seq, k.OpenDiff):
 			return m, m.openDiff(pr)
+		case is(seq, k.Merge):
+			return m, m.openMerge(pr)
 		}
 		return m, nil
 	}
@@ -576,6 +589,13 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		d.title, d.labels = "review a pull request from its GitHub URL", []string{"url"}
 		d.fields = []textinput.Model{newField("", w-12)}
 		d.fields[0].Placeholder = "https://github.com/owner/repo/pull/123"
+	case modalMerge:
+		d.title, d.warning = fmt.Sprintf("merge #%d into %s", pr.Number, pr.Base), mergeWarning(pr.MergeState)
+		for _, mm := range mergeMethods {
+			if slices.Contains(pr.MergeMethods, mm.method) {
+				d.choices = append(d.choices, mm.label)
+			}
+		}
 	case modalSubmit:
 		d.title, d.hasArea = fmt.Sprintf("submit your review of #%d", pr.Number), true
 		for _, e := range reviewEvents {
@@ -608,6 +628,38 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		})
 	}
 	return cmd
+}
+
+func (m *Model) openMerge(pr review.PullRequest) tea.Cmd {
+	switch {
+	case !pr.Detailed:
+		m.notice = fmt.Sprintf("wait for #%d to load before merging", pr.Number)
+	case pr.State != "OPEN":
+		m.notice = fmt.Sprintf("#%d is %s, only open pull requests merge", pr.Number, strings.ToLower(pr.State))
+	case pr.Draft:
+		m.notice = fmt.Sprintf("#%d is a draft, mark it ready for review on GitHub before merging", pr.Number)
+	case len(pr.MergeMethods) == 0:
+		m.notice = pr.Repo + " allows no merge method, check its settings on GitHub"
+	default:
+		return m.openModal(modalMerge, pr)
+	}
+	return nil
+}
+
+func mergeWarning(state string) string {
+	switch state {
+	case "DIRTY":
+		return "it conflicts with the base branch, resolve the conflicts before merging"
+	case "BEHIND":
+		return "the branch is behind its base, update it before merging"
+	case "BLOCKED":
+		return "branch protection blocks it until the required reviews and checks pass"
+	case "UNSTABLE":
+		return "some checks are failing"
+	case "UNKNOWN":
+		return "GitHub is still checking whether it can merge"
+	}
+	return ""
 }
 
 func (m Model) dropdownLines() []string {
@@ -645,6 +697,9 @@ func (m Model) dropdownLines() []string {
 func (m Model) modalHints() []hint {
 	if m.modal.picker() {
 		return m.keys.pickerHints()
+	}
+	if m.modal.kind == modalMerge {
+		return m.keys.mergeHints()
 	}
 	return m.keys.modalHints(len(m.modal.choices) > 0, m.modal.mode())
 }
@@ -896,6 +951,20 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 			notice = "removed " + r.emoji
 		}
 		action = func(ctx context.Context) error { return host.React(ctx, d.note.ID, r.content, add) }
+	case modalMerge:
+		var method review.MergeMethod
+		for _, mm := range mergeMethods {
+			if mm.label == d.choices[d.choice] {
+				method = mm.method
+			}
+		}
+		notice = fmt.Sprintf("merged #%d into %s", pr.Number, pr.Base)
+		action = func(ctx context.Context) error {
+			if err := host.Merge(ctx, pr, method); err != nil {
+				return fmt.Errorf("merge #%d: %w", pr.Number, err)
+			}
+			return nil
+		}
 	case modalSubmit:
 		e := reviewEvents[d.choice]
 		notice = fmt.Sprintf("submitted %s on #%d", strings.ToLower(e.label), pr.Number)
@@ -1256,6 +1325,9 @@ func reactionLine(list []review.Reaction) string {
 func (m Model) renderModal(background string) string {
 	d := m.modal
 	var lines []string
+	if d.warning != "" {
+		lines = append(lines, " "+errorStyle.Render(d.warning), "")
+	}
 	if d.dropdown() {
 		lines = append(lines, m.dropdownLines()...)
 	} else if len(d.choices) > 0 {

@@ -162,6 +162,8 @@ type PullRequest struct {
 	Files         []File
 	Threads       []Thread
 	Detailed      bool
+	MergeState    string
+	MergeMethods  []MergeMethod
 }
 
 func ParsePullRequestURL(raw string) (string, int, error) {
@@ -233,6 +235,14 @@ const (
 	EventRequestChanges ReviewEvent = "REQUEST_CHANGES"
 )
 
+type MergeMethod string
+
+const (
+	MergeCommit MergeMethod = "MERGE"
+	MergeSquash MergeMethod = "SQUASH"
+	MergeRebase MergeMethod = "REBASE"
+)
+
 type Host interface {
 	PullRequests(ctx context.Context, filter string) ([]PullRequest, error)
 	PullRequest(ctx context.Context, repo string, number int) (PullRequest, error)
@@ -245,6 +255,7 @@ type Host interface {
 	React(ctx context.Context, subjectID, content string, add bool) error
 	Resolve(ctx context.Context, threadID string, resolved bool) error
 	SubmitReview(ctx context.Context, pr PullRequest, event ReviewEvent, body string) error
+	Merge(ctx context.Context, pr PullRequest, method MergeMethod) error
 }
 
 type Agent interface {

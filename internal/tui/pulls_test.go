@@ -82,6 +82,16 @@ func (h *fakeHost) SubmitReview(_ context.Context, pr review.PullRequest, event 
 	return h.record(fmt.Sprintf("submit %s %s %s %s", prKey(pr), pr.PendingReview, event, body))
 }
 
+func (h *fakeHost) Merge(_ context.Context, pr review.PullRequest, method review.MergeMethod) error {
+	if err := h.record(fmt.Sprintf("merge %s %s", prKey(pr), method)); err != nil {
+		return err
+	}
+	d := h.details[prKey(pr)]
+	d.State = "MERGED"
+	h.details[prKey(pr)] = d
+	return nil
+}
+
 func (h *fakeHost) last() string {
 	if len(h.calls) == 0 {
 		return ""
@@ -106,6 +116,7 @@ func samplePulls() (review.PullRequest, review.PullRequest) {
 	detail.ID, detail.Body, detail.State, detail.Head, detail.Base = "PR_7", "Adds **login** support", "OPEN", "login", "main"
 	detail.Additions, detail.Deletions, detail.ChangedFiles, detail.Detailed = 10, 2, 1, true
 	detail.Assignees = []string{"me"}
+	detail.MergeState, detail.MergeMethods = "CLEAN", []review.MergeMethod{review.MergeCommit, review.MergeSquash, review.MergeRebase}
 	detail.Reviewers = []review.Reviewer{{Login: "bob", State: "APPROVED"}, {Login: "cy", State: "PENDING"}}
 	detail.Labels = []string{"auth"}
 	detail.Checks = []review.Check{{Name: "build", State: "SUCCESS"}, {Name: "test", State: "FAILURE"}, {Name: "lint", State: "IN_PROGRESS"}}
@@ -383,6 +394,90 @@ func TestCommentModalPostsToGitHub(t *testing.T) {
 	m = typeText(t, m, "nope")
 	if m = pressRun(t, m, "esc", "esc"); m.modal.open || host.has("comment o/r#7 nope") {
 		t.Fatal("esc twice should cancel without sending")
+	}
+}
+
+func TestMergeConfirmsThenMergesOnGitHub(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "g", "m")
+	out := screen(m)
+	if !m.modal.open || !strings.Contains(out, "merge #7 into main") || !strings.Contains(out, "Create a merge commit") || !strings.Contains(out, "Squash and merge") || !strings.Contains(out, "Rebase and merge") ||
+		!strings.Contains(out, "⏎ C-s merge  j k pick  esc q cancel") || strings.Contains(out, "next field") {
+		t.Fatalf("gm should open the merge confirmation with every allowed method:\n%s", out)
+	}
+	if m = pressRun(t, m, "esc"); m.modal.open || slices.ContainsFunc(host.calls, func(c string) bool { return strings.HasPrefix(c, "merge") }) {
+		t.Fatalf("esc should cancel without merging, calls=%q", host.calls)
+	}
+	if m = pressRun(t, m, "g", "m", "q"); m.modal.open || slices.ContainsFunc(host.calls, func(c string) bool { return strings.HasPrefix(c, "merge") }) {
+		t.Fatal("q should also cancel without merging")
+	}
+
+	host.err = errors.New("Pull request is not mergeable")
+	m = pressRun(t, m, "g", "m", "enter")
+	if !host.has("merge o/r#7 MERGE") || m.modal.open || m.notice == "merged #7 into main" || !strings.Contains(screen(m), "merge #7: Pull request is not mergeable") {
+		t.Fatalf("a refused merge should show GitHub's reason without reporting success, notice=%q:\n%s", m.notice, screen(m))
+	}
+	if pr, _ := m.selectedPR(); pr.State != "OPEN" {
+		t.Fatal("a refused merge should leave the pull request open")
+	}
+
+	host.err = nil
+	m.pulls.err = nil
+	m = pressRun(t, m, "g", "m", "j", "enter")
+	if !host.has("merge o/r#7 SQUASH") || host.last() != "detail o/r#7" || m.notice != "merged #7 into main" {
+		t.Fatalf("enter should merge with the picked method and reload, calls=%q notice=%q", host.calls, m.notice)
+	}
+	if pr, _ := m.selectedPR(); pr.State != "MERGED" || !strings.Contains(screen(m), "MERGED") {
+		t.Fatalf("the merged state should show after a merge:\n%s", screen(m))
+	}
+	if m = pressRun(t, m, "g", "m"); m.modal.open || m.notice != "#7 is merged, only open pull requests merge" {
+		t.Fatalf("a merged pull request should not merge again, notice=%q", m.notice)
+	}
+}
+
+func TestMergeFollowsRepositorySettingsAndState(t *testing.T) {
+	m, host := pullsModel(t)
+	detail := host.details["o/r#7"]
+	detail.MergeState, detail.MergeMethods = "BLOCKED", []review.MergeMethod{review.MergeRebase}
+	m.pulls.details["o/r#7"] = detail
+	m = pressRun(t, m, "g", "m")
+	out := screen(m)
+	if !strings.Contains(out, "branch protection blocks it") || !strings.Contains(out, "Rebase and merge") || strings.Contains(out, "Squash and merge") {
+		t.Fatalf("the modal should warn about the merge state and list only allowed methods:\n%s", out)
+	}
+	if m = pressRun(t, m, "ctrl+s"); !host.has("merge o/r#7 REBASE") {
+		t.Fatalf("ctrl+s should merge with the only method, calls=%q", host.calls)
+	}
+
+	for _, c := range []struct {
+		pr     review.PullRequest
+		notice string
+	}{
+		{review.PullRequest{Repo: "o/r", Number: 9}, "wait for #9 to load before merging"},
+		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "CLOSED"}, "#9 is closed, only open pull requests merge"},
+		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN", Draft: true, MergeMethods: detail.MergeMethods}, "#9 is a draft, mark it ready for review on GitHub before merging"},
+		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN"}, "o/r allows no merge method, check its settings on GitHub"},
+	} {
+		if cmd := m.openMerge(c.pr); cmd != nil || m.modal.kind == modalMerge && m.modal.pr.Number == 9 || m.notice != c.notice {
+			t.Fatalf("openMerge(%+v) notice = %q, want %q", c.pr, m.notice, c.notice)
+		}
+	}
+	for state, want := range map[string]string{"DIRTY": "conflicts", "BEHIND": "behind its base", "UNSTABLE": "checks are failing", "UNKNOWN": "still checking", "CLEAN": "", "HAS_HOOKS": ""} {
+		if got := mergeWarning(state); want == "" && got != "" || !strings.Contains(got, want) {
+			t.Fatalf("mergeWarning(%s) = %q", state, got)
+		}
+	}
+}
+
+func TestReviewDiffMergesTheReviewedPullRequest(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "g", "d", "g", "m")
+	if !m.diff.modal.open || !strings.Contains(screen(m), "merge #7 into main") {
+		t.Fatalf("gm should open the merge confirmation in the review diff:\n%s", screen(m))
+	}
+	m = pressRun(t, m, "enter")
+	if !host.has("merge o/r#7 MERGE") || m.diff.notice != "merged #7 into main" || m.diff.pr.State != "MERGED" {
+		t.Fatalf("calls=%q notice=%q", host.calls, m.diff.notice)
 	}
 }
 
