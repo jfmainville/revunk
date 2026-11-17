@@ -1023,3 +1023,17 @@ func TestModalsOverlayTheScreen(t *testing.T) {
 		t.Fatalf("the review diff should stay visible behind the submit modal:\n%s", out)
 	}
 }
+
+func TestCtrlHLMovesBetweenTheListAndSidebar(t *testing.T) {
+	m, _ := pullsModel(t)
+	if m = pressRun(t, m, "ctrl+l"); !m.pulls.sidebar {
+		t.Fatal("ctrl+l should focus the sidebar")
+	}
+	if m = pressRun(t, m, "ctrl+h"); m.pulls.sidebar {
+		t.Fatal("ctrl+h should focus the list")
+	}
+	m = pressRun(t, m, "g", "d", "ctrl+l")
+	if m.diff.focus != focusDiff {
+		t.Fatalf("ctrl+l should move between the review diff panes, focus=%d", m.diff.focus)
+	}
+}

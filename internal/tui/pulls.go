@@ -373,6 +373,12 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pulls.filter = (m.pulls.filter + 1) % len(pullFilters)
 		m.pulls.list, m.pulls.cursor, m.pulls.loading, m.pulls.sidebar = nil, 0, true, false
 		return m, m.fetchPulls()
+	case is(key, k.WindowLeft):
+		m.pulls.sidebar = false
+		return m, nil
+	case is(key, k.WindowRight):
+		m.pulls.sidebar = true
+		return m, nil
 	case !ok:
 		return m, nil
 	case is(key, k.Assignees):

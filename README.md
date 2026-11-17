@@ -40,37 +40,38 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 
 ### Keys
 
-| Key                              | Action                                                                       |
-| -------------------------------- | ---------------------------------------------------------------------------- |
-| `tab`, `shift+tab`               | Cycle focus between the visible panes                                        |
-| `l`                              | Focus the diff                                                               |
-| Click                            | Focus a pane and select the commit, file, line, or comment under the pointer |
-| Mouse wheel                      | Focus and scroll the pane under the pointer                                  |
-| `j`/`↓`, `k`/`↑`                 | Move down or up                                                              |
-| `gg`, `G`                        | Go to the top or bottom of the diff                                          |
-| `ctrl+d`, `ctrl+u`               | Move half a page down or up in the diff, focusing it                         |
-| `pgdn`, `pgup`/`b`               | Move a page down or up in the diff, focusing it                              |
-| `f`, `F` (or `]f`, `[f`)         | Next or previous file                                                        |
-| `h`, `H` (or `}`, `{`)           | Next or previous block of added or removed lines                             |
-| `/`                              | Search every file in the diff, showing the current match and the total       |
-| `n`, `N` (or `ctrl+n`, `ctrl+p`) | Next or previous match, `ctrl+n` and `ctrl+p` also work while typing         |
-| `v`, `V`                         | Start or stop selecting a range of lines                                     |
-| `c`                              | Comment on the current line, the range, or file header                       |
-| `C`                              | Comment on the whole file                                                    |
-| `dd`                             | Delete or resolve the comment under the cursor                               |
-| `t`                              | Show or hide the comments pane                                               |
-| `e`                              | Show or hide the commits and files panes                                     |
-| `DD`                             | Delete every comment on the branch                                           |
-| `-`                              | Toggle the file's viewed state                                               |
-| `S`                              | Send unsent comments to the agent                                            |
-| `y`                              | Copy unsent comments to the clipboard                                        |
-| `gf`                             | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
-| `ge`                             | Edit the title and description of the branch's pull request                  |
-| `gd`                             | Review the branch's pull request on the **Pull Request** tab                 |
-| `1`, `2`                         | Show the **Agent** or **Pull Request** tab, also by clicking its name        |
-| `?`                              | Show every key                                                               |
-| `esc`                            | Stop selecting, clear the search, or close the help                          |
-| `q`, `ctrl+c`                    | Quit                                                                         |
+| Key                                    | Action                                                                       |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| `tab`, `shift+tab`                     | Cycle focus between the visible panes                                        |
+| `l`                                    | Focus the diff                                                               |
+| `ctrl+h`, `ctrl+j`, `ctrl+k`, `ctrl+l` | Focus the pane to the left, below, above, or right, like vim windows         |
+| Click                                  | Focus a pane and select the commit, file, line, or comment under the pointer |
+| Mouse wheel                            | Focus and scroll the pane under the pointer                                  |
+| `j`/`↓`, `k`/`↑`                       | Move down or up                                                              |
+| `gg`, `G`                              | Go to the top or bottom of the diff                                          |
+| `ctrl+d`, `ctrl+u`                     | Move half a page down or up in the diff, focusing it                         |
+| `pgdn`, `pgup`/`b`                     | Move a page down or up in the diff, focusing it                              |
+| `f`, `F` (or `]f`, `[f`)               | Next or previous file                                                        |
+| `h`, `H` (or `}`, `{`)                 | Next or previous block of added or removed lines                             |
+| `/`                                    | Search every file in the diff, showing the current match and the total       |
+| `n`, `N` (or `ctrl+n`, `ctrl+p`)       | Next or previous match, `ctrl+n` and `ctrl+p` also work while typing         |
+| `v`, `V`                               | Start or stop selecting a range of lines                                     |
+| `c`                                    | Comment on the current line, the range, or file header                       |
+| `C`                                    | Comment on the whole file                                                    |
+| `dd`                                   | Delete or resolve the comment under the cursor                               |
+| `t`                                    | Show or hide the comments pane                                               |
+| `e`                                    | Show or hide the commits and files panes                                     |
+| `DD`                                   | Delete every comment on the branch                                           |
+| `-`                                    | Toggle the file's viewed state                                               |
+| `S`                                    | Send unsent comments to the agent                                            |
+| `y`                                    | Copy unsent comments to the clipboard                                        |
+| `gf`                                   | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
+| `ge`                                   | Edit the title and description of the branch's pull request                  |
+| `gd`                                   | Review the branch's pull request on the **Pull Request** tab                 |
+| `1`, `2`                               | Show the **Agent** or **Pull Request** tab, also by clicking its name        |
+| `?`                                    | Show every key                                                               |
+| `esc`                                  | Stop selecting, clear the search, or close the help                          |
+| `q`, `ctrl+c`                          | Quit                                                                         |
 
 Clicking a comment in the comments pane jumps to it like `enter`. While mouse support is on, most terminals select text with `shift` held down.
 
@@ -106,6 +107,7 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `gg`, `G`          | Go to the top or bottom                                                     |
 | `ctrl+d`, `ctrl+u` | Scroll the sidebar half a page                                              |
 | `enter`, `esc`     | Focus the sidebar, or go back to the list                                   |
+| `ctrl+l`, `ctrl+h` | Focus the sidebar or the list                                               |
 | `tab`, `shift+tab` | Next or previous sidebar tab                                                |
 | `s`                | Next filter: assigned, review requested, authored, involved                 |
 | `ge`               | Edit the title and the Markdown description                                 |

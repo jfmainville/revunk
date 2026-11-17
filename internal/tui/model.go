@@ -504,6 +504,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case is(key, k.Help):
 		m.help = true
+	case is(key, k.WindowLeft), is(key, k.WindowDown), is(key, k.WindowUp), is(key, k.WindowRight):
+		m.focus = m.window(key)
 	case is(key, k.NextFocus):
 		m.cycleFocus(1)
 	case is(key, k.PrevFocus):
@@ -895,6 +897,25 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
 	}
 	return nil
+}
+
+func (m Model) window(key string) focusArea {
+	k, f := m.keys, m.focus
+	switch {
+	case is(key, k.WindowLeft) && f == focusDiff && !m.hideTree:
+		return focusFiles
+	case is(key, k.WindowRight) && f < focusDiff:
+		return focusDiff
+	case is(key, k.WindowUp) && f == focusFiles:
+		return focusCommits
+	case is(key, k.WindowUp) && f == focusComments:
+		return focusDiff
+	case is(key, k.WindowDown) && f == focusCommits:
+		return focusFiles
+	case is(key, k.WindowDown) && m.showList:
+		return focusComments
+	}
+	return f
 }
 
 func (m *Model) cycleFocus(step focusArea) {
