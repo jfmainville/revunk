@@ -100,20 +100,21 @@ const (
 )
 
 type modalState struct {
-	open    bool
-	kind    modalKind
-	title   string
-	warning string
-	pr      review.PullRequest
-	thread  review.Thread
-	note    review.Note
-	labels  []string
-	fields  []textinput.Model
-	area    textarea.Model
-	hasArea bool
-	titled  bool
-	drops   []drop
-	focus   int
+	open     bool
+	kind     modalKind
+	title    string
+	warning  string
+	pr       review.PullRequest
+	thread   review.Thread
+	note     review.Note
+	labels   []string
+	fields   []textinput.Model
+	area     textarea.Model
+	headline textarea.Model
+	hasArea  bool
+	titled   bool
+	drops    []drop
+	focus    int
 	vimState
 	expanded bool
 	options  []string
@@ -582,7 +583,7 @@ func newField(value string, width int) textinput.Model {
 }
 
 func (m Model) modalWidth(kind modalKind) int {
-	if kind == modalEdit || kind == modalMerge || kind == modalCreate {
+	if kind == modalEdit || kind == modalCreate {
 		return max(min(m.width-6, 130), 20)
 	}
 	return max(min(m.width-6, 90), 20)
@@ -663,29 +664,33 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		d.area.SetWidth(w)
 		rows := 2 * len(d.drops)
 		d.area.SetHeight(max(min(m.panesHeight()-8-len(d.fields)-rows, 12), 1))
-		if d.titled {
-			d.area.SetHeight(max(m.panesHeight()-8-rows-2*min(len(d.warning), 1), 1))
+		if d.titled && kind != modalMerge {
+			d.area.SetHeight(max(m.panesHeight()-10-rows, 1))
 		}
 		if d.titled {
 			d.area.SetWidth(w - gutter)
+			d.area.Placeholder = "the description, markdown works"
+			d.headline = textarea.New()
+			d.headline.ShowLineNumbers, d.headline.Prompt, d.headline.Placeholder = false, "", "the title"
+			d.headline.KeyMap.InsertNewline = key.NewBinding(key.WithDisabled())
+			d.headline.SetWidth(w - gutter)
+			d.headline.SetHeight(1)
 		}
 		switch kind {
 		case modalMerge:
 			d.fillMerge()
 		case modalEdit:
-			d.area.Placeholder = "the title on the first line, the description below it, markdown works"
-			d.area.SetValue(pr.Title + "\n\n" + pr.Body)
+			d.headline.SetValue(pr.Title)
+			d.area.SetValue(pr.Body)
+			d.headline.MoveToBegin()
 			d.area.MoveToBegin()
 			if pr.Base != "" {
 				d.drops = []drop{{name: "into", choices: []string{pr.Base}}}
 			}
-		case modalCreate:
-			d.area.SetValue("\n\n")
-			d.area.MoveToBegin()
 		}
 	}
 	m.modal = d
-	m.modal.normal = kind == modalEdit || kind == modalCreate
+	m.modal.normal = kind == modalEdit || kind == modalCreate || kind == modalMerge
 	focus := 0
 	if kind == modalEdit {
 		focus = len(d.drops)
@@ -869,11 +874,6 @@ func (d *modalState) listKey(key string, k keyMap, n int) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func titleAndBody(text string) (string, string) {
-	title, body, _ := strings.Cut(text, "\n")
-	return strings.TrimSpace(title), strings.TrimLeft(body, "\n")
-}
-
 func (m *Model) openMerge(pr review.PullRequest) tea.Cmd {
 	switch {
 	case !pr.Detailed:
@@ -901,12 +901,15 @@ func (d *modalState) mergeMethod() review.MergeMethod {
 
 func (d *modalState) fillMerge() {
 	message := d.pr.MergeMessages[d.mergeMethod()]
-	d.area.SetValue(message.Headline + "\n\n" + message.Body)
-	d.area.Placeholder = "the commit title on the first line, the description below it"
+	d.headline.SetValue(message.Headline)
+	d.area.SetValue(message.Body)
+	d.headline.Placeholder, d.area.Placeholder = "the commit title", "the commit description"
 	if d.mergeMethod() == review.MergeRebase {
+		d.headline.SetValue("")
 		d.area.SetValue("")
-		d.area.Placeholder = "rebasing keeps the message of each commit"
+		d.headline.Placeholder, d.area.Placeholder = "rebasing keeps the message of each commit", ""
 	}
+	d.headline.MoveToBegin()
 	d.area.MoveToBegin()
 }
 
@@ -1062,6 +1065,9 @@ func (m *Model) openNoteModal(kind modalKind, pr review.PullRequest, item commen
 
 func (d *modalState) parts() int {
 	n := len(d.fields) + len(d.drops)
+	if d.titled {
+		n++
+	}
 	if d.hasArea {
 		n++
 	}
@@ -1090,11 +1096,14 @@ func (d *modalState) setFocus(i int) tea.Cmd {
 		d.fields[j].Blur()
 	}
 	d.area.Blur()
+	d.headline.Blur()
 	switch f := d.field(); {
 	case d.onChoices():
 		return nil
 	case f >= 0:
 		return d.fields[f].Focus()
+	case d.onHeadline():
+		return d.headline.Focus()
 	case d.hasArea:
 		return d.area.Focus()
 	}
@@ -1111,7 +1120,7 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		d.expanded = false
 	case is(key, k.Cancel) && !d.normal && (d.kind == modalActions || d.picker()):
 		d.listKey(key, k, 0)
-	case is(key, k.Cancel) && (d.normal || !d.onArea()):
+	case is(key, k.Cancel) && (d.normal || d.text() == nil):
 		m.modal = modalState{}
 	case d.kind == modalActions:
 		return m.updateActions(msg)
@@ -1143,10 +1152,17 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = d.pickKey(msg, k)
 	case d.field() >= 0:
 		d.fields[d.field()], cmd = d.fields[d.field()].Update(msg)
-	default:
-		cmd = d.update(&d.area, msg, k)
+	case d.text() != nil:
+		cmd = d.update(d.text(), msg, k)
+		d.oneLineTitle()
 	}
 	return m, cmd
+}
+
+func (d *modalState) oneLineTitle() {
+	if v := d.headline.Value(); strings.Contains(v, "\n") {
+		d.headline.SetValue(strings.ReplaceAll(v, "\n", " "))
+	}
 }
 
 func (m Model) pasteModal(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
@@ -1156,18 +1172,33 @@ func (m Model) pasteModal(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	case f >= 0:
 		d.fields[f], cmd = d.fields[f].Update(msg)
 		d.cursor = 0
-	case d.onArea():
-		d.area, cmd = d.area.Update(msg)
+	case d.text() != nil:
+		*d.text(), cmd = d.text().Update(msg)
+		d.oneLineTitle()
 	}
 	return m, cmd
 }
 
+func (d *modalState) onHeadline() bool {
+	return d.titled && d.focus == len(d.drops)+len(d.fields)
+}
+
 func (d *modalState) onArea() bool {
-	return d.hasArea && !d.onChoices() && d.field() < 0
+	return d.hasArea && !d.onChoices() && d.field() < 0 && !d.onHeadline()
+}
+
+func (d *modalState) text() *textarea.Model {
+	switch {
+	case d.onHeadline():
+		return &d.headline
+	case d.onArea():
+		return &d.area
+	}
+	return nil
 }
 
 func (d *modalState) mode() string {
-	if !d.onArea() {
+	if d.text() == nil {
 		return ""
 	}
 	return d.vimState.mode()
@@ -1193,9 +1224,9 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 	var action func(context.Context) error
 	switch d.kind {
 	case modalCreate:
-		title, description := titleAndBody(d.area.Value())
+		title, description := strings.TrimSpace(d.headline.Value()), body
 		if title == "" {
-			m.warning = "the title on the first line can't be empty"
+			m.warning = "the title can't be empty"
 			return m, nil
 		}
 		m.modal = modalState{}
@@ -1212,9 +1243,9 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 		m.modal = modalState{}
 		return m, m.fetchPR(repo, number)
 	case modalEdit:
-		title, description := titleAndBody(d.area.Value())
+		title, description := strings.TrimSpace(d.headline.Value()), body
 		if title == "" {
-			m.warning = "the title on the first line can't be empty"
+			m.warning = "the title can't be empty"
 			return m, nil
 		}
 		base := pr.Base
@@ -1256,9 +1287,9 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 		action = func(ctx context.Context) error { return host.React(ctx, d.note.ID, r.content, add) }
 	case modalMerge:
 		method, message := d.mergeMethod(), review.MergeMessage{}
-		message.Headline, message.Body = titleAndBody(d.area.Value())
+		message.Headline, message.Body = strings.TrimSpace(d.headline.Value()), body
 		if method != review.MergeRebase && message.Headline == "" {
-			m.warning = "the commit title on the first line can't be empty"
+			m.warning = "the commit title can't be empty"
 			return m, nil
 		}
 		notice = fmt.Sprintf("merged #%d into %s", pr.Number, pr.Base)
@@ -1739,25 +1770,25 @@ func (m Model) renderModal(background string) string {
 			lines = append(lines, " "+dimStyle.Render("no action matches"))
 		}
 	}
-	if d.hasArea {
-		text := strings.SplitN(d.area.Value(), "\n", 3)
-		descriptionRow := lipgloss.Height(lipgloss.NewStyle().Width(max(d.area.Width(), 1)).Render(text[0]))
-		if len(text) == 3 && text[1] == "" {
-			descriptionRow++
-		}
-		for i, l := range strings.Split(markdownView(d.area, d.mode() == "insert"), "\n") {
-			if !d.titled {
-				lines = append(lines, " "+l)
-				continue
+	if d.titled {
+		label := func(name string, on bool) string {
+			style := dimStyle
+			if on {
+				style = primaryStyle
 			}
-			name, style := "", dimStyle
-			switch i + d.area.ScrollYOffset() {
-			case 0:
-				name, style = "title", primaryStyle
-			case descriptionRow:
+			return " " + style.Render(fmt.Sprintf("%-*s", gutter-1, name))
+		}
+		lines = append(lines, label("title", d.onHeadline())+markdownView(d.headline, d.onHeadline() && d.mode() == "insert"), "")
+		for i, l := range strings.Split(markdownView(d.area, d.onArea() && d.mode() == "insert"), "\n") {
+			name := ""
+			if i == 0 {
 				name = "description"
 			}
-			lines = append(lines, " "+style.Render(fmt.Sprintf("%-*s", gutter-1, name))+l)
+			lines = append(lines, label(name, i == 0 && d.onArea())+l)
+		}
+	} else if d.hasArea {
+		for l := range strings.SplitSeq(markdownView(d.area, d.mode() == "insert"), "\n") {
+			lines = append(lines, " "+l)
 		}
 	}
 	lines = append(lines, "", " "+hints(m.modalHints()))

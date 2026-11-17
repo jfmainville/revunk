@@ -563,11 +563,11 @@ func TestMergeConfirmsThenMergesOnGitHub(t *testing.T) {
 		t.Fatal("enter should open the method dropdown, not merge")
 	}
 	m = pressRun(t, m, "j", "enter")
-	if got := m.modal.area.Value(); got != "Add login (#7)\n\n* add login" {
-		t.Fatalf("picking squash should fill its commit message, got %q", got)
+	if title, body := m.modal.headline.Value(), m.modal.area.Value(); title != "Add login (#7)" || body != "* add login" {
+		t.Fatalf("picking squash should fill its commit message, got %q and %q", title, body)
 	}
 	m = pressRun(t, m, "j", "j", "enter")
-	if out := screen(m); m.modal.area.Value() != "" || !strings.Contains(out, "rebasing keeps the message of each commit") {
+	if out := screen(m); m.modal.area.Value() != "" || m.modal.headline.Value() != "" || !strings.Contains(out, "rebasing keeps the message of each commit") {
 		t.Fatalf("rebase has no commit message:\n%s", out)
 	}
 	m = pressRun(t, m, "esc", "esc")
@@ -585,7 +585,8 @@ func TestMergeConfirmsThenMergesOnGitHub(t *testing.T) {
 	host.err, m.pulls.err = nil, nil
 	m = runAction(t, m, "merge")
 	m = pressRun(t, m, "enter", "j", "enter", "tab")
-	m.modal.area.SetValue("Add login everywhere (#7)\n\nSquashed")
+	m.modal.headline.SetValue("Add login everywhere (#7)")
+	m.modal.area.SetValue("Squashed")
 	m = pressRun(t, m, "ctrl+s")
 	if !host.has("merge o/r#7 SQUASH Add login everywhere (#7)|Squashed") || host.last() != "detail o/r#7" || m.notice != "merged #7 into main" {
 		t.Fatalf("ctrl+s should merge with the edited commit message and reload, calls=%q notice=%q", host.calls, m.notice)
@@ -609,8 +610,8 @@ func TestMergeFollowsRepositorySettingsAndState(t *testing.T) {
 		t.Fatalf("the modal should warn about the merge state and offer only allowed methods:\n%s", out)
 	}
 	m = pressRun(t, m, "tab")
-	m.modal.area.SetValue(" \nbody")
-	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the commit title on the first line can't be empty" || !noMerge(host) {
+	m.modal.headline.SetValue(" ")
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the commit title can't be empty" || !noMerge(host) {
 		t.Fatal("an empty commit title should not merge")
 	}
 	m = pressRun(t, m, "esc", "esc")
@@ -651,20 +652,6 @@ func TestReviewDiffMergesTheReviewedPullRequest(t *testing.T) {
 	m = pressRun(t, m, "ctrl+s")
 	if !host.has("merge o/r#7 MERGE Merge pull request #7 from o/login|Add login") || m.diff.notice != "merged #7 into main" || m.diff.pr.State != "MERGED" {
 		t.Fatalf("calls=%q notice=%q", host.calls, m.diff.notice)
-	}
-}
-
-func TestTitleAndBodySplitTheFirstLine(t *testing.T) {
-	for text, want := range map[string][2]string{
-		"Title\nBody":           {"Title", "Body"},
-		"  Title  \n\n\nBody\n": {"Title", "Body\n"},
-		"Title":                 {"Title", ""},
-		"":                      {"", ""},
-		"\nBody":                {"", "Body"},
-	} {
-		if title, body := titleAndBody(text); title != want[0] || body != want[1] {
-			t.Errorf("titleAndBody(%q) = %q, %q, want %q", text, title, body, want)
-		}
 	}
 }
 
@@ -729,25 +716,29 @@ func TestEditModalUpdatesTitleAndDescription(t *testing.T) {
 	m = pressRun(t, m, "g", "e")
 	out := screen(m)
 	if !m.modal.open || !strings.Contains(out, "edit #7") || !strings.Contains(out, "title       Add login") || !strings.Contains(out, "description Adds **login** support") {
-		t.Fatalf("ge should open one text box with the title on its first line:\n%s", out)
+		t.Fatalf("ge should open the title and description boxes:\n%s", out)
 	}
-	if !m.modal.normal || !strings.Contains(out, "NORMAL") {
-		t.Fatal("the edit modal should start in normal mode")
+	if !m.modal.normal || !strings.Contains(out, "NORMAL") || !m.modal.onHeadline() {
+		t.Fatal("the edit modal should start on the title in normal mode")
 	}
-	if lines := strings.Split(m.modal.area.Value(), "\n"); len(lines) < 3 || lines[0] != "Add login" || lines[1] != "" {
-		t.Fatalf("an empty line should separate the title from the description, value=%q", m.modal.area.Value())
+	if m.modal.headline.Value() != "Add login" || m.modal.area.Value() != "Adds **login** support" {
+		t.Fatalf("the title and description should fill their own boxes, %q and %q", m.modal.headline.Value(), m.modal.area.Value())
 	}
 	m = pressRun(t, m, "A")
 	m = typeText(t, m, " v2")
-	m = pressRun(t, m, "esc", "j", "j", "I")
+	m = pressRun(t, m, "esc", "tab")
+	if !m.modal.onArea() || m.modal.mode() != "normal" {
+		t.Fatal("tab should move from the title to the description, keeping the vim mode")
+	}
+	m = pressRun(t, m, "I")
 	m = typeText(t, m, "> ")
 	m = pressRun(t, m, "ctrl+s")
 	if !host.has("edit o/r#7 Add login v2|> Adds **login** support") || m.notice != "updated #7" {
-		t.Fatalf("the first line should save as the title and the rest as the description, calls=%q", host.calls)
+		t.Fatalf("the title and description should save from their boxes, calls=%q", host.calls)
 	}
 	m = pressRun(t, m, "g", "e")
-	m.modal.area.SetValue("  \nOnly a description")
-	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title on the first line can't be empty" {
+	m.modal.headline.SetValue("  ")
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title can't be empty" {
 		t.Fatal("an empty title should not be saved")
 	}
 	m = pressRun(t, m, "esc")
@@ -1227,7 +1218,7 @@ func TestAgentTabOpensTheBranchPullRequest(t *testing.T) {
 func TestReviewDiffEditsTheReviewedPullRequest(t *testing.T) {
 	m, host := pullsModel(t)
 	m = pressRun(t, m, "g", "d", "g", "e")
-	if !m.diff.modal.open || m.diff.modal.kind != modalEdit || m.diff.modal.area.Value() != "Add login\n\nAdds **login** support" {
+	if !m.diff.modal.open || m.diff.modal.kind != modalEdit || m.diff.modal.headline.Value() != "Add login" || m.diff.modal.area.Value() != "Adds **login** support" {
 		t.Fatalf("ge should open the edit modal filled with the reviewed pull request:\n%s", screen(m))
 	}
 	m = pressRun(t, m, "A")
@@ -1312,6 +1303,11 @@ func TestPastingFillsTheFocusedText(t *testing.T) {
 		t.Fatal("a pasted URL should open its review diff")
 	}
 	m = pressRun(t, m, "g", "e")
+	m = update(t, m, tea.PasteMsg{Content: "pasted\ntitle"})
+	if got := m.diff.modal.headline.Value(); !strings.HasPrefix(got, "pasted title") {
+		t.Fatalf("a paste on the title should stay on one line, got %q", got)
+	}
+	m = pressRun(t, m, "tab")
 	m = update(t, m, tea.PasteMsg{Content: "pasted\nbody"})
 	if got := m.diff.modal.area.Value(); !strings.HasPrefix(got, "pasted\nbody") {
 		t.Fatalf("a paste in the review diff should reach its modal description, got %q", got)
@@ -1401,8 +1397,8 @@ func TestTitledModalsLabelTheTitleLine(t *testing.T) {
 	if got := m.modal.area.Width(); got != m.modalWidth(modalEdit)-4-gutter || m.modalWidth(modalEdit) <= m.modalWidth(modalComment) {
 		t.Fatalf("the edit modal should be wider than the others and leave room for the labels, width=%d", got)
 	}
-	m.modal.area.SetValue(strings.Repeat("long title ", 20) + "\nThe description")
-	m.modal.area.MoveToBegin()
+	m.modal.headline.SetValue(strings.Repeat("long title ", 20))
+	m.modal.area.SetValue("The description")
 	lines := strings.Split(ansi.Strip(m.render()), "\n")
 	row := func(text string) int {
 		for i, l := range lines {
@@ -1412,14 +1408,8 @@ func TestTitledModalsLabelTheTitleLine(t *testing.T) {
 		}
 		return -1
 	}
-	title, description := row("title       long title"), row("description The description")
-	if title < 0 || description < title+2 {
-		t.Fatalf("a wrapped title should keep the description label on the description's first line:\n%s", strings.Join(lines, "\n"))
-	}
-	m.modal.area.SetValue("Short\n\nThe description")
-	lines = strings.Split(ansi.Strip(m.render()), "\n")
-	if title, description := row("title       Short"), row("description The description"); title < 0 || description != title+2 {
-		t.Fatalf("the description label should skip the empty line after the title:\n%s", strings.Join(lines, "\n"))
+	if title, description := row("title       long title"), row("description The description"); title < 0 || description != title+2 {
+		t.Fatalf("a long title should stay on its row above an empty line and the description:\n%s", strings.Join(lines, "\n"))
 	}
 	m = pressRun(t, m, "esc")
 	m = runAction(t, m, "comment")
@@ -1618,7 +1608,7 @@ func TestCreatePullRequestFromTheActions(t *testing.T) {
 	if !strings.Contains(rows[at+2], "into        main") || strings.Trim(rows[at+1][strings.Index(rows[at+1], "│ "):], "│ ◌▌") != "" {
 		t.Fatalf("an empty line should separate the source and target branches:\n%s", strings.Join(rows[at:at+3], "\n"))
 	}
-	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title on the first line can't be empty" {
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title can't be empty" {
 		t.Fatal("an empty title should not create anything")
 	}
 	m = pressRun(t, m, "enter", "j", "enter", "tab", "enter", "j", "j", "j", "enter")
@@ -1627,7 +1617,7 @@ func TestCreatePullRequestFromTheActions(t *testing.T) {
 	}
 	m = pressRun(t, m, "tab", "i")
 	m = typeText(t, m, "Add login")
-	m = pressRun(t, m, "esc", "j", "j", "i")
+	m = pressRun(t, m, "esc", "tab", "i")
 	m = typeText(t, m, "Adds login")
 	m = pressRun(t, m, "ctrl+s")
 	if !host.has("create main release Add login|Adds login") || m.modal.open || m.notice != "created #12 from main into release" || m.pulls.details["o/r#12"].Head != "main" {
@@ -1639,7 +1629,8 @@ func TestCreatePullRequestFromTheActions(t *testing.T) {
 
 	host.err = errors.New("you must first push the current branch")
 	m = runAction(t, m, "create")
-	m.modal.area.SetValue("Title\n\nBody")
+	m.modal.headline.SetValue("Title")
+	m.modal.area.SetValue("Body")
 	if m = pressRun(t, m, "ctrl+s"); !strings.Contains(statusText(m), "create a pull request from feature: you must first push") {
 		t.Fatalf("a failed create should show the reason, got %q", statusText(m))
 	}
@@ -1650,7 +1641,8 @@ func TestCreatePullRequestFromTheActions(t *testing.T) {
 		t.Fatalf("a failed branch load should keep the modal with the default branch:\n%s", screen(m))
 	}
 	host.usersErr = nil
-	m.modal.area.SetValue("Title\n\nBody")
+	m.modal.headline.SetValue("Title")
+	m.modal.area.SetValue("Body")
 	if m = pressRun(t, m, "ctrl+s"); !host.has("create feature  Title|Body") {
 		t.Fatalf("saving before the branches load should leave the target to GitHub, calls=%q", host.calls)
 	}
@@ -1660,7 +1652,7 @@ func TestEditModalChangesTheTargetBranch(t *testing.T) {
 	m, host := pullsModel(t)
 	host.branches = []string{"main", "release"}
 	m = runAction(t, m, "edit")
-	if !host.has("branches o/r") || !m.modal.onArea() || !slices.Equal(m.modal.drops[0].choices, []string{"main", "release"}) || !strings.Contains(screen(m), "into        main") {
+	if !host.has("branches o/r") || !m.modal.onHeadline() || !slices.Equal(m.modal.drops[0].choices, []string{"main", "release"}) || !strings.Contains(screen(m), "into        main") {
 		t.Fatalf("edit should start on the text with the current base first, calls=%q:\n%s", host.calls, screen(m))
 	}
 	m = pressRun(t, m, "ctrl+s")
@@ -1840,10 +1832,6 @@ func TestTitledModalsLeaveAnEmptyLineBeforeTheDescription(t *testing.T) {
 		m, host := pullsModel(t)
 		host.branches = []string{"main"}
 		m = runAction(t, m, query)
-		lines := strings.Split(m.modal.area.Value(), "\n")
-		if len(lines) < 3 || lines[1] != "" {
-			t.Fatalf("%s should leave the second line empty, value=%q", query, m.modal.area.Value())
-		}
 		var title, description int
 		for i, row := range strings.Split(screen(m), "\n") {
 			if strings.Contains(row, "│ title ") {
@@ -1900,14 +1888,15 @@ func TestVimTextBoxesScrollWithTheCursor(t *testing.T) {
 	for i := range 80 {
 		body = append(body, fmt.Sprintf("line %02d", i))
 	}
-	m.modal.area.SetValue("Title\n\n" + strings.Join(body, "\n"))
+	m = pressRun(t, m, "tab")
+	m.modal.area.SetValue(strings.Join(body, "\n"))
 	m.modal.area.MoveToBegin()
 	m = pressRun(t, m, "G")
 	if out := screen(m); !strings.Contains(out, "line 79") || strings.Contains(out, "line 00") {
 		t.Fatalf("G should scroll to the end:\n%s", out)
 	}
 	m = pressRun(t, m, "g", "g")
-	if out := screen(m); !strings.Contains(out, "Title") || strings.Contains(out, "line 79") {
+	if out := screen(m); !strings.Contains(out, "line 00") || strings.Contains(out, "line 79") {
 		t.Fatal("gg should scroll back to the top")
 	}
 	half := max(m.modal.area.Height()/2, 1)
@@ -1998,5 +1987,47 @@ func TestGCOpensTheCreateModalAndShowsInTheFooter(t *testing.T) {
 	nohost.host = nil
 	if nohost = pressRun(t, nohost, "g", "c"); nohost.modal.open {
 		t.Fatal("without gh, gc should do nothing")
+	}
+}
+
+func TestMergeMessageOpensInNormalModeAtARegularSize(t *testing.T) {
+	m, host := pullsModel(t)
+	m = runAction(t, m, "merge")
+	if m.modalWidth(modalMerge) >= m.modalWidth(modalEdit) || m.modal.area.Height() > 12 {
+		t.Fatalf("the merge modal should be smaller than the edit modal, width=%d height=%d", m.modalWidth(modalMerge), m.modal.area.Height())
+	}
+	m = pressRun(t, m, "tab")
+	if !m.modal.onHeadline() || m.modal.mode() != "normal" {
+		t.Fatalf("the commit title should start in normal mode, mode=%q", m.modal.mode())
+	}
+	m = pressRun(t, m, "tab", "A")
+	m = typeText(t, m, " and logout")
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("merge o/r#7 MERGE Merge pull request #7 from o/login|Add login and logout") {
+		t.Fatalf("j should reach the description to edit it, calls=%q", host.calls)
+	}
+}
+
+func TestTitleBoxIsOneVimLine(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = runAction(t, m, "edit")
+	m = pressRun(t, m, "o")
+	m = typeText(t, m, "more")
+	m = pressRun(t, m, "enter")
+	if v := m.modal.headline.Value(); strings.Contains(v, "\n") || !strings.Contains(v, "Add login") || !strings.Contains(v, "more") {
+		t.Fatalf("o and enter should keep the title on one line, got %q", v)
+	}
+	if v := m.View(); v.Cursor == nil || v.Cursor.Shape != tea.CursorBar {
+		t.Fatal("insert mode in the title should show a bar cursor")
+	}
+	m = pressRun(t, m, "esc", "0", "x")
+	if v := m.modal.headline.Value(); !strings.HasPrefix(v, "dd login") {
+		t.Fatalf("normal mode commands should edit the title, got %q", v)
+	}
+	if m.View().Cursor != nil {
+		t.Fatal("normal mode should draw a block, not the bar")
+	}
+	if m.modal.area.Value() != "Adds **login** support" {
+		t.Fatal("editing the title should leave the description alone")
 	}
 }

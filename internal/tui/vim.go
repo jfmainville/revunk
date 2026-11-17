@@ -166,11 +166,14 @@ func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 	}
 }
 
-var markdownCache struct {
-	sync.Mutex
-	text     string
+type markdownEntry struct {
 	tokens   [][]token
 	rendered []string
+}
+
+var markdownCache struct {
+	sync.Mutex
+	entries map[string]markdownEntry
 }
 
 func markdownLines(plain []string) ([][]token, []string) {
@@ -178,21 +181,29 @@ func markdownLines(plain []string) ([][]token, []string) {
 	c := &markdownCache
 	c.Lock()
 	defer c.Unlock()
-	if c.tokens == nil || c.text != text {
-		lines := make([]review.Line, len(plain))
-		for i, l := range plain {
-			lines[i] = review.Line{Text: l}
-		}
-		c.text, c.tokens, c.rendered = text, highlight(markdownLexer, lines), make([]string, len(plain))
-		for i, tokens := range c.tokens {
-			var b strings.Builder
-			for _, t := range tokens {
-				b.WriteString(t.style.Render(t.text))
-			}
-			c.rendered[i] = b.String()
-		}
+	if e, ok := c.entries[text]; ok {
+		return e.tokens, e.rendered
 	}
-	return c.tokens, c.rendered
+	if len(c.entries) >= 4 {
+		c.entries = nil
+	}
+	if c.entries == nil {
+		c.entries = map[string]markdownEntry{}
+	}
+	lines := make([]review.Line, len(plain))
+	for i, l := range plain {
+		lines[i] = review.Line{Text: l}
+	}
+	e := markdownEntry{tokens: highlight(markdownLexer, lines), rendered: make([]string, len(plain))}
+	for i, tokens := range e.tokens {
+		var b strings.Builder
+		for _, t := range tokens {
+			b.WriteString(t.style.Render(t.text))
+		}
+		e.rendered[i] = b.String()
+	}
+	c.entries[text] = e
+	return e.tokens, e.rendered
 }
 
 func markdownView(a textarea.Model, insert bool) string {
