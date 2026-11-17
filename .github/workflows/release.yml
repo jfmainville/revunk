@@ -13,10 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validation:
-    uses: ./.github/workflows/validation-go.yml
   release:
-    needs: validation
     runs-on: ubuntu-24.04
     permissions:
       contents: write

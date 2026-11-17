@@ -1,6 +1,6 @@
 # Releases
 
-Every push to `main` runs `.github/workflows/release.yml`. It reruns the validation from `validation-go.yml`, then `semantic-release` reads the commits since the last `v*` tag and decides the next version from their conventional commit types.
+Every push to `main` runs `.github/workflows/release.yml`. `semantic-release` reads the commits since the last `v*` tag and decides the next version from their conventional commit types.
 
 | Commit                                  | Release |
 | --------------------------------------- | ------- |
