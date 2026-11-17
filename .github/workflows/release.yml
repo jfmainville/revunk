@@ -1,4 +1,4 @@
-name: Release Revunk
+name: Release the application
 
 on:
   push:
