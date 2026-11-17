@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 )
 
 func TestUsageHidesAgentCommands(t *testing.T) {
-	if strings.Contains(usage, "reply") || !strings.Contains(usage, "tui") || !strings.Contains(usage, "-cleanup") {
+	if strings.Contains(usage, "reply") || !strings.Contains(usage, "tui") || !strings.Contains(usage, "-cleanup") || !strings.Contains(usage, "-version") {
 		t.Fatalf("usage should list tui and hide reply:\n%s", usage)
 	}
 }
@@ -193,4 +194,37 @@ func TestRunCleanupRemovesTheStateFile(t *testing.T) {
 	if err := run([]string{"-cleanup"}); err == nil || !strings.Contains(err.Error(), "git repository") {
 		t.Fatalf("outside repository error = %v", err)
 	}
+}
+
+func TestRunVersionPrintsTheStampedVersion(t *testing.T) {
+	orig := version
+	t.Cleanup(func() { version = orig })
+	t.Chdir(t.TempDir())
+	for stamped, want := range map[string]string{"dev": "revunk dev\n", "1.4.0": "revunk 1.4.0\n"} {
+		version = stamped
+		for _, arg := range []string{"-version", "--version"} {
+			out := stdout(t, func() error { return run([]string{arg}) })
+			if out != want {
+				t.Errorf("run(%q) with version %q printed %q, want %q", arg, stamped, out, want)
+			}
+		}
+	}
+}
+
+func stdout(t *testing.T, f func() error) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	err = f()
+	os.Stdout = orig
+	w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := io.ReadAll(r)
+	return string(out)
 }
