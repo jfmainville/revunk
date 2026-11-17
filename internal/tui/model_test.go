@@ -121,6 +121,7 @@ var specialKeys = map[string]tea.KeyPressMsg{
 	"esc":       {Code: tea.KeyEscape},
 	"tab":       {Code: tea.KeyTab},
 	"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},
+	"ctrl+w":    {Code: 'w', Mod: tea.ModCtrl},
 	"down":      {Code: tea.KeyDown},
 	"up":        {Code: tea.KeyUp},
 	"pgdown":    {Code: tea.KeyPgDown},
@@ -2164,5 +2165,60 @@ func TestQClosesTheCommentEditorFromNormalMode(t *testing.T) {
 		t.Fatal("q outside the editor should still quit")
 	} else if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatal("q outside the editor should still quit")
+	}
+}
+
+func TestCtrlWMovesBetweenPanes(t *testing.T) {
+	m, _ := loaded(t)
+	steps := []struct {
+		key  string
+		want focusArea
+	}{
+		{"k", focusFiles},
+		{"h", focusFiles},
+		{"j", focusCommits},
+		{"j", focusCommits},
+		{"k", focusFiles},
+		{"l", focusDiff},
+		{"l", focusDiff},
+		{"j", focusDiff},
+		{"h", focusFiles},
+	}
+	for i, s := range steps {
+		if m, _ = press(t, m, "ctrl+w", s.key); m.focus != s.want {
+			t.Fatalf("step %d ctrl+w %s: focus=%d want %d", i, s.key, m.focus, s.want)
+		}
+	}
+	m, _ = press(t, m, "t")
+	for i, s := range []struct {
+		key  string
+		want focusArea
+	}{{"k", focusDiff}, {"j", focusComments}, {"h", focusFiles}, {"j", focusCommits}, {"j", focusComments}, {"k", focusDiff}} {
+		if m, _ = press(t, m, "ctrl+w", s.key); m.focus != s.want {
+			t.Fatalf("with comments, step %d ctrl+w %s: focus=%d want %d", i, s.key, m.focus, s.want)
+		}
+	}
+	m, _ = press(t, m, "e")
+	if m, _ = press(t, m, "ctrl+w", "h"); m.focus != focusDiff {
+		t.Fatal("ctrl+w h should stay on the diff when the left panes are hidden")
+	}
+	before := m.cursor
+	if m, _ = press(t, m, "ctrl+w", "j"); m.focus != focusComments || m.cursor != before {
+		t.Fatal("the key after ctrl+w should only move focus, not the cursor")
+	}
+	m, _ = press(t, m, "ctrl+w", "k")
+	if m, _ = press(t, m, "j"); m.cursor == before {
+		t.Fatal("j alone should still move the cursor")
+	}
+}
+
+func TestCtrlWDeletesAWordWhileTyping(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "two words")
+	if m, _ = press(t, m, "ctrl+w"); !m.editing || m.editor.area.Value() != "two " {
+		t.Fatalf("ctrl+w should delete a word in the editor, value=%q", m.editor.area.Value())
 	}
 }

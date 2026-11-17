@@ -526,6 +526,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.openFile()
 		case is(seq, k.Submit):
 			return m, m.openModal(modalSubmit, m.pr)
+		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
+			m.focus = m.window(seq)
 		case m.host == nil || m.pr.Number > 0:
 		case is(seq, k.EditPR):
 			return m, m.fetchBranchPR(false)
@@ -944,6 +946,25 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
 	}
 	return nil
+}
+
+func (m Model) window(seq string) focusArea {
+	k, f := m.keys, m.focus
+	switch {
+	case is(seq, k.WindowLeft) && f >= focusDiff && !m.hideTree:
+		return focusFiles
+	case is(seq, k.WindowRight) && f < focusDiff:
+		return focusDiff
+	case is(seq, k.WindowUp) && f == focusCommits:
+		return focusFiles
+	case is(seq, k.WindowUp) && f == focusComments:
+		return focusDiff
+	case is(seq, k.WindowDown) && f == focusFiles:
+		return focusCommits
+	case is(seq, k.WindowDown) && m.showList:
+		return focusComments
+	}
+	return f
 }
 
 func (m *Model) cycleFocus(step focusArea) {

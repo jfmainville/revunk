@@ -44,6 +44,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | -------------------------------- | ---------------------------------------------------------------------------- |
 | `tab`, `shift+tab`               | Cycle focus between the visible panes                                        |
 | `l`                              | Focus the diff                                                               |
+| `ctrl+w` then `h`, `j`, `k`, `l` | Focus the pane to the left, below, above, or right, like vim windows         |
 | Click                            | Focus a pane and select the commit, file, line, or comment under the pointer |
 | Mouse wheel                      | Focus and scroll the pane under the pointer                                  |
 | `j`/`↓`, `k`/`↑`                 | Move down or up                                                              |
@@ -100,23 +101,24 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 
 `gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. `gs` submits the review, picking comment, approve, or request changes in a dropdown that `enter` opens, with an optional Markdown message. Like on GitHub, a comment or request for changes without a message needs inline comments in the review. The review diff reloads every 15 seconds, and `q` closes it. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
 
-| Key                | Action                                                                      |
-| ------------------ | --------------------------------------------------------------------------- |
-| `j`/`↓`, `k`/`↑`   | Move through the list, or the selected comment or the text in the sidebar   |
-| `gg`, `G`          | Go to the top or bottom                                                     |
-| `ctrl+d`, `ctrl+u` | Scroll the sidebar half a page                                              |
-| `enter`, `esc`     | Focus the sidebar, or go back to the list                                   |
-| `tab`, `shift+tab` | Next or previous sidebar tab                                                |
-| `s`                | Next filter: assigned, review requested, authored, involved                 |
-| `ge`               | Edit the title and the Markdown description                                 |
-| `A`, `R`           | Pick the assignees or reviewers in a searchable list                        |
-| `c`                | Comment on the pull request                                                 |
-| `r`                | Reply to the selected comment, quoting it when it is not in a review thread |
-| `+`                | React to the selected comment, picking a reaction you gave removes it       |
-| `x`                | Resolve or reopen the selected review thread                                |
-| `gd`               | Review the diff with GitHub review comments                                 |
-| `gs`               | Submit the review from the review diff                                      |
-| Click, mouse wheel | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
+| Key                    | Action                                                                      |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `j`/`↓`, `k`/`↑`       | Move through the list, or the selected comment or the text in the sidebar   |
+| `gg`, `G`              | Go to the top or bottom                                                     |
+| `ctrl+d`, `ctrl+u`     | Scroll the sidebar half a page                                              |
+| `enter`, `esc`         | Focus the sidebar, or go back to the list                                   |
+| `ctrl+w` then `l`, `h` | Focus the sidebar or the list                                               |
+| `tab`, `shift+tab`     | Next or previous sidebar tab                                                |
+| `s`                    | Next filter: assigned, review requested, authored, involved                 |
+| `ge`                   | Edit the title and the Markdown description                                 |
+| `A`, `R`               | Pick the assignees or reviewers in a searchable list                        |
+| `c`                    | Comment on the pull request                                                 |
+| `r`                    | Reply to the selected comment, quoting it when it is not in a review thread |
+| `+`                    | React to the selected comment, picking a reaction you gave removes it       |
+| `x`                    | Resolve or reopen the selected review thread                                |
+| `gd`                   | Review the diff with GitHub review comments                                 |
+| `gs`                   | Submit the review from the review diff                                      |
+| Click, mouse wheel     | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 
 The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.
 

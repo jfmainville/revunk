@@ -1134,3 +1134,22 @@ func TestQClosesCommentBoxesFromNormalMode(t *testing.T) {
 		t.Fatal("q in normal mode should close the review diff comment editor and keep the diff open")
 	}
 }
+
+func TestCtrlWMovesBetweenTheListAndSidebar(t *testing.T) {
+	m, _ := pullsModel(t)
+	if m = pressRun(t, m, "ctrl+w", "l"); !m.pulls.sidebar {
+		t.Fatal("ctrl+w l should focus the sidebar")
+	}
+	if m = pressRun(t, m, "ctrl+w", "h"); m.pulls.sidebar {
+		t.Fatal("ctrl+w h should focus the list")
+	}
+	m = pressRun(t, m, "g", "d", "ctrl+w", "l")
+	if m.diff.focus != focusDiff {
+		t.Fatalf("ctrl+w l should move between the review diff panes, focus=%d", m.diff.focus)
+	}
+	empty, _ := pullsModel(t)
+	empty.pulls.list = nil
+	if empty = pressRun(t, empty, "ctrl+w", "l"); empty.pulls.sidebar {
+		t.Fatal("ctrl+w l should do nothing without a pull request")
+	}
+}

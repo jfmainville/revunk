@@ -355,6 +355,10 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.movePull(-len(m.pulls.list))
 		case !ok:
+		case is(seq, k.WindowLeft):
+			m.pulls.sidebar = false
+		case is(seq, k.WindowRight):
+			m.pulls.sidebar = true
 		case is(seq, k.EditPR):
 			return m, m.openModal(modalEdit, pr)
 		case is(seq, k.OpenDiff):
