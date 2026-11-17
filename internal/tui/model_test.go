@@ -564,6 +564,95 @@ func TestDeleteCommentUnderCursor(t *testing.T) {
 	}
 }
 
+func TestResolveHidesCommentFromDiffButKeepsItInThePane(t *testing.T) {
+	m, st := loaded(t)
+	st.comments = []review.Comment{{ID: "a", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename this"}}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
+
+	m.cursor = rowOf(t, m, rowLine, 1, 4)
+	if m, cmd := press(t, m, "x"); cmd != nil || !strings.Contains(screen(m), "no comment here to resolve") {
+		t.Fatal("x with no comment under the cursor should explain")
+	}
+
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, cmd := press(t, m, "x")
+	m = run(t, m, cmd)
+	if !st.comments[0].Resolved || len(st.comments) != 1 {
+		t.Fatalf("x should resolve without deleting: %+v", st.comments)
+	}
+	if out := screen(m); strings.Contains(out, "rename this") || !strings.Contains(out, "resolved the comment") {
+		t.Fatalf("resolved comment should leave the diff:\n%s", out)
+	}
+	if again, cmd := press(t, m, "S"); cmd != nil || !strings.Contains(screen(again), "no unsent comments to send") {
+		t.Fatal("resolved comments should not be sent to the agent")
+	}
+
+	m, _ = press(t, m, "t")
+	if out := screen(m); !strings.Contains(out, "✓ nit") || !strings.Contains(out, "resolved  rename this") {
+		t.Fatalf("comments pane should keep the resolved comment:\n%s", out)
+	}
+
+	m, cmd = press(t, m, "x")
+	m = run(t, m, cmd)
+	if out := screen(m); st.comments[0].Resolved || !strings.Contains(out, "reopened the comment") || !strings.Contains(out, "◆ nit") || !strings.Contains(out, "L2 · draft") {
+		t.Fatalf("x in the pane should reopen the comment in the diff:\n%s", out)
+	}
+
+	st.err = errors.New("store locked")
+	m, cmd = press(t, m, "x")
+	if m = run(t, m, cmd); !strings.Contains(screen(m), "store locked") {
+		t.Fatal("resolve error not shown")
+	}
+}
+
+func TestReplyAnswersTheAgentUnderTheComment(t *testing.T) {
+	m, st := loaded(t)
+	st.comments = []review.Comment{{ID: "a", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename this", Sent: true}}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	if m, cmd := press(t, m, "r"); cmd != nil || m.editing || !strings.Contains(screen(m), "you can reply once the agent has answered") {
+		t.Fatal("r before the agent answers should explain")
+	}
+	m.cursor = rowOf(t, m, rowLine, 1, 4)
+	if m, _ := press(t, m, "r"); m.editing || !strings.Contains(screen(m), "no comment here to reply to") {
+		t.Fatal("r with no comment under the cursor should explain")
+	}
+
+	st.comments[0].Replies = []string{"renamed to b"}
+	m = update(t, m, m.Init()())
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "r")
+	if out := screen(m); !m.editing || !strings.Contains(out, "reply to the agent") || !strings.Contains(out, "L2 · reply") || strings.Contains(out, "suggestion") {
+		t.Fatalf("r should open a reply editor under the comment:\n%s", out)
+	}
+	m, _ = press(t, m, "tab")
+	if m.editor.kind != 0 {
+		t.Fatal("tab should not change the type of a reply")
+	}
+	m = typeText(t, m, "why b?")
+	m, cmd := press(t, m, "ctrl+s")
+	m = run(t, m, cmd)
+	if c := st.comments[0]; c.Sent || !reflect.DeepEqual(c.Replies, []string{"renamed to b", review.YourReply + "why b?"}) || len(st.comments) != 1 {
+		t.Fatalf("reply not saved as a follow-up: %+v", st.comments)
+	}
+	if out := screen(m); !strings.Contains(out, "↳ your reply") || !strings.Contains(out, "why b?") || !strings.Contains(out, "L2 · draft") || strings.Contains(out, "**you**") {
+		t.Fatalf("follow-up should show under the comment as a draft:\n%s", out)
+	}
+	if m, _ = press(t, m, "r"); m.editing {
+		t.Fatal("r should wait for the agent's next answer")
+	}
+
+	st.comments[0].Replies = append(st.comments[0].Replies, "short for b")
+	st.comments[0].Sent, st.comments[0].Commit = true, "2222222bbbb"
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "t")
+	if m, _ = press(t, m, "r"); m.editing || !strings.Contains(screen(m), "to go to the comment first") {
+		t.Fatal("r from the pane on a comment outside this view should explain")
+	}
+}
+
 func TestOutdatedCommentIsShownUnderFileHeader(t *testing.T) {
 	st := &fakeStore{viewed: map[string]string{}, comments: []review.Comment{{Kind: "question", Path: "a/main.go", Side: review.SideRight, Start: 40, End: 40, Body: "still relevant?"}}}
 	m := newModel(t, sample, st)

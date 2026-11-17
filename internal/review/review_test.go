@@ -283,6 +283,94 @@ func TestDeleteCommentRemovesOnlyThatComment(t *testing.T) {
 	}
 }
 
+func TestResolveCommentTogglesStateAndLeavesItOutOfThePrompt(t *testing.T) {
+	ctx := context.Background()
+	svc := review.NewService(&fakeSource{}, newStore(t), nil, "feature")
+	for _, body := range []string{"still-open", "now-resolved"} {
+		if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := svc.ResolveComment(ctx, idOf(t, svc, "now-resolved"), true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.Comments(ctx)
+	if len(got) != 2 || got[0].Resolved || !got[1].Resolved {
+		t.Fatalf("Comments after resolve = %+v", got)
+	}
+	text, err := svc.Prompt(ctx)
+	if err != nil || !strings.Contains(text, "still-open") || strings.Contains(text, "now-resolved") {
+		t.Fatalf("prompt should skip resolved comments: %q, %v", text, err)
+	}
+
+	if err := svc.ResolveComment(ctx, idOf(t, svc, "still-open"), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Prompt(ctx); err == nil || !strings.Contains(err.Error(), "no unsent comments") {
+		t.Fatalf("prompt with only resolved comments = %v", err)
+	}
+
+	if err := svc.ResolveComment(ctx, idOf(t, svc, "now-resolved"), false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = svc.Comments(ctx); got[1].Resolved {
+		t.Fatal("resolving with false should reopen the comment")
+	}
+
+	storeErr := errors.New("locked")
+	failing := review.NewService(&fakeSource{}, failingStore{setErr: storeErr}, nil, "feature")
+	if err := failing.ResolveComment(ctx, "id", true); !errors.Is(err, storeErr) {
+		t.Fatalf("ResolveComment: got %v", err)
+	}
+}
+
+func TestFollowUpAnswersTheAgentAndResendsTheThread(t *testing.T) {
+	ctx := context.Background()
+	svc := review.NewService(&fakeSource{}, newStore(t), nil, "feature")
+	if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: "rename it"}); err != nil {
+		t.Fatal(err)
+	}
+	id := idOf(t, svc, "rename it")
+	if err := svc.FollowUp(ctx, id, "and?"); err == nil || !strings.Contains(err.Error(), "no agent reply") {
+		t.Fatalf("follow-up before an agent reply = %v", err)
+	}
+
+	if err := svc.Reply(ctx, id, "renamed to b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.FollowUp(ctx, id, "  "); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("empty follow-up = %v", err)
+	}
+	if err := svc.FollowUp(ctx, "nope", "x"); err == nil || !strings.Contains(err.Error(), "no comment nope") {
+		t.Fatalf("unknown comment = %v", err)
+	}
+	if err := svc.FollowUp(ctx, id, "why b?"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := svc.Comments(ctx)
+	if got[0].Sent || got[0].Answered() || !reflect.DeepEqual(got[0].Replies, []string{"renamed to b", review.YourReply + "why b?"}) {
+		t.Fatalf("comment after follow-up = %+v", got[0])
+	}
+	text, err := svc.Prompt(ctx)
+	if err != nil || !strings.Contains(text, "rename it\n\nThread so far, answer the reviewer's last reply:\n\nAgent: renamed to b\n\nReviewer: why b?\n") {
+		t.Fatalf("prompt should carry the thread:\n%s\n%v", text, err)
+	}
+	if err := svc.FollowUp(ctx, id, "again"); err == nil {
+		t.Fatal("a second follow-up should wait for the agent")
+	}
+	if err := svc.Reply(ctx, id, "short for b"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = svc.Comments(ctx); !got[0].Answered() {
+		t.Fatal("a new agent reply should allow another follow-up")
+	}
+	if (review.Comment{Author: "bob", Replies: []string{"x"}}).Answered() {
+		t.Fatal("pull request comments are never answered by the agent")
+	}
+}
+
 func TestDeleteAllCommentsClearsOnlyThisBranch(t *testing.T) {
 	ctx := context.Background()
 	st := newStore(t)

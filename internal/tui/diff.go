@@ -344,7 +344,11 @@ func renderComment(c review.Comment, original []string, width int) []string {
 		reply = "↳ reply"
 	}
 	for _, r := range c.Replies {
-		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render(reply))
+		label := reply
+		if body, ok := strings.CutPrefix(r, review.YourReply); ok && c.Author == "" {
+			label, r = "↳ your reply", body
+		}
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render(label))
 		lines = append(lines, renderMarkdown(r, wrap)...)
 	}
 	return commentBox(c.Kind, lineLabel(c)+" · "+commentState(c), lines, width)
@@ -358,7 +362,7 @@ func commentState(c review.Comment) string {
 		return "pending"
 	case c.Author != "":
 		return "@" + c.Author
-	case len(c.Replies) > 0:
+	case c.Answered():
 		return "replied"
 	case c.Sent:
 		return "sent"

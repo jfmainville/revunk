@@ -542,7 +542,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 		t.Fatal("gd should open the review diff")
 	}
 	out := screen(m)
-	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "main…o/r#7") || !strings.Contains(footer, "gs submit review") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") {
+	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "main…o/r#7") || !strings.Contains(footer, "gs submit review") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") || strings.Contains(footer, "x resolve") || strings.Contains(footer, "r reply") {
 		t.Fatalf("review diff screen:\n%s", out)
 	}
 	if m = pressRun(t, m, "S"); m.diff.notice != "" {

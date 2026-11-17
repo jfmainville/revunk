@@ -266,3 +266,22 @@ func TestParseDiffIgnoresDiffHeadersInsidePatchLines(t *testing.T) {
 		t.Fatalf("files = %+v", files)
 	}
 }
+
+func TestBranchesSkipsBranchesWhoseUpstreamIsGone(t *testing.T) {
+	ctx := context.Background()
+	dir := repo(t)
+	remote := t.TempDir()
+	git(t, remote, "init", "-q", "--bare")
+	git(t, dir, "remote", "add", "origin", remote)
+	git(t, dir, "push", "-q", "-u", "origin", "main", "feature")
+	git(t, dir, "branch", "local")
+	git(t, dir, "push", "-q", "origin", "--delete", "feature")
+
+	got, err := Branches(ctx, dir)
+	if err != nil || strings.Join(got, ",") != "local,main" {
+		t.Fatalf("Branches = %q, %v", got, err)
+	}
+	if _, err := Branches(ctx, t.TempDir()); err == nil {
+		t.Fatal("Branches outside a repository should fail")
+	}
+}

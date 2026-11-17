@@ -115,6 +115,9 @@ func TestWritesFailWhenDirectoryIsNotWritable(t *testing.T) {
 	if err := s.UpdateComments(ctx, "b", []string{"x"}, func(*review.Comment) {}); err == nil {
 		t.Fatal("UpdateComments succeeded without a writable directory")
 	}
+	if err := s.KeepBranches(func(string) bool { return false }); err == nil {
+		t.Fatal("KeepBranches succeeded on an unreadable path")
+	}
 	if _, err := s.Comments(ctx, "b"); err == nil {
 		t.Fatal("Comments succeeded on an unreadable path")
 	}
@@ -193,5 +196,46 @@ func TestOpenGivesOlderCommentsAnID(t *testing.T) {
 	again, _ := Open(path)
 	if first == "" || commentIDs(t, again, "b")["old"] != first {
 		t.Fatalf("ID not assigned once and saved: %q", first)
+	}
+}
+
+func TestKeepBranchesDropsStateOfOtherBranches(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "s.json")
+	s, _ := Open(path)
+	for _, branch := range []string{"keep", "drop", "viewed-only"} {
+		_ = s.SetViewed(ctx, branch, "a.go", "h")
+	}
+	for _, branch := range []string{"keep", "drop", "comments-only"} {
+		_ = s.AddComment(ctx, branch, review.Comment{Body: "x"})
+	}
+
+	if err := s.KeepBranches(func(b string) bool { return b == "keep" }); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, _ := Open(path)
+	for _, branch := range []string{"drop", "viewed-only", "comments-only"} {
+		viewed, _ := reopened.Viewed(ctx, branch)
+		comments, _ := reopened.Comments(ctx, branch)
+		if len(viewed) != 0 || len(comments) != 0 {
+			t.Fatalf("%s kept viewed %v and comments %v", branch, viewed, comments)
+		}
+	}
+	viewed, _ := reopened.Viewed(ctx, "keep")
+	comments, _ := reopened.Comments(ctx, "keep")
+	if viewed["a.go"] != "h" || len(comments) != 1 {
+		t.Fatalf("keep lost viewed %v or comments %v", viewed, comments)
+	}
+}
+
+func TestKeepBranchesLeavesFileUntouchedWhenNothingIsDropped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.json")
+	s, _ := Open(path)
+	if err := s.KeepBranches(func(string) bool { return false }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("empty state was written: %v", err)
 	}
 }

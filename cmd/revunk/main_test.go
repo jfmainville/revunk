@@ -14,10 +14,11 @@ import (
 
 	"github.com/jfmainville/revunk/internal/provider/github"
 	"github.com/jfmainville/revunk/internal/review"
+	"github.com/jfmainville/revunk/internal/store"
 )
 
 func TestUsageHidesAgentCommands(t *testing.T) {
-	if strings.Contains(usage, "reply") || !strings.Contains(usage, "tui") {
+	if strings.Contains(usage, "reply") || !strings.Contains(usage, "tui") || !strings.Contains(usage, "-cleanup") {
 		t.Fatalf("usage should list tui and hide reply:\n%s", usage)
 	}
 }
@@ -127,5 +128,69 @@ func TestPullRequestReviewReadsThePullRequestFromGitHub(t *testing.T) {
 	commits, err := svc.Commits(context.Background())
 	if err != nil || len(commits) != 1 || commits[0].Subject != "fix" || calls[0][len(calls[0])-1] != "repos/o/r/pulls/7/commits?per_page=100" {
 		t.Fatalf("commits = %+v, %v, calls = %q", commits, err, calls)
+	}
+}
+
+func TestServiceDropsStateOfDeletedBranches(t *testing.T) {
+	ctx := context.Background()
+	dir := gitRepo(t)
+	st, err := store.Open(filepath.Join(dir, ".git", "revunk.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, branch := range []string{"feature", "main", "deleted", "o/r#7"} {
+		if err := st.AddComment(ctx, branch, review.Comment{Path: "a.go", Body: "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := exec.Command("git", "-C", dir, "checkout", "-q", "--detach").CombinedOutput(); err != nil {
+		t.Fatalf("detach: %v\n%s", err, out)
+	}
+	if err := st.AddComment(ctx, "HEAD", review.Comment{Path: "a.go", Body: "x"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, _, _, err := service(ctx, dir, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	for branch, want := range map[string]int{"feature": 1, "main": 1, "HEAD": 1, "o/r#7": 1, "deleted": 0} {
+		if comments, _ := st.Comments(ctx, branch); len(comments) != want {
+			t.Errorf("%s has %d comments, want %d", branch, len(comments), want)
+		}
+	}
+}
+
+func TestRunCleanupRemovesTheStateFile(t *testing.T) {
+	dir := gitRepo(t)
+	t.Chdir(dir)
+	path := filepath.Join(dir, ".git", "revunk.json")
+	if err := os.WriteFile(path, []byte(`{"Comments":{"feature":[{"Body":"x"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run([]string{"-cleanup"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("state file still there: %v", err)
+	}
+	if err := run([]string{"-cleanup"}); err != nil {
+		t.Fatalf("cleanup without a state file = %v", err)
+	}
+
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "child"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"-cleanup"}); err == nil {
+		t.Fatal("cleanup should report a state path it cannot remove")
+	}
+
+	t.Chdir(t.TempDir())
+	if err := run([]string{"-cleanup"}); err == nil || !strings.Contains(err.Error(), "git repository") {
+		t.Fatalf("outside repository error = %v", err)
 	}
 }
