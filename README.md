@@ -9,6 +9,10 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 - [herdr](https://herdr.dev) with Claude Code or opencode, only to send comments with `S`
 - The [GitHub CLI](https://cli.github.com), `gh`, signed in with `gh auth login`, only for the **Pull Request** tab
 
+## Install
+
+Each [GitHub release](https://github.com/jfmainville/revunk/releases) has `revunk` for Linux and macOS on `amd64` and `arm64`, as `.tar.gz` archives and `.deb` packages for Linux. Install a `.deb` with `sudo apt install ./revunk_<version>_linux_<arch>.deb`.
+
 ## Commands
 
 | Task        | Command                                     |
@@ -145,5 +149,3 @@ Coding agents answer comments with `revunk reply <id> <text>`, which the prompt 
 | `internal/agent`           | Sends prompts to a Claude Code or opencode session in a `herdr` pane, or starts one, implementing `review.Agent`                                                                   |
 | `internal/store`           | JSON file store implementing `review.Store`                                                                                                                                        |
 | `internal/tui`             | Bubble Tea presentation layer, with `chroma` for syntax highlighting, `glamour` for Markdown comments, and every default key binding in `keys.go`                                  |
-
-[`docs/pull-requests.md`](docs/pull-requests.md) explains how the **Pull Request** tab works with GitHub.

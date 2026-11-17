@@ -1,0 +1,46 @@
+version: 2
+
+builds:
+  - main: ./cmd/revunk
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - formats:
+      - tar.gz
+
+nfpms:
+  - package_name: revunk
+    homepage: https://github.com/jfmainville/revunk
+    maintainer: Jean-Frederic Mainville
+    description: AI Agent and Pull Request management tool.
+    license: MIT
+    formats:
+      - deb
+    dependencies:
+      - git
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
