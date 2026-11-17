@@ -111,8 +111,14 @@ type Comment struct {
 	Resolved bool
 }
 
+const YourReply = "**you** "
+
 func (c Comment) FileLevel() bool {
 	return c.End == 0
+}
+
+func (c Comment) Answered() bool {
+	return c.Author == "" && len(c.Replies) > 0 && !strings.HasPrefix(c.Replies[len(c.Replies)-1], YourReply)
 }
 
 type Source interface {
@@ -355,6 +361,14 @@ func ids(comments []Comment) []string {
 }
 
 func (s *Service) Reply(ctx context.Context, id, body string) error {
+	return s.addReply(ctx, id, body, false)
+}
+
+func (s *Service) FollowUp(ctx context.Context, id, body string) error {
+	return s.addReply(ctx, id, body, true)
+}
+
+func (s *Service) addReply(ctx context.Context, id, body string, mine bool) error {
 	if strings.TrimSpace(body) == "" {
 		return errors.New("reply is empty")
 	}
@@ -362,10 +376,17 @@ func (s *Service) Reply(ctx context.Context, id, body string) error {
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(comments, func(c Comment) bool { return c.ID == id }) {
+	i := slices.IndexFunc(comments, func(c Comment) bool { return c.ID == id })
+	switch {
+	case i < 0:
 		return fmt.Errorf("no comment %s on %s", id, s.branch)
+	case mine && !comments[i].Answered():
+		return fmt.Errorf("comment %s has no agent reply to answer", id)
 	}
 	return s.store.UpdateComments(ctx, s.branch, []string{id}, func(c *Comment) {
+		if mine {
+			body, c.Sent = YourReply+body, false
+		}
 		c.Replies = append(c.Replies, body)
 	})
 }
@@ -422,6 +443,16 @@ func (s *Service) prompt(ctx context.Context) (string, []Comment, error) {
 			b.WriteString("```\n" + strings.Join(code, "\n") + "\n```\n\n")
 		}
 		b.WriteString(c.Body + "\n")
+		if len(c.Replies) > 0 {
+			b.WriteString("\nThread so far, answer the reviewer's last reply:\n")
+		}
+		for _, r := range c.Replies {
+			if body, ok := strings.CutPrefix(r, YourReply); ok {
+				b.WriteString("\nReviewer: " + body + "\n")
+			} else {
+				b.WriteString("\nAgent: " + r + "\n")
+			}
+		}
 	}
 	return b.String(), comments, nil
 }

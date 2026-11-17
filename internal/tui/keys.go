@@ -256,6 +256,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "comment on the whole file", keys: []key.Binding{k.FileComment}},
 			{desc: "delete comment under cursor", keys: []key.Binding{k.Delete}},
 			{desc: "resolve or reopen comment, resolved ones only show in the comments pane", keys: []key.Binding{k.Resolve}},
+			{desc: "reply to the agent's answer, sent with the thread by the next send", keys: []key.Binding{k.Reply}},
 			{desc: "show or hide the comments pane", keys: []key.Binding{k.Comments}},
 			{desc: "show or hide the commits and files panes", keys: []key.Binding{k.Explorer}},
 			{desc: "delete every comment", keys: []key.Binding{k.DeleteAll}},
@@ -344,6 +345,7 @@ func (k keyMap) listHints() []hint {
 		{desc: "go to", keys: []key.Binding{k.Open}},
 		{desc: "delete", keys: []key.Binding{k.Delete}},
 		{desc: "resolve", keys: []key.Binding{k.Resolve}},
+		{desc: "reply", keys: []key.Binding{k.Reply}},
 		{desc: "focus", keys: []key.Binding{k.NextFocus}},
 		{desc: "close", keys: []key.Binding{k.Comments}},
 	}
@@ -362,6 +364,7 @@ func (k keyMap) mainHints() []hint {
 		{desc: "viewed", keys: []key.Binding{k.Viewed}},
 		{desc: "delete", keys: []key.Binding{k.Delete}},
 		{desc: "resolve", keys: []key.Binding{k.Resolve}},
+		{desc: "reply", keys: []key.Binding{k.Reply}},
 		{desc: "send", keys: []key.Binding{k.Send}},
 		{desc: "copy", keys: []key.Binding{k.Copy}},
 		{desc: "submit review", keys: []key.Binding{k.Submit}},

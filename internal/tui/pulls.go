@@ -508,6 +508,7 @@ func (m *Model) reviewPullRequest(host review.Host, pr review.PullRequest) {
 	m.keys.Copy.SetEnabled(false)
 	m.keys.DeleteAll.SetEnabled(false)
 	m.keys.Resolve.SetEnabled(false)
+	m.keys.Reply.SetEnabled(false)
 	m.keys.Submit.SetEnabled(true)
 }
 

@@ -606,6 +606,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.copyComments()
 	case is(key, k.Resolve):
 		return m, m.resolveComment()
+	case is(key, k.Reply):
+		return m, m.replyToComment()
 	}
 	if is(key, k.HalfDown) || is(key, k.HalfUp) || is(key, k.PageDown) || is(key, k.PageUp) {
 		m.focus = focusDiff
@@ -827,6 +829,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.editing = false
 		m.relayout()
 		return m, m.saveComment(c)
+	case (is(key, k.NextKind) || is(key, k.PrevKind)) && m.editor.target.ID != "":
 	case is(key, k.NextKind), is(key, k.PrevKind):
 		step := 1
 		if is(key, k.PrevKind) {
@@ -1288,7 +1291,11 @@ func (m Model) original(c review.Comment) []string {
 func (m Model) saveComment(c review.Comment) tea.Cmd {
 	svc := m.svc
 	return func() tea.Msg {
-		if err := svc.AddComment(context.Background(), c); err != nil {
+		save := svc.AddComment
+		if c.ID != "" {
+			save = func(ctx context.Context, c review.Comment) error { return svc.FollowUp(ctx, c.ID, c.Body) }
+		}
+		if err := save(context.Background(), c); err != nil {
 			return commentsMsg{err: err}
 		}
 		comments, err := svc.Comments(context.Background())
@@ -1324,6 +1331,26 @@ func (m *Model) deleteComment() tea.Cmd {
 		return nil
 	}
 	return m.deleteByID(c.ID)
+}
+
+func (m *Model) replyToComment() tea.Cmd {
+	c, ok := m.targetComment()
+	switch {
+	case !ok:
+		m.notice = "no comment here to reply to"
+		return nil
+	case !c.Answered():
+		m.notice = "you can reply once the agent has answered this comment"
+		return nil
+	case !m.visible(c, c.Path) || !slices.ContainsFunc(m.files, func(f review.File) bool { return f.Path == c.Path }):
+		m.notice = "press " + label(m.keys.Open) + " to go to the comment first"
+		return nil
+	}
+	cmd := m.openEditor(c)
+	m.editor.kind = max(slices.Index(commentKinds, c.Kind), 0)
+	m.relayout()
+	m.revealEditor()
+	return cmd
 }
 
 func (m *Model) resolveComment() tea.Cmd {
@@ -1477,7 +1504,7 @@ func (m *Model) layout() {
 				m.addComment(ci, fi)
 			}
 		}
-		if m.editing && m.editor.target.Path == f.Path && m.editor.target.FileLevel() {
+		if m.editing && m.editor.target.ID == "" && m.editor.target.Path == f.Path && m.editor.target.FileLevel() {
 			m.addEditor(fi)
 		}
 		if m.viewed[f.Path] {
@@ -1500,7 +1527,7 @@ func (m *Model) layout() {
 					m.addComment(ci, fi)
 				}
 			}
-			if m.editing && m.editor.target.Path == f.Path && !m.editor.target.FileLevel() && anchoredAt(m.editor.target, l) {
+			if m.editing && m.editor.target.ID == "" && m.editor.target.Path == f.Path && !m.editor.target.FileLevel() && anchoredAt(m.editor.target, l) {
 				m.addEditor(fi)
 			}
 		}
@@ -1531,6 +1558,9 @@ func (m *Model) addComment(index, file int) {
 	for _, l := range lines {
 		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
 	}
+	if m.editing && m.editor.target.ID != "" && m.editor.target.ID == m.comments[index].ID {
+		m.addEditor(file)
+	}
 }
 
 func (m *Model) addEditor(file int) {
@@ -1548,9 +1578,13 @@ func (m Model) editorLines() []string {
 			chips[i] = lipgloss.NewStyle().Background(kindColor(k)).Foreground(colorOnPrimary).Render(k)
 		}
 	}
-	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(markdownView(m.editor.area), "\n")...)
-	lines = append(lines, hints(m.keys.editorHints(m.editor.mode())))
-	return commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth())
+	top, right, list := strings.Join(chips, "  "), lineLabel(m.editor.target), m.keys.editorHints(m.editor.mode())
+	if m.editor.target.ID != "" {
+		top, right, list = dimStyle.Render("reply to the agent, sent with the thread on the next "+label(m.keys.Send)), right+" · reply", slices.Delete(list, 2, 3)
+	}
+	lines := append([]string{top}, strings.Split(markdownView(m.editor.area), "\n")...)
+	lines = append(lines, hints(list))
+	return commentBox(commentKinds[m.editor.kind], right, lines, m.diffWidth())
 }
 
 func hints(list []hint) string {
