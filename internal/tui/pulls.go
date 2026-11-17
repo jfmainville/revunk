@@ -71,7 +71,8 @@ type modalKind int
 
 const (
 	modalEdit modalKind = iota
-	modalPeople
+	modalAssignees
+	modalReviewers
 	modalComment
 	modalReply
 	modalReact
@@ -92,6 +93,19 @@ type modalState struct {
 	choices []string
 	choice  int
 	focus   int
+	normal  bool
+	pending string
+	people  []string
+	picked  []string
+	cursor  int
+	loading bool
+	failed  error
+}
+
+type assignableMsg struct {
+	repo   string
+	logins []string
+	err    error
 }
 
 type pullsMsg struct {
@@ -361,8 +375,10 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.fetchPulls()
 	case !ok:
 		return m, nil
-	case is(key, k.People):
-		return m, m.openModal(modalPeople, pr)
+	case is(key, k.Assignees):
+		return m, m.openModal(modalAssignees, pr)
+	case is(key, k.Reviewers):
+		return m, m.openModal(modalReviewers, pr)
 	case is(key, k.Comment):
 		return m, m.openModal(modalComment, pr)
 	}
@@ -516,13 +532,13 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		d.title, d.labels = fmt.Sprintf("edit #%d", pr.Number), []string{"title"}
 		d.fields = []textinput.Model{newField(pr.Title, w-12)}
 		d.hasArea = true
-	case modalPeople:
-		var reviewers []string
-		for _, r := range pr.Reviewers {
-			reviewers = append(reviewers, r.Login)
+	case modalAssignees, modalReviewers:
+		d.title, d.picked = fmt.Sprintf("assignees of #%d", pr.Number), slices.Clone(pr.Assignees)
+		if kind == modalReviewers {
+			d.title, d.picked = fmt.Sprintf("reviewers of #%d", pr.Number), reviewerLogins(pr)
 		}
-		d.title, d.labels = fmt.Sprintf("assignees and reviewers of #%d, comma separated", pr.Number), []string{"assignees", "reviewers"}
-		d.fields = []textinput.Model{newField(strings.Join(pr.Assignees, ", "), w-12), newField(strings.Join(reviewers, ", "), w-12)}
+		d.labels, d.fields = []string{"search"}, []textinput.Model{newField("", w-12)}
+		d.people, d.loading = slices.Clone(d.picked), true
 	case modalComment:
 		d.title, d.hasArea = fmt.Sprintf("comment on #%d", pr.Number), true
 	case modalSubmit:
@@ -545,7 +561,82 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		}
 	}
 	m.modal = d
-	return m.modal.setFocus(0)
+	cmd := m.modal.setFocus(0)
+	if d.loading {
+		host := m.host
+		cmd = tea.Batch(cmd, func() tea.Msg {
+			logins, err := host.Assignable(context.Background(), pr.Repo)
+			return assignableMsg{repo: pr.Repo, logins: logins, err: err}
+		})
+	}
+	return cmd
+}
+
+func (m Model) modalHints() []hint {
+	if m.modal.picker() {
+		return m.keys.pickerHints()
+	}
+	return m.keys.modalHints(len(m.modal.choices) > 0, m.modal.mode())
+}
+
+func reviewerLogins(pr review.PullRequest) []string {
+	var out []string
+	for _, r := range pr.Reviewers {
+		out = append(out, r.Login)
+	}
+	return out
+}
+
+func (d *modalState) picker() bool {
+	return d.kind == modalAssignees || d.kind == modalReviewers
+}
+
+func (d *modalState) applyAssignable(msg assignableMsg) {
+	if !d.open || !d.picker() || msg.repo != d.pr.Repo {
+		return
+	}
+	d.loading, d.failed = false, msg.err
+	for _, l := range msg.logins {
+		if !slices.Contains(d.people, l) && !(d.kind == modalReviewers && l == d.pr.Author) {
+			d.people = append(d.people, l)
+		}
+	}
+}
+
+func (d *modalState) matches() []string {
+	query := strings.ToLower(strings.TrimSpace(d.fields[0].Value()))
+	var out []string
+	for _, p := range d.people {
+		if strings.Contains(strings.ToLower(p), query) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (d *modalState) pickKey(msg tea.KeyPressMsg, k keyMap) tea.Cmd {
+	key, matches := msg.String(), d.matches()
+	switch {
+	case is(key, k.PickDown):
+		d.cursor = min(d.cursor+1, max(len(matches)-1, 0))
+	case is(key, k.PickUp):
+		d.cursor = max(d.cursor-1, 0)
+	case is(key, k.Toggle):
+		if d.cursor < len(matches) {
+			p := matches[d.cursor]
+			if i := slices.Index(d.picked, p); i >= 0 {
+				d.picked = slices.Delete(d.picked, i, i+1)
+			} else {
+				d.picked = append(d.picked, p)
+			}
+		}
+	default:
+		var cmd tea.Cmd
+		d.fields[0], cmd = d.fields[0].Update(msg)
+		d.cursor = 0
+		return cmd
+	}
+	return nil
 }
 
 func (m *Model) openNoteModal(kind modalKind, pr review.PullRequest, item commentItem) tea.Cmd {
@@ -611,6 +702,8 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch d := &m.modal; {
 	case is(key, k.ForceQuit):
 		return m, tea.Quit
+	case d.onArea() && !d.normal && is(key, k.NormalMode):
+		d.normal, d.pending = true, ""
 	case is(key, k.Cancel):
 		m.modal = modalState{}
 	case is(key, k.Save):
@@ -630,22 +723,150 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case is(key, k.Open) && d.parts() == 1:
 			return m.saveModal()
 		}
+	case d.picker():
+		cmd = d.pickKey(msg, k)
 	case d.field() >= 0:
 		d.fields[d.field()], cmd = d.fields[d.field()].Update(msg)
+	case d.normal:
+		d.normalKey(key, k)
 	default:
-		d.area, cmd = d.area.Update(msg)
+		cmd = d.insertKey(msg, k)
 	}
 	return m, cmd
 }
 
-func logins(s string) []string {
-	var out []string
-	for f := range strings.FieldsFuncSeq(s, func(r rune) bool { return r == ',' || r == ' ' }) {
-		if f = strings.TrimPrefix(f, "@"); f != "" && !slices.Contains(out, f) {
-			out = append(out, f)
+func (d *modalState) onArea() bool {
+	return d.hasArea && !d.onChoices() && d.field() < 0
+}
+
+func (d *modalState) mode() string {
+	switch {
+	case !d.onArea():
+		return ""
+	case d.normal:
+		return "normal"
+	}
+	return "insert"
+}
+
+func (d *modalState) insertKey(msg tea.KeyPressMsg, k keyMap) tea.Cmd {
+	key := msg.String()
+	if is(key, k.LeaveInsert) && d.pending == key {
+		d.press(tea.KeyBackspace, 0)
+		d.normal, d.pending = true, ""
+		return nil
+	}
+	d.pending = ""
+	if is(key, k.LeaveInsert) {
+		d.pending = key
+	}
+	var cmd tea.Cmd
+	d.area, cmd = d.area.Update(msg)
+	return cmd
+}
+
+func (d *modalState) press(code rune, mod tea.KeyMod) {
+	d.area, _ = d.area.Update(tea.KeyPressMsg{Code: code, Mod: mod})
+}
+
+func (d *modalState) normalKey(key string, k keyMap) {
+	seq := key
+	if d.pending != "" {
+		seq, d.pending = d.pending+" "+key, ""
+	}
+	a := &d.area
+	lines := strings.Split(a.Value(), "\n")
+	switch {
+	case is(seq, k.Top):
+		a.MoveToBegin()
+	case is(seq, k.Delete):
+		row := a.Line()
+		lines = slices.Delete(lines, row, row+1)
+		a.SetValue(strings.Join(lines, "\n"))
+		a.MoveToBegin()
+		for a.Line() < min(row, len(lines)-1) {
+			a.CursorDown()
+		}
+	case seq != key:
+	case is(key, k.Down):
+		a.CursorDown()
+	case is(key, k.Up):
+		a.CursorUp()
+	case is(key, k.Bottom):
+		a.MoveToEnd()
+	case is(key, k.CharLeft):
+		if a.Column() > 0 {
+			d.press(tea.KeyLeft, 0)
+		}
+	case is(key, k.CharRight):
+		if a.Column() < len([]rune(lines[a.Line()])) {
+			d.press(tea.KeyRight, 0)
+		}
+	case is(key, k.WordNext):
+		line, i := []rune(lines[a.Line()]), a.Column()
+		for i < len(line) && line[i] != ' ' {
+			i++
+		}
+		for i < len(line) && line[i] == ' ' {
+			i++
+		}
+		if i == len(line) && a.Line() < len(lines)-1 {
+			a.CursorDown()
+			a.CursorStart()
+		} else {
+			a.SetCursorColumn(i)
+		}
+	case is(key, k.WordPrev):
+		line, i := []rune(lines[a.Line()]), a.Column()
+		for i > 0 && line[i-1] == ' ' {
+			i--
+		}
+		for i > 0 && line[i-1] != ' ' {
+			i--
+		}
+		if a.Column() == 0 && a.Line() > 0 {
+			a.CursorUp()
+			a.CursorEnd()
+		} else {
+			a.SetCursorColumn(i)
+		}
+	case is(key, k.LineStart):
+		a.CursorStart()
+	case is(key, k.LineEnd):
+		a.CursorEnd()
+	case is(key, k.DeleteUnder):
+		if a.Column() < len([]rune(lines[a.Line()])) {
+			d.press(tea.KeyDelete, 0)
+		}
+	case is(key, k.Insert):
+		d.normal = false
+	case is(key, k.Append):
+		if a.Column() < len([]rune(lines[a.Line()])) {
+			d.press(tea.KeyRight, 0)
+		}
+		d.normal = false
+	case is(key, k.InsertStart):
+		a.CursorStart()
+		d.normal = false
+	case is(key, k.AppendEnd):
+		a.CursorEnd()
+		d.normal = false
+	case is(key, k.OpenBelow):
+		a.CursorEnd()
+		a.InsertRune('\n')
+		d.normal = false
+	case is(key, k.OpenAbove):
+		a.CursorStart()
+		a.InsertRune('\n')
+		a.CursorUp()
+		d.normal = false
+	default:
+		if _, ok := rest(k.Top, key); ok {
+			d.pending = key
+		} else if _, ok := rest(k.Delete, key); ok {
+			d.pending = key
 		}
 	}
-	return out
 }
 
 func quote(n review.Note) string {
@@ -675,10 +896,12 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 		}
 		notice = fmt.Sprintf("updated #%d", pr.Number)
 		action = func(ctx context.Context) error { return host.EditPullRequest(ctx, pr, title, d.area.Value()) }
-	case modalPeople:
-		assignees, reviewers := logins(d.fields[0].Value()), logins(d.fields[1].Value())
-		notice = "updated assignees and reviewers"
-		action = func(ctx context.Context) error { return host.SetPeople(ctx, pr, assignees, reviewers) }
+	case modalAssignees:
+		notice = fmt.Sprintf("updated the assignees of #%d", pr.Number)
+		action = func(ctx context.Context) error { return host.SetPeople(ctx, pr, d.picked, reviewerLogins(pr)) }
+	case modalReviewers:
+		notice = fmt.Sprintf("updated the reviewers of #%d", pr.Number)
+		action = func(ctx context.Context) error { return host.SetPeople(ctx, pr, pr.Assignees, d.picked) }
 	case modalComment:
 		notice = fmt.Sprintf("commented on #%d", pr.Number)
 		action = func(ctx context.Context) error { return host.Comment(ctx, pr, body) }
@@ -751,7 +974,7 @@ func (m Model) renderPulls() string {
 func (m Model) pullsFooter() string {
 	switch {
 	case m.modal.open:
-		return hints(m.keys.modalHints(len(m.modal.choices) > 0))
+		return hints(m.modalHints())
 	case m.pulls.sidebar:
 		return hints(m.keys.detailsHints())
 	}
@@ -759,10 +982,7 @@ func (m Model) pullsFooter() string {
 }
 
 func (m Model) pullsStatus() string {
-	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" NORMAL ")
-	if m.modal.open {
-		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorAdd).Render(" INSERT ")
-	}
+	chip := m.modeChip()
 	message := dimStyle.Render(label(m.keys.Help) + " shows every key")
 	switch {
 	case m.pulls.err != nil:
@@ -1080,6 +1300,32 @@ func (m Model) renderModal() string {
 		}
 		lines = append(lines, " "+style.Render(fmt.Sprintf("%-10s", d.labels[i]))+" "+f.View())
 	}
+	if d.picker() {
+		lines = append(lines, "")
+		matches := d.matches()
+		rows := max(m.panesHeight()-8, 1)
+		top := max(d.cursor-rows+1, 0)
+		for i, p := range matches[top:min(top+rows, len(matches))] {
+			mark, style := "[ ] ", dimStyle
+			if slices.Contains(d.picked, p) {
+				mark, style = "[x] ", primaryStyle
+			}
+			if top+i == d.cursor {
+				style = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary)
+			}
+			lines = append(lines, " "+style.Render(mark+"@"+p))
+		}
+		switch {
+		case d.failed != nil:
+			lines = append(lines, " "+errorStyle.Render(d.failed.Error()))
+		case d.loading:
+			lines = append(lines, " "+dimStyle.Render("loading…"))
+		case len(d.people) == 0:
+			lines = append(lines, " "+dimStyle.Render("no one to pick"))
+		case len(matches) == 0:
+			lines = append(lines, " "+dimStyle.Render("no one matches"))
+		}
+	}
 	if d.hasArea {
 		if len(d.fields) > 0 {
 			lines = append(lines, "")
@@ -1088,7 +1334,7 @@ func (m Model) renderModal() string {
 			lines = append(lines, " "+l)
 		}
 	}
-	lines = append(lines, "", " "+hints(m.keys.modalHints(len(d.choices) > 0)))
+	lines = append(lines, "", " "+hints(m.modalHints()))
 	modal := box(d.title, "", lines, m.modalWidth(), min(len(lines)+2, m.panesHeight()), colorPrimary)
 	return lipgloss.Place(m.width, m.panesHeight(), lipgloss.Center, lipgloss.Center, modal)
 }

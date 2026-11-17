@@ -99,6 +99,18 @@ func (c Client) BranchPullRequest(ctx context.Context) (review.PullRequest, erro
 	return c.PullRequest(ctx, parts[0]+"/"+parts[1], number)
 }
 
+func (c Client) Assignable(ctx context.Context, repo string) ([]string, error) {
+	users, err := apiList[struct{ Login string }](ctx, c, "repos/"+repo+"/assignees?per_page=100")
+	if err != nil {
+		return nil, err
+	}
+	logins := make([]string, len(users))
+	for i, u := range users {
+		logins[i] = u.Login
+	}
+	return logins, nil
+}
+
 func (c Client) PullRequests(ctx context.Context, filter string) ([]review.PullRequest, error) {
 	data, err := c.run(ctx, "search", "prs", filter, "--state=open", "--limit=50", "--json=number,title,url,isDraft,updatedAt,author,repository")
 	if err != nil {

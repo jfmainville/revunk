@@ -131,6 +131,7 @@ var specialKeys = map[string]tea.KeyPressMsg{
 	"ctrl+n":    {Code: 'n', Mod: tea.ModCtrl},
 	"ctrl+p":    {Code: 'p', Mod: tea.ModCtrl},
 	"backspace": {Code: tea.KeyBackspace},
+	"space":     {Code: tea.KeySpace, Text: " "},
 }
 
 func press(t *testing.T, m Model, keys ...string) (Model, tea.Cmd) {

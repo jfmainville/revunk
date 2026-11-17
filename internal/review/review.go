@@ -205,6 +205,7 @@ type Host interface {
 	PullRequests(ctx context.Context, filter string) ([]PullRequest, error)
 	PullRequest(ctx context.Context, repo string, number int) (PullRequest, error)
 	BranchPullRequest(ctx context.Context) (PullRequest, error)
+	Assignable(ctx context.Context, repo string) ([]string, error)
 	EditPullRequest(ctx context.Context, pr PullRequest, title, body string) error
 	SetPeople(ctx context.Context, pr PullRequest, assignees, reviewers []string) error
 	Comment(ctx context.Context, pr PullRequest, body string) error

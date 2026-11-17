@@ -261,6 +261,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
+	case assignableMsg:
+		m.modal.applyAssignable(msg)
+		return m, nil
 	case pullsMsg:
 		return m, m.applyPulls(msg)
 	case detailMsg:
@@ -1796,16 +1799,21 @@ func (m Model) diffLines() []string {
 	return lines
 }
 
-func (m Model) statusLine() string {
-	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" NORMAL ")
+func (m Model) modeChip() string {
+	name, c := "NORMAL", colorPrimary
 	switch {
-	case m.editing, m.modal.open:
-		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorAdd).Render(" INSERT ")
+	case m.editing, m.modal.open && !m.modal.normal:
+		name, c = "INSERT", colorAdd
 	case m.searching:
-		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorNote).Render(" SEARCH ")
+		name, c = "SEARCH", colorNote
 	case m.anchor >= 0:
-		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorThread).Render(" VISUAL ")
+		name, c = "VISUAL", colorThread
 	}
+	return lipgloss.NewStyle().Foreground(colorOnPrimary).Background(c).Render(" " + name + " ")
+}
+
+func (m Model) statusLine() string {
+	chip := m.modeChip()
 	message := dimStyle.Render(label(m.keys.Help) + " shows every key")
 	if m.searching || m.query != "" {
 		count := dimStyle.Render(fmt.Sprintf("  %d/%d", m.matchPosition(), len(m.matches)))
@@ -1841,7 +1849,7 @@ func (m Model) statusLine() string {
 func (m Model) footer() string {
 	switch {
 	case m.modal.open:
-		return hints(m.keys.modalHints(len(m.modal.choices) > 0))
+		return hints(m.modalHints())
 	case m.editing:
 		return hints(m.keys.editorHints())
 	case m.searching:

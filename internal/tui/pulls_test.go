@@ -24,6 +24,13 @@ type fakeHost struct {
 	err       error
 	listErr   error
 	detailErr error
+	users     []string
+	usersErr  error
+}
+
+func (h *fakeHost) Assignable(_ context.Context, repo string) ([]string, error) {
+	h.calls = append(h.calls, "assignable "+repo)
+	return h.users, h.usersErr
 }
 
 func (h *fakeHost) PullRequests(_ context.Context, filter string) ([]review.PullRequest, error) {
@@ -374,8 +381,8 @@ func TestCommentModalPostsToGitHub(t *testing.T) {
 	}
 	m = pressRun(t, m, "c")
 	m = typeText(t, m, "nope")
-	if m = pressRun(t, m, "esc"); m.modal.open || host.has("comment o/r#7 nope") {
-		t.Fatal("esc should cancel without sending")
+	if m = pressRun(t, m, "esc", "esc"); m.modal.open || host.has("comment o/r#7 nope") {
+		t.Fatal("esc twice should cancel without sending")
 	}
 }
 
@@ -462,18 +469,52 @@ func TestEditModalUpdatesTitleAndDescription(t *testing.T) {
 	}
 }
 
-func TestPeopleModalSetsAssigneesAndReviewers(t *testing.T) {
+func TestPickersSetAssigneesAndReviewers(t *testing.T) {
 	m, host := pullsModel(t)
+	host.users = []string{"ana", "me", "dan", "dave"}
 	m = pressRun(t, m, "A")
-	if !strings.Contains(screen(m), "assignees  me") || !strings.Contains(screen(m), "reviewers  bob, cy") {
-		t.Fatalf("A should open the people modal:\n%s", screen(m))
+	out := screen(m)
+	if !host.has("assignable o/r") || !strings.Contains(out, "assignees of #7") || !strings.Contains(out, "[x] @me") || !strings.Contains(out, "[ ] @dan") || !strings.Contains(out, "[ ] @ana") {
+		t.Fatalf("A should open the assignee picker with the current ones selected:\n%s", out)
 	}
-	m = typeText(t, m, ", @dan dan")
-	m = pressRun(t, m, "tab", "shift+tab", "tab")
-	m = typeText(t, m, ",")
-	m = pressRun(t, m, "ctrl+s")
-	if !host.has("people o/r#7 me,dan bob,cy") || m.notice != "updated assignees and reviewers" {
+	m = typeText(t, m, "DA")
+	if out = screen(m); strings.Contains(out, "@me") || !strings.Contains(out, "@dan") || !strings.Contains(out, "@dave") {
+		t.Fatalf("the search should filter without case:\n%s", out)
+	}
+	m = pressRun(t, m, "down", "down", "up", "space", "ctrl+n", "space", "space", "ctrl+s")
+	if !host.has("people o/r#7 me,dan bob,cy") || m.notice != "updated the assignees of #7" {
+		t.Fatalf("calls=%q notice=%q", host.calls, m.notice)
+	}
+	m = pressRun(t, m, "R")
+	out = screen(m)
+	if !strings.Contains(out, "reviewers of #7") || !strings.Contains(out, "[x] @bob") || !strings.Contains(out, "[x] @cy") || strings.Contains(out, "@ana") {
+		t.Fatalf("R should open the reviewer picker without the author:\n%s", out)
+	}
+	m = pressRun(t, m, "space", "ctrl+s")
+	if !host.has("people o/r#7 me cy") || m.notice != "updated the reviewers of #7" {
 		t.Fatalf("calls=%q", host.calls)
+	}
+	m = pressRun(t, m, "R")
+	m = typeText(t, m, "zz")
+	if out = screen(m); !strings.Contains(out, "no one matches") {
+		t.Fatalf("an empty search should say so:\n%s", out)
+	}
+	if m = pressRun(t, m, "space", "esc"); m.modal.open || host.has("people o/r#7 me bob,cy,") {
+		t.Fatal("esc should close the picker without saving")
+	}
+	m = pressRun(t, m, "R")
+	if m.modal.people = nil; !strings.Contains(screen(m), "no one to pick") {
+		t.Fatal("a repository with no one else to pick should say so")
+	}
+	m = pressRun(t, m, "space", "esc")
+	host.usersErr = errors.New("forbidden")
+	if m = pressRun(t, m, "A"); !strings.Contains(screen(m), "forbidden") {
+		t.Fatal("a failed load should show the error")
+	}
+	m = pressRun(t, m, "esc")
+	m.modal.applyAssignable(assignableMsg{repo: "o/r", logins: []string{"late"}})
+	if m.modal.open || m.modal.people != nil {
+		t.Fatal("users that load after the picker closes should be dropped")
 	}
 }
 
@@ -715,12 +756,6 @@ func TestPullsHelpers(t *testing.T) {
 			t.Errorf("checksIcon(%v) = %q, want %q", c.checks, got, c.want)
 		}
 	}
-	if got := logins(" @ana, bob ,, ana cy"); strings.Join(got, ",") != "ana,bob,cy" {
-		t.Fatalf("logins = %q", got)
-	}
-	if logins("  ") != nil {
-		t.Fatal("no logins in blank text")
-	}
 	if got := quote(review.Note{Author: "ana", Body: "a\nb\n"}); got != "> @ana wrote\n>\n> a\n> b\n\n" {
 		t.Fatalf("quote = %q", got)
 	}
@@ -853,5 +888,70 @@ func TestAgentTabOpensTheBranchPullRequest(t *testing.T) {
 	plain, _ := loaded(t)
 	if _, cmd := press(t, plain, "g", "e"); cmd != nil {
 		t.Fatal("without gh, ge does nothing")
+	}
+}
+
+func TestModalTextUsesVimModes(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "g", "e", "tab")
+	area := func() string { return m.modal.area.Value() }
+	if m.modal.normal || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "esc jj normal") {
+		t.Fatal(screen(m), "the description should start in insert mode")
+	}
+	m.modal.area.SetValue("one two\nthree")
+	m = typeText(t, m, "jj")
+	if !m.modal.normal || area() != "one two\nthree" || !strings.Contains(screen(m), "NORMAL") {
+		t.Fatalf("jj should leave insert mode without typing, value=%q", area())
+	}
+	m = typeText(t, m, "gg0x")
+	if area() != "ne two\nthree" {
+		t.Fatalf("gg 0 x should delete the first character, value=%q", area())
+	}
+	m = typeText(t, m, "wiX")
+	m = pressRun(t, m, "esc")
+	if area() != "ne Xtwo\nthree" || !m.modal.open || !m.modal.normal {
+		t.Fatalf("w should move to the next word and esc should only leave insert mode, value=%q", area())
+	}
+	m = typeText(t, m, "$aZ")
+	m = pressRun(t, m, "esc")
+	m = typeText(t, m, "0IA")
+	m = typeText(t, m, "jjAB")
+	if area() != "Ane XtwoZB\nthree" {
+		t.Fatalf("a, I, and A should insert after, at the start, and at the end, value=%q", area())
+	}
+	m = typeText(t, m, "jjoC")
+	m = typeText(t, m, "jjOD")
+	if area() != "Ane XtwoZB\nD\nC\nthree" {
+		t.Fatalf("o and O should open lines below and above, value=%q", area())
+	}
+	m = typeText(t, m, "jjjdd")
+	if area() != "Ane XtwoZB\nD\nthree" {
+		t.Fatalf("dd should delete the line, value=%q", area())
+	}
+	m = typeText(t, m, "Gdd")
+	if area() != "Ane XtwoZB\nD" || m.modal.area.Line() != 1 {
+		t.Fatalf("dd on the last line should keep the cursor on the new last line, value=%q", area())
+	}
+	m = typeText(t, m, "k$biY")
+	m = typeText(t, m, "jj$wiW")
+	m = typeText(t, m, "jj0biV")
+	if area() != "Ane YXtwoZBV\nWD" {
+		t.Fatalf("w and b should move by words and across lines, value=%q", area())
+	}
+	m = typeText(t, m, "jjk0hlqdz")
+	if area() != "Ane YXtwoZBV\nWD" {
+		t.Fatalf("motions and unknown keys should not change the text, value=%q", area())
+	}
+	if m = pressRun(t, m, "esc"); m.modal.open {
+		t.Fatal("esc in normal mode should cancel the modal")
+	}
+}
+
+func TestModalHintsFollowTheFocus(t *testing.T) {
+	k := defaultKeys()
+	for mode, want := range map[string]string{"": "esc cancel", "insert": "esc jj normal", "normal": "i insert  esc cancel"} {
+		if got := ansi.Strip(hints(k.modalHints(false, mode))); !strings.Contains(got, want) {
+			t.Errorf("mode %q hints %q, want %q", mode, got, want)
+		}
 	}
 }

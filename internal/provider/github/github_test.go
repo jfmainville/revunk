@@ -470,3 +470,14 @@ func TestBranchPullRequestErrors(t *testing.T) {
 		t.Fatal("gh errors should be returned")
 	}
 }
+
+func TestAssignableListsEveryPage(t *testing.T) {
+	gh := &fakeGH{replies: []string{`[{"login":"ana"}][{"login":"bob"}]`}}
+	got, err := gh.client().Assignable(context.Background(), "o/r")
+	if err != nil || !slices.Equal(got, []string{"ana", "bob"}) || !slices.Contains(gh.calls[0], "repos/o/r/assignees?per_page=100") {
+		t.Fatalf("got=%q err=%v calls=%q", got, err, gh.calls)
+	}
+	if _, err := (&fakeGH{err: errors.New("boom")}).client().Assignable(context.Background(), "o/r"); err == nil {
+		t.Fatal("gh errors should be returned")
+	}
+}

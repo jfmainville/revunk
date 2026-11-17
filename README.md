@@ -107,7 +107,7 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `tab`, `shift+tab` | Next or previous sidebar tab                                                |
 | `s`                | Next filter: assigned, review requested, authored, involved                 |
 | `ge`               | Edit the title and the Markdown description                                 |
-| `A`                | Edit the assignees and reviewers, as comma separated logins                 |
+| `A`, `R`           | Pick the assignees or reviewers in a searchable list                        |
 | `c`                | Comment on the pull request                                                 |
 | `r`                | Reply to the selected comment, quoting it when it is not in a review thread |
 | `+`                | React to the selected comment, picking a reaction you gave removes it       |
@@ -116,7 +116,9 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `gs`               | Submit the review from the review diff                                      |
 | Click, mouse wheel | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 
-The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list.
+The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels.
+
+The assignee and reviewer pickers list the users who can be assigned in the repository, with the current ones selected first. Typing searches them, `↓` `↑` or `ctrl+n` `ctrl+p` move, `space` selects or clears, and `ctrl+s` saves. The author is left out of the reviewers.
 
 ## CLI
 
