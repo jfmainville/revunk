@@ -1532,8 +1532,6 @@ func (m Model) render() string {
 	var panes string
 	if m.help {
 		panes = box("help · "+label(m.keys.CloseHelp)+" closes", "", m.helpLines(), m.width, m.panesHeight(), colorPrimary)
-	} else if m.modal.open {
-		panes = m.renderModal()
 	} else {
 		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), focusColor(m.focus == focusDiff))
 		if !m.hideTree {
@@ -1543,6 +1541,9 @@ func (m Model) render() string {
 				box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), focusColor(m.focus == focusFiles)),
 			)
 			panes = lipgloss.JoinHorizontal(lipgloss.Top, left, panes)
+		}
+		if m.modal.open {
+			panes = m.renderModal(panes)
 		}
 	}
 	parts := []string{m.tabBar(), panes}

@@ -876,8 +876,6 @@ func (m Model) renderPulls() string {
 	switch {
 	case m.help:
 		panes = box("help · "+label(m.keys.CloseHelp)+" closes", "", m.helpLines(), m.width, m.panesHeight(), colorPrimary)
-	case m.modal.open:
-		panes = m.renderModal()
 	default:
 		title, right := "details", ""
 		var lines []string
@@ -890,6 +888,9 @@ func (m Model) renderPulls() string {
 			box("pull requests", pullFilters[m.pulls.filter].name+" · "+fmt.Sprint(len(m.pulls.list)), m.pullLines(), m.pullsWidth(), m.panesHeight(), focusColor(!m.pulls.sidebar)),
 			box(title, right, lines, m.sidebarWidth(), m.panesHeight(), focusColor(m.pulls.sidebar)),
 		)
+		if m.modal.open {
+			panes = m.renderModal(panes)
+		}
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, m.tabBar(), panes, m.pullsStatus(), ansiFit(m.pullsFooter(), m.width))
 }
@@ -1200,7 +1201,7 @@ func reactionLine(list []review.Reaction) string {
 	return strings.Join(parts, "  ")
 }
 
-func (m Model) renderModal() string {
+func (m Model) renderModal(background string) string {
 	d := m.modal
 	var lines []string
 	if d.dropdown() {
@@ -1266,7 +1267,8 @@ func (m Model) renderModal() string {
 	}
 	lines = append(lines, "", " "+hints(m.modalHints()))
 	modal := box(d.title, "", lines, m.modalWidth(), min(len(lines)+2, m.panesHeight()), colorPrimary)
-	return lipgloss.Place(m.width, m.panesHeight(), lipgloss.Center, lipgloss.Center, modal)
+	x, y := max((m.width-lipgloss.Width(modal))/2, 0), max((m.panesHeight()-lipgloss.Height(modal))/2, 0)
+	return lipgloss.NewCompositor(lipgloss.NewLayer(background), lipgloss.NewLayer(modal).X(x).Y(y).Z(1)).Render()
 }
 
 func (m Model) pullsMouse(msg tea.Msg) (tea.Model, tea.Cmd) {

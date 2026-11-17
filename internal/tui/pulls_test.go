@@ -478,7 +478,7 @@ func TestPickersSetAssigneesAndReviewers(t *testing.T) {
 		t.Fatalf("A should open the assignee picker with the current ones selected:\n%s", out)
 	}
 	m = typeText(t, m, "DA")
-	if out = screen(m); strings.Contains(out, "@me") || !strings.Contains(out, "@dan") || !strings.Contains(out, "@dave") {
+	if out = screen(m); !slices.Equal(m.modal.matches(), []string{"dan", "dave"}) || !strings.Contains(out, "[ ] @dave") {
 		t.Fatalf("the search should filter without case:\n%s", out)
 	}
 	m = pressRun(t, m, "down", "down", "up", "space", "ctrl+n", "space", "space", "ctrl+s")
@@ -487,7 +487,7 @@ func TestPickersSetAssigneesAndReviewers(t *testing.T) {
 	}
 	m = pressRun(t, m, "R")
 	out = screen(m)
-	if !strings.Contains(out, "reviewers of #7") || !strings.Contains(out, "[x] @bob") || !strings.Contains(out, "[x] @cy") || strings.Contains(out, "@ana") {
+	if !strings.Contains(out, "reviewers of #7") || !strings.Contains(out, "[x] @bob") || !strings.Contains(out, "[x] @cy") || slices.Contains(m.modal.people, "ana") {
 		t.Fatalf("R should open the reviewer picker without the author:\n%s", out)
 	}
 	m = pressRun(t, m, "space", "ctrl+s")
@@ -975,7 +975,7 @@ func TestEditModalSeparatesTheTitleFromTheDescription(t *testing.T) {
 	m, _ := pullsModel(t)
 	m = pressRun(t, m, "g", "e")
 	rule := func() string {
-		for l := range strings.SplitSeq(m.renderModal(), "\n") {
+		for l := range strings.SplitSeq(m.render(), "\n") {
 			if strings.Contains(ansi.Strip(l), "description ──") {
 				return l
 			}
@@ -1005,5 +1005,21 @@ func TestReviewDiffCommentEditorUsesVimModes(t *testing.T) {
 	}
 	if m = pressRun(t, m, "esc"); m.diff.editing {
 		t.Fatal("esc in normal mode should close the review diff editor")
+	}
+}
+
+func TestModalsOverlayTheScreen(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "c")
+	if out := screen(m); !strings.Contains(out, "comment on #7") || !strings.Contains(out, "pull requests") {
+		t.Fatalf("the list should stay visible behind the modal:\n%s", out)
+	}
+	m = pressRun(t, m, "esc", "esc", "1", "g", "e")
+	if out := screen(m); !strings.Contains(out, "edit #7") || !strings.Contains(out, "commits") {
+		t.Fatalf("the Agent panes should stay visible behind the modal:\n%s", out)
+	}
+	m = pressRun(t, m, "esc", "2", "g", "d", "g", "s")
+	if out := screen(m); !strings.Contains(out, "submit your review of #7") || !strings.Contains(out, "files") {
+		t.Fatalf("the review diff should stay visible behind the submit modal:\n%s", out)
 	}
 }
