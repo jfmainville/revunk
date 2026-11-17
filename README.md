@@ -118,18 +118,18 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 
 `A` opens the actions of the selected pull request, also from the review diff. With no pull request selected it lists only the ones that need none. It opens in its search, where typing filters them and `↓` `↑` or `ctrl+n` `ctrl+p` move. `esc` leaves the search for the list, where `j` `k` move and `/` or `i` goes back to the search, and `esc` there closes it. `enter` runs the selected action. Each action has a one cell icon in the accent color:
 
-| Action                               | Does                                                                                                                                                                                            |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ✎ Edit the title and description     | Same as `ge`                                                                                                                                                                                    |
-| ± Review the diff                    | Same as `gd`, not listed in the review diff                                                                                                                                                     |
-| ↗ Review a pull request from its URL | Same as `gu`, not listed in the review diff                                                                                                                                                     |
-| + Create a pull request              | Pick the branch, the current one by default, and the target branch, the default branch by default, then write the title and description in the same text box as `ge`. The branch must be pushed |
-| ❝ Comment                            | Comment on the pull request                                                                                                                                                                     |
-| ✓ Submit a review                    | Comment, approve, or request changes, picked in a dropdown that `enter` opens. Like on GitHub, a comment or request for changes without a message needs inline comments in the review           |
-| ⎇ Merge                              | Merge after confirming the method and the commit message                                                                                                                                        |
-| ✗ Close without merging              | Close after confirming, with an optional comment                                                                                                                                                |
-| ◉ Assignees, ◎ Reviewers, ◆ Labels   | Pick in a searchable list of the repository's users or labels                                                                                                                                   |
-| ✦ Request a review from Copilot      | Ask Copilot for a review, like `gh pr edit --add-reviewer @copilot`                                                                                                                             |
+| Action                               | Does                                                                                                                                                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✎ Edit the title and description     | Same as `ge`                                                                                                                                                                                                  |
+| ± Review the diff                    | Same as `gd`, not listed in the review diff                                                                                                                                                                   |
+| ↗ Review a pull request from its URL | Same as `gu`, not listed in the review diff                                                                                                                                                                   |
+| + Create a pull request              | Same as `gc`. Pick the branch, the current one by default, and the target branch, the default branch by default, then write the title and description in the same text box as `ge`. The branch must be pushed |
+| ❝ Comment                            | Comment on the pull request                                                                                                                                                                                   |
+| ✓ Submit a review                    | Comment, approve, or request changes, picked in a dropdown that `enter` opens. Like on GitHub, a comment or request for changes without a message needs inline comments in the review                         |
+| ⎇ Merge                              | Merge after confirming the method and the commit message                                                                                                                                                      |
+| ✗ Close without merging              | Close after confirming, with an optional comment                                                                                                                                                              |
+| ◉ Assignees, ◎ Reviewers, ◆ Labels   | Pick in a searchable list of the repository's users or labels                                                                                                                                                 |
+| ✦ Request a review from Copilot      | Ask Copilot for a review, like `gh pr edit --add-reviewer @copilot`                                                                                                                                           |
 
 `ge` opens a large modal with one vim text box. It starts in normal mode. Its first line, labeled `title`, is the pull request's title, and everything below the empty line that follows it, labeled `description`, is the Markdown description. An `into` dropdown above it changes the target branch, starting on the current one, and `shift+tab` reaches it. The branches load in the background, so the modal opens right away.
 
@@ -153,6 +153,7 @@ Merging asks to confirm in a modal that lists only the merge methods the reposit
 | `x`                    | Resolve or reopen the selected review thread                                |
 | `gd`                   | Review the diff with GitHub review comments                                 |
 | `gu`                   | Review the diff of a pull request from its GitHub URL                       |
+| `gc`                   | Create a pull request                                                       |
 | Click, mouse wheel     | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 
 The modals save with `ctrl+s` and cancel with `esc`, like the comment editor. Pasting works in every modal field and in the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.

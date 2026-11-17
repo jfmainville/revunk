@@ -55,6 +55,7 @@ type keyMap struct {
 	EditPR      key.Binding
 	OpenDiff    key.Binding
 	OpenURL     key.Binding
+	CreatePR    key.Binding
 	Actions     key.Binding
 	PickDown    key.Binding
 	PickUp      key.Binding
@@ -135,6 +136,7 @@ func defaultKeys() keyMap {
 		EditPR:      bind("g e"),
 		OpenDiff:    bind("g d"),
 		OpenURL:     bind("g u"),
+		CreatePR:    bind("g c"),
 		Actions:     bind("A"),
 		PickDown:    bind("down", "ctrl+n"),
 		PickUp:      bind("up", "ctrl+p"),
@@ -270,7 +272,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "next filter: assigned, review requested, authored, involved", keys: []key.Binding{k.NextFilter}},
 			{desc: "focus the details sidebar, back to the list", keys: []key.Binding{k.Open, k.Cancel}},
 			{desc: "next / previous details tab", keys: []key.Binding{k.NextFocus, k.PrevFocus}},
-			{desc: "edit the title and description", keys: []key.Binding{k.EditPR}},
+			{desc: "edit the title and description, create a pull request", keys: []key.Binding{k.EditPR, k.CreatePR}},
 			{desc: "review the diff with GitHub comments", keys: []key.Binding{k.OpenDiff}},
 			{desc: "close the review diff, once nothing is selected or searched", keys: []key.Binding{k.Cancel}},
 			{desc: "review the diff of a pull request from its GitHub URL, on either tab", keys: []key.Binding{k.OpenURL}},
@@ -372,6 +374,7 @@ func (k keyMap) pullsHints() []hint {
 		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
 		{desc: "url", keys: []key.Binding{k.OpenURL}},
 		{desc: "edit", keys: []key.Binding{k.EditPR}},
+		{desc: "create", keys: []key.Binding{k.CreatePR}},
 		{desc: "agent", keys: []key.Binding{k.AgentTab}},
 		{desc: "help", keys: []key.Binding{k.Help}},
 	}

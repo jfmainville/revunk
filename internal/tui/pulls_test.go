@@ -1979,3 +1979,24 @@ func TestOpenDropdownOverlaysTheModal(t *testing.T) {
 		t.Fatal("closing the dropdown should remove the list")
 	}
 }
+
+func TestGCOpensTheCreateModalAndShowsInTheFooter(t *testing.T) {
+	m, host := pullsModel(t)
+	host.branches = []string{"main", "feature"}
+	if footer := ansi.Strip(m.pullsFooter()); !strings.Contains(footer, "gc create") {
+		t.Fatalf("the Pull Request footer should show gc, got %q", footer)
+	}
+	if m = pressRun(t, m, "g", "c"); !m.modal.open || m.modal.kind != modalCreate || !host.has("branches ") {
+		t.Fatal("gc should open the create modal")
+	}
+	m = pressRun(t, m, "esc", "esc", "A")
+	m = typeText(t, m, "create")
+	if out := screen(m); !strings.Contains(out, "Create a pull request") || !strings.Contains(out, "gc") {
+		t.Fatalf("the create action should list its gc shortcut:\n%s", out)
+	}
+	nohost, _ := pullsModel(t)
+	nohost.host = nil
+	if nohost = pressRun(t, nohost, "g", "c"); nohost.modal.open {
+		t.Fatal("without gh, gc should do nothing")
+	}
+}

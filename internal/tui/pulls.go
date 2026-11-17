@@ -395,6 +395,8 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case is(seq, k.OpenURL) && m.host != nil:
 			return m, m.openModal(modalURL, review.PullRequest{})
+		case is(seq, k.CreatePR) && m.host != nil:
+			return m, m.openModal(modalCreate, review.PullRequest{})
 		case is(seq, k.Top):
 			if m.pulls.sidebar {
 				m.pulls.scroll, m.pulls.item = 0, 0
@@ -751,7 +753,7 @@ func (m Model) actions() []action {
 	if m.pr.Number == 0 {
 		list = append(list,
 			action{"↗", "Review a pull request from its URL", k.OpenURL, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalURL, review.PullRequest{}) }},
-			action{"+", "Create a pull request", key.Binding{}, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalCreate, review.PullRequest{}) }},
+			action{"+", "Create a pull request", k.CreatePR, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalCreate, review.PullRequest{}) }},
 		)
 	}
 	return list
