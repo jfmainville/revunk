@@ -659,7 +659,7 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 			d.area.Placeholder = "optional comment, markdown works"
 		}
 		d.area.SetWidth(w)
-		rows := len(d.drops) + min(len(d.drops), 1)
+		rows := 2 * len(d.drops)
 		d.area.SetHeight(max(min(m.panesHeight()-8-len(d.fields)-rows, 12), 1))
 		if d.titled {
 			d.area.SetHeight(max(m.panesHeight()-8-rows-2*min(len(d.warning), 1), 1))
@@ -947,6 +947,9 @@ func (m Model) dropdownLines() []string {
 			arrow = "▴"
 		}
 		shown := cmp.Or(dr.value(), "default branch")
+		if n > 0 {
+			lines = append(lines, "")
+		}
 		lines = append(lines, " "+labelStyle.Render(fmt.Sprintf("%-10s", dr.name))+" "+value.Render(fmt.Sprintf(" %-*s%s ", dr.width()-2, shown, arrow)))
 	}
 	return append(lines, "")
@@ -1660,7 +1663,7 @@ func (m Model) renderModal(background string) string {
 	if d.warning != "" {
 		lines = append(lines, " "+errorStyle.Render(d.warning), "")
 	}
-	dropRow := len(lines) + d.focus + 1
+	dropRow := len(lines) + 2*d.focus + 1
 	if d.dropdown() {
 		lines = append(lines, m.dropdownLines()...)
 	} else if len(d.drops) > 0 {

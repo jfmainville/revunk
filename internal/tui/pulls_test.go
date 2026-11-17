@@ -1613,6 +1613,11 @@ func TestCreatePullRequestFromTheActions(t *testing.T) {
 	if !strings.Contains(out, "branch      feature") || !strings.Contains(out, "into        main") || !strings.Contains(out, "title") || !strings.Contains(out, "description") {
 		t.Fatalf("the modal should show both dropdowns and the labeled title and description:\n%s", out)
 	}
+	rows := strings.Split(out, "\n")
+	at := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, "branch      feature") })
+	if !strings.Contains(rows[at+2], "into        main") || strings.Trim(rows[at+1][strings.Index(rows[at+1], "│ "):], "│ ◌▌") != "" {
+		t.Fatalf("an empty line should separate the source and target branches:\n%s", strings.Join(rows[at:at+3], "\n"))
+	}
 	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title on the first line can't be empty" {
 		t.Fatal("an empty title should not create anything")
 	}
