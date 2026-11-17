@@ -43,11 +43,12 @@ const (
 )
 
 type row struct {
-	kind rowKind
-	file int
-	line int
-	part int
-	text string
+	kind   rowKind
+	file   int
+	line   int
+	part   int
+	text   string
+	editor int
 }
 
 type editorState struct {
@@ -386,7 +387,7 @@ func (p parsed) parse(files []review.File) parsed {
 			continue
 		}
 		next.lines[i] = review.ParseLines(f.Patch)
-		next.tokens[i] = highlight(f.Path, next.lines[i])
+		next.tokens[i] = highlight(lexerFor(f.Path), next.lines[i])
 	}
 	return next
 }
@@ -838,8 +839,10 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		cmd = m.editor.update(&m.editor.area, msg, k)
 	}
-	m.editor.area.SetHeight(min(max(m.editor.area.LineCount(), 3), 12))
-	m.relayout()
+	if h := min(max(m.editor.area.LineCount(), 3), 12); h != m.editor.area.Height() {
+		m.editor.area.SetHeight(h)
+		m.relayout()
+	}
 	m.revealEditor()
 	return m, cmd
 }
@@ -1194,8 +1197,8 @@ func (m *Model) syncFile() {
 func (m *Model) revealEditor() {
 	last := -1
 	for i, r := range m.rows {
-		if r.kind == rowText && r.text == "" && r.part == 0 {
-			last = i
+		if r.editor > 0 {
+			last = i + 1
 		}
 	}
 	if h := max(m.diffHeight(), 1); last >= m.offset+h {
@@ -1507,6 +1510,13 @@ func (m *Model) addComment(index, file int) {
 }
 
 func (m *Model) addEditor(file int) {
+	for i := range m.editorLines() {
+		m.rows = append(m.rows, row{kind: rowText, file: file, editor: i + 1})
+	}
+	m.rows = append(m.rows, row{kind: rowText, file: file})
+}
+
+func (m Model) editorLines() []string {
 	chips := make([]string, len(commentKinds))
 	for i, k := range commentKinds {
 		chips[i] = dimStyle.Render(k)
@@ -1514,12 +1524,9 @@ func (m *Model) addEditor(file int) {
 			chips[i] = lipgloss.NewStyle().Background(kindColor(k)).Foreground(colorOnPrimary).Render(k)
 		}
 	}
-	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(m.editor.area.View(), "\n")...)
+	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(markdownView(m.editor.area), "\n")...)
 	lines = append(lines, hints(m.keys.editorHints(m.editor.mode())))
-	for _, l := range commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth()) {
-		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
-	}
-	m.rows = append(m.rows, row{kind: rowText, file: file})
+	return commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth())
 }
 
 func hints(list []hint) string {
@@ -1848,6 +1855,7 @@ func (m Model) diffLines() []string {
 	if m.anchor >= 0 {
 		from, to = min(m.anchor, m.cursor), max(m.anchor, m.cursor)
 	}
+	var editor []string
 	for i := m.offset; i < end; i++ {
 		r := m.rows[i]
 		cursor := i == m.cursor && m.focus == focusDiff
@@ -1865,8 +1873,15 @@ func (m Model) diffLines() []string {
 		case rowLine:
 			selected := i >= from && i <= to && r.file == m.rows[m.cursor].file
 			lines = append(lines, renderLine(m.lines[r.file][r.line], markMatches(m.tokens[r.file][r.line], m.query), width, 0, cursor, selected))
-		default:
-			lines = append(lines, r.text)
+		case rowText:
+			if r.editor == 0 {
+				lines = append(lines, r.text)
+				continue
+			}
+			if editor == nil {
+				editor = m.editorLines()
+			}
+			lines = append(lines, editor[min(r.editor, len(editor))-1])
 		}
 	}
 	return lines

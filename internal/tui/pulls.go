@@ -1270,7 +1270,7 @@ func (m Model) renderModal(background string) string {
 			name := "description "
 			lines = append(lines, "", " "+style.Render(name+strings.Repeat("─", max(m.modalWidth()-4-len(name), 0))))
 		}
-		for _, l := range strings.Split(d.area.View(), "\n") {
+		for _, l := range strings.Split(markdownView(d.area), "\n") {
 			lines = append(lines, " "+l)
 		}
 	}

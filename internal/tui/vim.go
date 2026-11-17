@@ -6,6 +6,9 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/jfmainville/revunk/internal/review"
 )
 
 type vimState struct {
@@ -149,4 +152,47 @@ func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 			v.pending = key
 		}
 	}
+}
+
+func markdownView(a textarea.Model) string {
+	if a.Value() == "" {
+		return a.View()
+	}
+	a.SetVirtualCursor(false)
+	cursor := a.Cursor()
+	plain := strings.Split(ansi.Strip(a.View()), "\n")
+	lines := make([]review.Line, len(plain))
+	for i, l := range plain {
+		lines[i] = review.Line{Text: l}
+	}
+	out := make([]string, len(plain))
+	for i, tokens := range highlight(markdownLexer, lines) {
+		col := -1
+		if cursor != nil && cursor.Y == i {
+			col = cursor.X
+		}
+		var b strings.Builder
+		x := 0
+		for _, t := range tokens {
+			w := ansi.StringWidth(t.text)
+			if col < x || col >= x+w {
+				b.WriteString(t.style.Render(t.text))
+				x += w
+				continue
+			}
+			if before := ansi.Truncate(t.text, col-x, ""); before != "" {
+				b.WriteString(t.style.Render(before))
+			}
+			b.WriteString(t.style.Reverse(true).Render(ansi.Truncate(ansi.TruncateLeft(t.text, col-x, ""), 1, "")))
+			if after := ansi.TruncateLeft(t.text, col-x+1, ""); after != "" {
+				b.WriteString(t.style.Render(after))
+			}
+			x += w
+		}
+		if col >= x {
+			b.WriteString(strings.Repeat(" ", col-x) + lipgloss.NewStyle().Reverse(true).Render(" "))
+		}
+		out[i] = b.String()
+	}
+	return strings.Join(out, "\n")
 }

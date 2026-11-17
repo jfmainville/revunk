@@ -37,16 +37,19 @@ var (
 	errorStyle   = lipgloss.NewStyle().Foreground(colorError)
 
 	syntax = chroma.MustNewStyle("revunk", chroma.StyleEntries{
-		chroma.Text:           "#e7e0d7",
-		chroma.Keyword:        "#ebaf39",
-		chroma.KeywordType:    "#ebaf39",
-		chroma.NameBuiltin:    "#ebaf39",
-		chroma.NameTag:        "#ebaf39",
-		chroma.NameDecorator:  "#7dc9b6",
-		chroma.Comment:        "italic #c0ad9f",
-		chroma.LiteralString:  "#aec76c",
-		chroma.LiteralNumber:  "#c5a3cd",
-		chroma.GenericHeading: "bold #ebaf39",
+		chroma.Text:              "#e7e0d7",
+		chroma.Keyword:           "#ebaf39",
+		chroma.KeywordType:       "#ebaf39",
+		chroma.NameBuiltin:       "#ebaf39",
+		chroma.NameTag:           "#ebaf39",
+		chroma.NameDecorator:     "#7dc9b6",
+		chroma.Comment:           "italic #c0ad9f",
+		chroma.LiteralString:     "#aec76c",
+		chroma.LiteralNumber:     "#c5a3cd",
+		chroma.GenericHeading:    "bold #ebaf39",
+		chroma.GenericSubheading: "bold #ebaf39",
+		chroma.GenericStrong:     "bold #e7e0d7",
+		chroma.GenericEmph:       "italic #e7e0d7",
 	})
 )
 
@@ -60,11 +63,16 @@ type token struct {
 	style lipgloss.Style
 }
 
-func highlight(path string, lines []review.Line) [][]token {
-	lexer := lexers.Match(path)
-	if lexer == nil {
-		lexer = lexers.Fallback
+var markdownLexer = lexers.Get("markdown")
+
+func lexerFor(path string) chroma.Lexer {
+	if lexer := lexers.Match(path); lexer != nil {
+		return lexer
 	}
+	return lexers.Fallback
+}
+
+func highlight(lexer chroma.Lexer, lines []review.Line) [][]token {
 	texts := make([]string, len(lines))
 	for i, l := range lines {
 		if l.Kind != review.LineHunk {

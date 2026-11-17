@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -688,7 +689,7 @@ func TestHelpOverlayAndQuit(t *testing.T) {
 
 func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	lines := review.ParseLines("@@ -1 +1 @@\n+func a() { return \"x\" } // note")
-	tokens := highlight("main.go", lines)
+	tokens := highlight(lexerFor("main.go"), lines)
 	if len(tokens[0]) != 0 {
 		t.Fatalf("hunk line got tokens: %+v", tokens[0])
 	}
@@ -702,7 +703,7 @@ func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	if !strings.Contains(colors[`"x"`], "174;199;108") {
 		t.Fatalf("string not green: %q", colors[`"x"`])
 	}
-	plain := highlight("notes.unknownext", review.ParseLines("@@ -1 +1 @@\n+just\ttext"))
+	plain := highlight(lexerFor("notes.unknownext"), review.ParseLines("@@ -1 +1 @@\n+just\ttext"))
 	if got := plain[1][0].text; got != "just    text" {
 		t.Fatalf("fallback token = %q, want tabs expanded", got)
 	}
@@ -2149,5 +2150,36 @@ func TestCtrlHJKLMovesBetweenPanes(t *testing.T) {
 	m, _ = press(t, m, "ctrl+k", "e")
 	if m, _ = press(t, m, "ctrl+h"); m.focus != focusDiff {
 		t.Fatal("ctrl+h should stay on the diff when the left panes are hidden")
+	}
+}
+
+func TestMarkdownViewHighlightsAndDrawsTheCursor(t *testing.T) {
+	a := textarea.New()
+	a.Prompt, a.ShowLineNumbers = "", false
+	a.SetWidth(30)
+	a.Placeholder = "write here"
+	if got := markdownView(a); !strings.Contains(ansi.Strip(got), "write here") {
+		t.Fatalf("an empty box should show its placeholder: %q", got)
+	}
+	a.Focus()
+	a.SetValue("# Title\n- **item**")
+	got := markdownView(a)
+	if plain := ansi.Strip(got); !strings.Contains(plain, "# Title") || !strings.Contains(plain, "- **item**") {
+		t.Fatalf("the text should stay the same: %q", plain)
+	}
+	lines := strings.Split(got, "\n")
+	if want := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Render("# Title"); !strings.HasPrefix(lines[0], strings.TrimSuffix(want, "\x1b[m")) {
+		t.Fatalf("the heading should be bold and primary: %q", lines[0])
+	}
+	if i := strings.Index(lines[1], "\x1b[7"); i < 0 || !strings.HasSuffix(ansi.Strip(lines[1][:i]), "**item**") {
+		t.Fatalf("the cursor should show after the last character: %q", lines[1])
+	}
+	a.MoveToBegin()
+	if got := strings.Split(markdownView(a), "\n")[0]; !strings.HasPrefix(got, lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Reverse(true).Render("#")) {
+		t.Fatalf("the cursor should reverse the character under it: %q", got)
+	}
+	a.Blur()
+	if got := markdownView(a); strings.Contains(got, "\x1b[7m") {
+		t.Fatal("a blurred box should not draw a cursor")
 	}
 }
