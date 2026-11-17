@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,11 @@ func (h *fakeHost) PullRequest(_ context.Context, repo string, number int) (revi
 	key := fmt.Sprintf("%s#%d", repo, number)
 	h.calls = append(h.calls, "detail "+key)
 	return h.details[key], h.detailErr
+}
+
+func (h *fakeHost) BranchPullRequest(context.Context) (review.PullRequest, error) {
+	h.calls = append(h.calls, "branch")
+	return h.details["o/r#7"], h.detailErr
 }
 
 func (h *fakeHost) record(call string) error {
@@ -822,5 +828,30 @@ func TestTabAtFindsTheLabelUnderX(t *testing.T) {
 		if got := tabAt(x, names, 1); got != want {
 			t.Errorf("tabAt(%d)=%d want %d", x, got, want)
 		}
+	}
+}
+
+func TestAgentTabOpensTheBranchPullRequest(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "1", "g", "e")
+	if !host.has("branch") || m.tab != tabAgent || !m.modal.open || !strings.Contains(screen(m), "edit #7") {
+		t.Fatalf("ge on the Agent tab should edit the branch's pull request in place, calls=%q", host.calls)
+	}
+	m = pressRun(t, m, "esc", "g", "d")
+	if m.tab != tabPulls || m.diff == nil || m.diff.pr.Number != 7 {
+		t.Fatal("gd on the Agent tab should open the branch's review diff on the Pull Request tab")
+	}
+	calls := len(host.calls)
+	if m = pressRun(t, m, "g", "e"); slices.Contains(host.calls[calls:], "branch") {
+		t.Fatal("the review diff should not look up the branch's pull request")
+	}
+	m = pressRun(t, m, "q", "1")
+	host.detailErr = errors.New("no pull requests found for branch")
+	if m = pressRun(t, m, "g", "d"); m.tab != tabAgent || m.diff != nil || !strings.Contains(screen(m), "no pull requests found") {
+		t.Fatal("a branch without a pull request should show the error and stay on the Agent tab")
+	}
+	plain, _ := loaded(t)
+	if _, cmd := press(t, plain, "g", "e"); cmd != nil {
+		t.Fatal("without gh, ge does nothing")
 	}
 }

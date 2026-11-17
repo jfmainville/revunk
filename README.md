@@ -65,6 +65,8 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `S`                              | Send unsent comments to the agent                                            |
 | `y`                              | Copy unsent comments to the clipboard                                        |
 | `gf`                             | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
+| `ge`                             | Edit the title and description of the branch's pull request                  |
+| `gd`                             | Review the branch's pull request on the **Pull Request** tab                 |
 | `1`, `2`                         | Show the **Agent** or **Pull Request** tab, also by clicking its name        |
 | `?`                              | Show every key                                                               |
 | `esc`                            | Stop selecting, clear the search, or close the help                          |

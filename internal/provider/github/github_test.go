@@ -441,3 +441,32 @@ func TestGHRunsTheCLIAndReportsStderr(t *testing.T) {
 		t.Fatalf("stderr error = %v", err)
 	}
 }
+
+func TestBranchPullRequestLoadsThePullRequestOfTheBranch(t *testing.T) {
+	gh := &fakeGH{replies: []string{`{"url":"https://github.com/o/r/pull/7"}`, detailJSON}}
+	pr, err := gh.client().BranchPullRequest(context.Background())
+	if err != nil || pr.Repo != "o/r" || pr.Number != 7 || pr.Title != "Add login" {
+		t.Fatalf("pr=%+v err=%v", pr, err)
+	}
+	if want := []string{"pr", "view", "--json=url"}; !slices.Equal(gh.calls[0], want) || arg(gh.calls[1], "owner=") != "o" || arg(gh.calls[1], "number=") != "7" {
+		t.Fatalf("calls=%q", gh.calls)
+	}
+}
+
+func TestBranchPullRequestErrors(t *testing.T) {
+	for name, reply := range map[string]string{
+		"bad json":   `nope`,
+		"bad url":    `{"url":"://x"}`,
+		"not a pull": `{"url":"https://github.com/o/r/issues/7"}`,
+		"no number":  `{"url":"https://github.com/o/r/pull/x"}`,
+	} {
+		gh := &fakeGH{replies: []string{reply}}
+		if _, err := gh.client().BranchPullRequest(context.Background()); err == nil || len(gh.calls) != 1 {
+			t.Errorf("%s should fail without loading a pull request, err=%v", name, err)
+		}
+	}
+	gh := &fakeGH{err: errors.New("no pull requests found for branch")}
+	if _, err := gh.client().BranchPullRequest(context.Background()); err == nil {
+		t.Fatal("gh errors should be returned")
+	}
+}

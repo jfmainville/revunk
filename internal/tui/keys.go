@@ -215,6 +215,8 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
 			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
+			{desc: "edit the branch's pull request", keys: []key.Binding{k.EditPR}},
+			{desc: "review the branch's pull request", keys: []key.Binding{k.OpenDiff}},
 		}},
 		{"pull requests", []hint{
 			{desc: "next filter: assigned, review requested, authored, involved", keys: []key.Binding{k.NextFilter}},

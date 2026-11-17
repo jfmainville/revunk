@@ -280,6 +280,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = ""
 		}
 		return m, m.poll()
+	case branchPRMsg:
+		return m, m.openBranchPR(msg)
 	case actionMsg:
 		m.err, m.notice = msg.err, msg.notice
 		if msg.clipboard != "" {
@@ -476,6 +478,11 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.openFile()
 		case is(seq, k.Submit):
 			return m, m.openModal(modalSubmit, m.pr)
+		case m.host == nil || m.pr.Number > 0:
+		case is(seq, k.EditPR):
+			return m, m.fetchBranchPR(false)
+		case is(seq, k.OpenDiff):
+			return m, m.fetchBranchPR(true)
 		}
 		return m, nil
 	}

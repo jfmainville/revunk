@@ -100,6 +100,12 @@ type pullsMsg struct {
 	err    error
 }
 
+type branchPRMsg struct {
+	pr   review.PullRequest
+	diff bool
+	err  error
+}
+
 type detailMsg struct {
 	key    string
 	pr     review.PullRequest
@@ -191,6 +197,26 @@ func (m Model) hostAction(pr review.PullRequest, notice string, action func(cont
 		detail, err := host.PullRequest(ctx, pr.Repo, pr.Number)
 		return detailMsg{key: prKey(pr), pr: detail, notice: notice, err: err}
 	}
+}
+
+func (m Model) fetchBranchPR(diff bool) tea.Cmd {
+	host := m.host
+	return func() tea.Msg {
+		pr, err := host.BranchPullRequest(context.Background())
+		return branchPRMsg{pr: pr, diff: diff, err: err}
+	}
+}
+
+func (m *Model) openBranchPR(msg branchPRMsg) tea.Cmd {
+	if msg.err != nil {
+		m.err = msg.err
+		return nil
+	}
+	if !msg.diff {
+		return m.openModal(modalEdit, msg.pr)
+	}
+	cmd := m.showPulls()
+	return tea.Batch(cmd, m.openDiff(msg.pr))
 }
 
 func (m Model) selectedPR() (review.PullRequest, bool) {
