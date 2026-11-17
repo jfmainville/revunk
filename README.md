@@ -65,7 +65,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `S`                              | Send unsent comments to the agent                                            |
 | `y`                              | Copy unsent comments to the clipboard                                        |
 | `gf`                             | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
-| `1`, `2`                         | Show the **Agent** or **Pull Request** tab                                   |
+| `1`, `2`                         | Show the **Agent** or **Pull Request** tab, also by clicking its name        |
 | `?`                              | Show every key                                                               |
 | `esc`                            | Stop selecting, clear the search, or close the help                          |
 | `q`, `ctrl+c`                    | Quit                                                                         |
@@ -112,7 +112,7 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `x`                | Resolve or reopen the selected review thread                                |
 | `gd`               | Review the diff with GitHub review comments                                 |
 | `gs`               | Submit the review from the review diff                                      |
-| Click, mouse wheel | Select a pull request, or focus and scroll the sidebar                      |
+| Click, mouse wheel | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 
 The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list.
 

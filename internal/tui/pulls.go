@@ -1082,6 +1082,10 @@ func (m Model) pullsMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.prefix = ""
 		m.pulls.sidebar = msg.X >= m.pullsWidth()
+		if i := tabAt(msg.X-m.pullsWidth()-1, detailTabs, 0); m.pulls.sidebar && msg.Y == 2 && i >= 0 {
+			m.pulls.section, m.pulls.scroll, m.pulls.item = i, 0, 0
+			return m, nil
+		}
 		row := msg.Y - 2
 		if i := max(m.pulls.cursor-(m.panesHeight()-2)+1, 0) + row; !m.pulls.sidebar && row >= 0 && row < m.panesHeight()-2 && i < len(m.pulls.list) {
 			return m, m.movePull(i - m.pulls.cursor)

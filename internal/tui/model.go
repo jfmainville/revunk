@@ -286,6 +286,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.SetClipboard(msg.clipboard)
 		}
 	case tea.MouseClickMsg, tea.MouseWheelMsg:
+		if c, ok := msg.(tea.MouseClickMsg); ok && c.Button == tea.MouseLeft && c.Y == 0 && m.pr.Number == 0 && !m.help && !m.modal.open && !m.editing {
+			switch tabAt(c.X, tabNames, 1) {
+			case tabAgent:
+				m.tab = tabAgent
+				return m, nil
+			case tabPulls:
+				return m, m.showPulls()
+			}
+		}
 		if m.tab == tabPulls && m.pr.Number == 0 {
 			return m.pullsMouse(msg)
 		}
@@ -1575,9 +1584,22 @@ func box(title, right string, lines []string, width, height int, accent color.Co
 	return strings.Join(out, "\n")
 }
 
+var tabNames = []string{"Agent", "Pull Request"}
+
+func tabAt(x int, names []string, gap int) int {
+	for i, name := range names {
+		w := len(name) + 2
+		if x >= 0 && x < w {
+			return i
+		}
+		x -= w + gap
+	}
+	return -1
+}
+
 func (m Model) tabBar() string {
 	var left string
-	for i, name := range []string{"Agent", "Pull Request"} {
+	for i, name := range tabNames {
 		style := dimStyle
 		if i == m.tab {
 			style = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary)

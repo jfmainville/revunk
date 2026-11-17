@@ -779,3 +779,48 @@ func TestHintsSkipDisabledBindings(t *testing.T) {
 		t.Fatalf("hints = %q", out)
 	}
 }
+
+func TestClickingTabsSwitchesThem(t *testing.T) {
+	m, host := pullsModel(t)
+	if m, _ = click(t, m, 3, 0); m.tab != tabAgent {
+		t.Fatal("clicking Agent should open the Agent tab")
+	}
+	if m, _ = click(t, m, 7, 0); m.tab != tabAgent {
+		t.Fatal("the gap between tabs should not switch")
+	}
+	m, cmd := click(t, m, 10, 0)
+	if m.tab != tabPulls || cmd != nil || len(host.calls) != 2 {
+		t.Fatal("clicking Pull Request should reopen the tab without reloading it")
+	}
+	m = pressRun(t, m, "?")
+	if m, _ = click(t, m, 3, 0); m.tab != tabPulls {
+		t.Fatal("tab clicks are ignored while the help is open")
+	}
+}
+
+func TestClickingDetailTabsOpensThem(t *testing.T) {
+	m, _ := pullsModel(t)
+	x := m.pullsWidth() + 1
+	m.pulls.scroll = 4
+	if m, _ = click(t, m, x+len(" Overview  Activity  C"), 2); m.pulls.section != tabComments || m.pulls.scroll != 0 || !m.pulls.sidebar {
+		t.Fatalf("clicking Comments should open it, section=%d", m.pulls.section)
+	}
+	if m, _ = click(t, m, x, 2); m.pulls.section != 0 {
+		t.Fatal("clicking Overview should open it")
+	}
+	if m, _ = click(t, m, x+len(" Overview  Activity  C"), 3); m.pulls.section != 0 {
+		t.Fatal("clicks below the tabs should not switch them")
+	}
+	if m, _ = click(t, m, m.width-2, 2); m.pulls.section != 0 {
+		t.Fatal("clicks past the last tab should not switch them")
+	}
+}
+
+func TestTabAtFindsTheLabelUnderX(t *testing.T) {
+	names := []string{"ab", "cde"}
+	for x, want := range map[int]int{-1: -1, 0: 0, 3: 0, 4: -1, 5: 1, 9: 1, 10: -1} {
+		if got := tabAt(x, names, 1); got != want {
+			t.Errorf("tabAt(%d)=%d want %d", x, got, want)
+		}
+	}
+}
