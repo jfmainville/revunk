@@ -31,7 +31,7 @@ The bar under the panes shows the mode on the left and messages on the right, ea
 
 Run Revunk from inside a git repository. The **Agent** tab compares the current branch with its base branch, from their merge base to the working tree, so commits, staged and unstaged edits, and untracked files all show. Untracked files that are binary or larger than 1 MB are listed without a diff.
 
-- **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff.
+- **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff. The pane takes at most 10 rows, or a third of the height when that is smaller, and scrolls to keep the selected commit in view.
 - **files** lists the changed files grouped by directory, each with its added and removed line counts, and the totals in the pane title. Reviewed files move to a **Reviewed** section at the bottom, listed by full path. Marking a file reviewed from this pane selects the next file still to review. Selecting a file scrolls the diff to it, and moving through the diff keeps the file under the cursor selected, marked with a yellow bar.
 - **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, each line shows its number in the current file, or in the old file for removed lines, and code is syntax highlighted. Lines wider than the pane wrap onto the next rows without changing the file.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
@@ -95,7 +95,7 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 | `tab`, `shift+tab` | Cycle the type (comment, note, suggestion), each drawn in its own color. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
 | `esc`, `jj`        | Switch to normal mode, where `esc` cancels                                                                                                                                                  |
 
-The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels. The cursor is a bar in insert mode and a block in normal mode, in every comment box and modal, and the one line fields of the modals, always typing, show a bar.
+The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `ctrl+d` `ctrl+u`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels. A text longer than its box scrolls to follow the cursor. The cursor is a bar in insert mode and a block in normal mode, in every comment box and modal, and the one line fields of the modals, always typing, show a bar.
 
 Every modal and editor saves with `ctrl+s` only and cancels or closes with `esc` only, so `q` and `enter` are never a shortcut for either.
 
@@ -116,7 +116,7 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 
 `gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. The review diff reloads every 15 seconds, and `esc` closes it once nothing is selected or searched. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
 
-`A` opens the actions of the selected pull request, also from the review diff. With no pull request selected it lists only the ones that need none. Typing filters them, `↓` `↑` or `ctrl+n` `ctrl+p` move, `enter` runs the selected one, and `esc` closes the list. Each action has a one cell icon in the accent color:
+`A` opens the actions of the selected pull request, also from the review diff. With no pull request selected it lists only the ones that need none. It opens in its search, where typing filters them and `↓` `↑` or `ctrl+n` `ctrl+p` move. `esc` leaves the search for the list, where `j` `k` move and `/` or `i` goes back to the search, and `esc` there closes it. `enter` runs the selected action. Each action has a one cell icon in the accent color:
 
 | Action                               | Does                                                                                                                                                                                  |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -157,7 +157,7 @@ Merging asks to confirm in a modal that lists only the merge methods the reposit
 
 The modals save with `ctrl+s` and cancel with `esc`, like the comment editor. Pasting works in every modal field and in the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.
 
-The assignee and reviewer pickers list the users who can be assigned in the repository, and the label picker its labels, with the current ones selected first. Typing searches them, `↓` `↑` or `ctrl+n` `ctrl+p` move, `space` selects or clears, and `ctrl+s` saves. The author is left out of the reviewers.
+The assignee and reviewer pickers list the users who can be assigned in the repository, and the label picker its labels, with the current ones selected first. Like the actions, they open in their search, and `esc` leaves it for the list where `j` `k` move. `space` selects or clears, and `ctrl+s` saves. The author is left out of the reviewers.
 
 ## CLI
 

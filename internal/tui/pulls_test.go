@@ -455,7 +455,7 @@ func TestActionsListEveryPullRequestAction(t *testing.T) {
 	m = pressRun(t, m, "A")
 	out := screen(m)
 	for _, want := range []string{"actions for #7", "✎  Edit the title and description", "ge", "±  Review the diff", "gd", "↗  Review a pull request from its URL", "gu",
-		"❝  Comment", "✓  Submit a review", "⎇  Merge", "✗  Close without merging", "◉  Assignees", "◎  Reviewers", "◆  Labels", "✦  Request a review from Copilot", "⏎ run  esc cancel"} {
+		"❝  Comment", "✓  Submit a review", "⎇  Merge", "✗  Close without merging", "◉  Assignees", "◎  Reviewers", "◆  Labels", "✦  Request a review from Copilot", "⏎ run  esc list"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the actions should list %q:\n%s", want, out)
 		}
@@ -484,7 +484,7 @@ func TestActionsListEveryPullRequestAction(t *testing.T) {
 	if m = pressRun(t, m, "enter"); !m.modal.open || m.modal.kind != modalActions {
 		t.Fatal("enter with no match should do nothing")
 	}
-	if m = pressRun(t, m, "esc"); m.modal.open {
+	if m = pressRun(t, m, "esc", "esc"); m.modal.open {
 		t.Fatal("esc should close the actions")
 	}
 	if m = runAction(t, m, "edit"); !m.modal.open || m.modal.kind != modalEdit {
@@ -498,7 +498,7 @@ func TestActionsListEveryPullRequestAction(t *testing.T) {
 	if got := ansi.Strip(screen(m)); strings.Contains(got, "Review the diff") || strings.Contains(got, "from its URL") || !strings.Contains(got, "Merge") {
 		t.Fatalf("the review diff should list only the actions that make sense there:\n%s", got)
 	}
-	m = pressRun(t, m, "esc")
+	m = pressRun(t, m, "esc", "esc")
 	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(footer, "A actions") {
 		t.Fatalf("the review diff footer should show the actions key: %s", footer)
 	}
@@ -783,19 +783,19 @@ func TestPickersSetAssigneesAndReviewers(t *testing.T) {
 	if out = screen(m); !strings.Contains(out, "no one matches") {
 		t.Fatalf("an empty search should say so:\n%s", out)
 	}
-	if m = pressRun(t, m, "space", "esc"); m.modal.open || host.has("people o/r#7 me bob,cy,") {
+	if m = pressRun(t, m, "space", "esc", "esc"); m.modal.open || host.has("people o/r#7 me bob,cy,") {
 		t.Fatal("esc should close the picker without saving")
 	}
 	m = runAction(t, m, "reviewers")
 	if m.modal.options = nil; !strings.Contains(screen(m), "no one to pick") {
 		t.Fatal("a repository with no one else to pick should say so")
 	}
-	m = pressRun(t, m, "space", "esc")
+	m = pressRun(t, m, "space", "esc", "esc")
 	host.usersErr = errors.New("forbidden")
 	if m = runAction(t, m, "assignees"); !strings.Contains(screen(m), "forbidden") {
 		t.Fatal("a failed load should show the error")
 	}
-	m = pressRun(t, m, "esc")
+	m = pressRun(t, m, "esc", "esc")
 	m.modal.applyPicker(pickerMsg{repo: "o/r", items: []string{"late"}})
 	if m.modal.open || m.modal.options != nil {
 		t.Fatal("users that load after the picker closes should be dropped")
@@ -1317,7 +1317,7 @@ func TestPastingFillsTheFocusedText(t *testing.T) {
 	if m.modal.fields[0].Value() != "bo" || m.modal.cursor != 0 {
 		t.Fatal("a paste should fill the picker search")
 	}
-	m = pressRun(t, m, "esc")
+	m = pressRun(t, m, "esc", "esc")
 	m = runAction(t, m, "comment")
 	m = update(t, m, tea.PasteMsg{Content: "x"})
 	if m.modal.area.Value() != "x" {
@@ -1802,5 +1802,72 @@ func TestTitledModalsLeaveAnEmptyLineBeforeTheDescription(t *testing.T) {
 		if title == 0 || description != title+2 {
 			t.Fatalf("%s should show description two rows under title, title=%d description=%d:\n%s", query, title, description, screen(m))
 		}
+	}
+}
+
+func TestListsMoveWithJKOutsideTheSearch(t *testing.T) {
+	m, host := pullsModel(t)
+	host.labels = []string{"auth", "bug", "docs"}
+	m = pressRun(t, m, "A")
+	if m = typeText(t, m, "j"); m.modal.fields[0].Value() != "j" || m.modal.normal {
+		t.Fatal("while searching, j should type")
+	}
+	m = pressRun(t, m, "backspace", "esc")
+	if !m.modal.open || !m.modal.normal || m.modal.fields[0].Focused() || !strings.Contains(screen(m), "j k move") || !strings.Contains(screen(m), "/ i search") {
+		t.Fatalf("esc should leave the search for the list:\n%s", screen(m))
+	}
+	if m = pressRun(t, m, "j", "j", "k", "j"); m.modal.cursor != 2 || m.modal.fields[0].Value() != "" {
+		t.Fatalf("j and k should move the list, cursor=%d", m.modal.cursor)
+	}
+	if m = pressRun(t, m, "x"); m.modal.fields[0].Value() != "" {
+		t.Fatal("other keys should not type outside the search")
+	}
+	if m = pressRun(t, m, "/"); m.modal.normal || !m.modal.fields[0].Focused() {
+		t.Fatal("/ should go back to the search")
+	}
+	m = typeText(t, m, "labels")
+	m = pressRun(t, m, "enter")
+	if m.modal.kind != modalLabels || m.modal.normal {
+		t.Fatal("the picked action should run")
+	}
+	m = pressRun(t, m, "esc", "j", "space")
+	if !slices.Contains(m.modal.picked, host.labels[1]) || m.modal.cursor != 1 {
+		t.Fatalf("j should move the label picker, picked=%q", m.modal.picked)
+	}
+	if m = pressRun(t, m, "i", "esc", "esc"); m.modal.open {
+		t.Fatal("esc in the list should close the picker")
+	}
+}
+
+func TestVimTextBoxesScrollWithTheCursor(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = runAction(t, m, "edit")
+	var body []string
+	for i := range 80 {
+		body = append(body, fmt.Sprintf("line %02d", i))
+	}
+	m.modal.area.SetValue("Title\n\n" + strings.Join(body, "\n"))
+	m.modal.area.MoveToBegin()
+	m = pressRun(t, m, "G")
+	if out := screen(m); !strings.Contains(out, "line 79") || strings.Contains(out, "line 00") {
+		t.Fatalf("G should scroll to the end:\n%s", out)
+	}
+	m = pressRun(t, m, "g", "g")
+	if out := screen(m); !strings.Contains(out, "Title") || strings.Contains(out, "line 79") {
+		t.Fatal("gg should scroll back to the top")
+	}
+	half := max(m.modal.area.Height()/2, 1)
+	if m = pressRun(t, m, "ctrl+d"); m.modal.area.Line() != half {
+		t.Fatalf("ctrl+d should move half the box, line=%d want %d", m.modal.area.Line(), half)
+	}
+	if m = pressRun(t, m, "ctrl+d", "ctrl+u"); m.modal.area.Line() != half {
+		t.Fatalf("ctrl+u should move back half the box, line=%d", m.modal.area.Line())
+	}
+	m = pressRun(t, m, "G")
+	for range 79 {
+		m = pressRun(t, m, "k")
+	}
+	if out := screen(m); !strings.Contains(out, "line 00") || strings.Contains(out, "line 79") {
+		t.Fatal("k should scroll up past the top of the box")
 	}
 }

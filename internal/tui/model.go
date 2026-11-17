@@ -1759,8 +1759,10 @@ func (m Model) diffHeight() int {
 	return max(m.panesHeight()-2, 0)
 }
 
+const commitsMax = 10
+
 func (m Model) commitsHeight() int {
-	return min(len(m.commits)+3, max(m.panesHeight()/3, 3))
+	return min(len(m.commits)+3, max(min(m.panesHeight()/3, commitsMax), 3))
 }
 
 func (m Model) View() tea.View {

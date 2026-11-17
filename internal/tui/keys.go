@@ -276,6 +276,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "review the diff of a pull request from its GitHub URL, on either tab", keys: []key.Binding{k.OpenURL}},
 			{desc: "search the actions: comment, review, merge, close, assignees, reviewers, labels, Copilot, also in the review diff", keys: []key.Binding{k.Actions}},
 			{desc: "in the actions, move, run", keys: []key.Binding{k.PickDown, k.PickUp, k.Open}},
+			{desc: "in a list, leave the search, move, search again", keys: []key.Binding{k.Cancel, k.Down, k.Up, k.Search}},
 			{desc: "in a picker, move, select, save", keys: []key.Binding{k.PickDown, k.PickUp, k.Toggle, k.Save}},
 			{desc: "reply to the selected comment", keys: []key.Binding{k.Reply}},
 			{desc: "react to the selected comment", keys: []key.Binding{k.React}},
@@ -394,21 +395,19 @@ func (k keyMap) leaveLabel() string {
 	return label(k.NormalMode) + " " + label(k.LeaveInsert) + label(k.LeaveInsert)
 }
 
-func (k keyMap) actionsHints() []hint {
-	return []hint{
-		{desc: "move", keys: []key.Binding{k.PickDown, k.PickUp}},
-		{desc: "run", keys: []key.Binding{k.Open}},
-		{desc: "cancel", keys: []key.Binding{k.Cancel}},
+func (k keyMap) searchListHints(normal bool, act hint) []hint {
+	if normal {
+		return []hint{{desc: "move", keys: []key.Binding{k.Down, k.Up}}, act, {desc: "search", keys: []key.Binding{k.Search, k.Insert}}, {desc: "cancel", keys: []key.Binding{k.Cancel}}}
 	}
+	return []hint{{desc: "move", keys: []key.Binding{k.PickDown, k.PickUp}}, act, {desc: "list", keys: []key.Binding{k.Cancel}}}
 }
 
-func (k keyMap) pickerHints() []hint {
-	return []hint{
-		{desc: "move", keys: []key.Binding{k.PickDown, k.PickUp}},
-		{desc: "select", keys: []key.Binding{k.Toggle}},
-		{desc: "save", keys: []key.Binding{k.Save}},
-		{desc: "cancel", keys: []key.Binding{k.Cancel}},
-	}
+func (k keyMap) actionsHints(normal bool) []hint {
+	return k.searchListHints(normal, hint{desc: "run", keys: []key.Binding{k.Open}})
+}
+
+func (k keyMap) pickerHints(normal bool) []hint {
+	return append(k.searchListHints(normal, hint{desc: "select", keys: []key.Binding{k.Toggle}}), hint{desc: "save", keys: []key.Binding{k.Save}})
 }
 
 func (k keyMap) modalHints(fields, choices bool, mode string) []hint {

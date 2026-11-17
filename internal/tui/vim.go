@@ -30,6 +30,7 @@ func (v *vimState) update(a *textarea.Model, msg tea.KeyPressMsg, k keyMap) tea.
 	switch key := msg.String(); {
 	case v.normal:
 		v.normalKey(a, key, k)
+		*a, _ = a.Update(nil)
 		return nil
 	case is(key, k.NormalMode):
 		v.normal, v.pending = true, ""
@@ -82,6 +83,14 @@ func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 		a.CursorUp()
 	case is(key, k.Bottom):
 		a.MoveToEnd()
+	case is(key, k.HalfDown):
+		for range max(a.Height()/2, 1) {
+			a.CursorDown()
+		}
+	case is(key, k.HalfUp):
+		for range max(a.Height()/2, 1) {
+			a.CursorUp()
+		}
 	case is(key, k.CharLeft):
 		if a.Column() > 0 {
 			sendKey(a, tea.KeyLeft, 0)

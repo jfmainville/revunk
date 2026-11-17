@@ -796,11 +796,10 @@ func (m Model) matchingActions() []action {
 func (m Model) updateActions(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key, k, d := msg.String(), m.keys, &m.modal
 	matches := m.matchingActions()
+	if ok, cmd := d.listKey(key, k, len(matches)); ok {
+		return m, cmd
+	}
 	switch {
-	case is(key, k.PickDown):
-		d.cursor = min(d.cursor+1, max(len(matches)-1, 0))
-	case is(key, k.PickUp):
-		d.cursor = max(d.cursor-1, 0)
 	case is(key, k.Open):
 		if d.cursor >= len(matches) {
 			return m, nil
@@ -809,13 +808,31 @@ func (m Model) updateActions(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.modal = modalState{}
 		cmd := matches[d.cursor].run(&m, pr)
 		return m, cmd
-	default:
+	case !d.normal:
 		var cmd tea.Cmd
 		d.fields[0], cmd = d.fields[0].Update(msg)
 		d.cursor = 0
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (d *modalState) listKey(key string, k keyMap, n int) (bool, tea.Cmd) {
+	switch {
+	case is(key, k.PickDown), d.normal && is(key, k.Down):
+		d.cursor = min(d.cursor+1, max(n-1, 0))
+	case is(key, k.PickUp), d.normal && is(key, k.Up):
+		d.cursor = max(d.cursor-1, 0)
+	case !d.normal && is(key, k.Cancel):
+		d.normal = true
+		d.fields[0].Blur()
+	case d.normal && (is(key, k.Search) || is(key, k.Insert)):
+		d.normal = false
+		return true, d.fields[0].Focus()
+	default:
+		return false, nil
+	}
+	return true, nil
 }
 
 func titleAndBody(text string) (string, string) {
@@ -920,10 +937,10 @@ func (m Model) dropdownLines() []string {
 
 func (m Model) modalHints() []hint {
 	if m.modal.picker() {
-		return m.keys.pickerHints()
+		return m.keys.pickerHints(m.modal.normal)
 	}
 	if m.modal.kind == modalActions {
-		return m.keys.actionsHints()
+		return m.keys.actionsHints(m.modal.normal)
 	}
 	return m.keys.modalHints(m.modal.parts() > 1, len(m.modal.choices) > 0, m.modal.mode())
 }
@@ -965,11 +982,10 @@ func (d *modalState) matches() []string {
 
 func (d *modalState) pickKey(msg tea.KeyPressMsg, k keyMap) tea.Cmd {
 	key, matches := msg.String(), d.matches()
+	if ok, cmd := d.listKey(key, k, len(matches)); ok {
+		return cmd
+	}
 	switch {
-	case is(key, k.PickDown):
-		d.cursor = min(d.cursor+1, max(len(matches)-1, 0))
-	case is(key, k.PickUp):
-		d.cursor = max(d.cursor-1, 0)
 	case is(key, k.Toggle):
 		if d.cursor < len(matches) {
 			p := matches[d.cursor]
@@ -979,7 +995,7 @@ func (d *modalState) pickKey(msg tea.KeyPressMsg, k keyMap) tea.Cmd {
 				d.picked = append(d.picked, p)
 			}
 		}
-	default:
+	case !d.normal:
 		var cmd tea.Cmd
 		d.fields[0], cmd = d.fields[0].Update(msg)
 		d.cursor = 0
@@ -1057,6 +1073,8 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case is(key, k.Cancel) && d.expanded:
 		d.expanded = false
+	case is(key, k.Cancel) && !d.normal && (d.kind == modalActions || d.picker()):
+		d.listKey(key, k, 0)
 	case is(key, k.Cancel) && (d.normal || !d.onArea()):
 		m.modal = modalState{}
 	case d.kind == modalActions:

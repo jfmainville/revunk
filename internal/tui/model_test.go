@@ -2427,3 +2427,25 @@ func TestPollUnmarksAViewedFileOnceItChanges(t *testing.T) {
 		t.Fatalf("a change to a viewed file should unmark and expand it:\n%s", screen(m))
 	}
 }
+
+func TestCommitsPaneStaysShortAndScrolls(t *testing.T) {
+	var commits []review.Commit
+	for i := range 40 {
+		commits = append(commits, review.Commit{SHA: fmt.Sprintf("%07dabc", i), Subject: fmt.Sprintf("commit %02d", i)})
+	}
+	src := fakeSource{commits: commits, files: sample.files}
+	m := update(t, newModel(t, src, &fakeStore{viewed: map[string]string{}}), tea.WindowSizeMsg{Width: 120, Height: 80})
+	if m.commitsHeight() != commitsMax || m.panesHeight()/3 <= commitsMax {
+		t.Fatalf("a tall window with many commits should cap the pane at %d rows, got %d", commitsMax, m.commitsHeight())
+	}
+	m, _ = press(t, m, "tab", "tab")
+	for range 20 {
+		m, _ = press(t, m, "j")
+	}
+	if out := screen(m); !strings.Contains(out, "commit 19") || strings.Contains(out, "commit 00") {
+		t.Fatalf("moving down the commits should scroll the pane:\n%s", out)
+	}
+	if few := update(t, newModel(t, sample, &fakeStore{viewed: map[string]string{}}), tea.WindowSizeMsg{Width: 120, Height: 80}); few.commitsHeight() != len(sample.commits)+3 {
+		t.Fatal("a few commits should only take the rows they need")
+	}
+}
