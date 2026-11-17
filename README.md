@@ -149,5 +149,3 @@ Coding agents answer comments with `revunk reply <id> <text>`, which the prompt 
 | `internal/agent`           | Sends prompts to a Claude Code or opencode session in a `herdr` pane, or starts one, implementing `review.Agent`                                                                   |
 | `internal/store`           | JSON file store implementing `review.Store`                                                                                                                                        |
 | `internal/tui`             | Bubble Tea presentation layer, with `chroma` for syntax highlighting, `glamour` for Markdown comments, and every default key binding in `keys.go`                                  |
-
-[`docs/pull-requests.md`](docs/pull-requests.md) explains how the **Pull Request** tab works with GitHub, and [`docs/releases.md`](docs/releases.md) explains how releases are versioned and published.
