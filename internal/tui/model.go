@@ -175,6 +175,7 @@ type Model struct {
 	every      time.Duration
 	failures   int
 	blurred    bool
+	paneEdge   func(ctx context.Context, direction string) error
 }
 
 func New(svc *review.Service, root, base string) Model {
@@ -551,7 +552,11 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case is(key, k.Help):
 		m.help = true
 	case is(key, k.WindowLeft), is(key, k.WindowDown), is(key, k.WindowUp), is(key, k.WindowRight):
-		m.focus = m.window(key)
+		next := m.window(key)
+		if next == m.focus {
+			return m, m.leavePane(key)
+		}
+		m.focus = next
 	case is(key, k.NextFocus):
 		m.cycleFocus(1)
 	case is(key, k.PrevFocus):
@@ -945,6 +950,33 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
 	}
 	return nil
+}
+
+func (m Model) WithPaneEdge(edge func(ctx context.Context, direction string) error) Model {
+	m.paneEdge = edge
+	return m
+}
+
+func (m Model) leavePane(key string) tea.Cmd {
+	k, edge := m.keys, m.paneEdge
+	direction := ""
+	switch {
+	case is(key, k.WindowLeft):
+		direction = "left"
+	case is(key, k.WindowDown):
+		direction = "down"
+	case is(key, k.WindowUp):
+		direction = "up"
+	case is(key, k.WindowRight):
+		direction = "right"
+	}
+	if edge == nil || direction == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		_ = edge(context.Background(), direction)
+		return nil
+	}
 }
 
 func (m Model) window(key string) focusArea {

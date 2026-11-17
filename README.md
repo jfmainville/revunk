@@ -73,6 +73,8 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `esc`                                  | Stop selecting, clear the search, or close the help                          |
 | `q`, `ctrl+c`                          | Quit                                                                         |
 
+Inside herdr, `ctrl+h`, `ctrl+j`, `ctrl+k`, and `ctrl+l` at the edge of Revunk's panes move focus to the herdr pane in that direction, like Neovim does with the vim-herdr-navigation plugin. That plugin only forwards these keys to Vim by default, so add Revunk to it with `export HERDR_NAV_PASSTHROUGH_RE='^revunk$'` where herdr starts.
+
 Clicking a comment in the comments pane jumps to it like `enter`. While mouse support is on, most terminals select text with `shift` held down.
 
 ### Comment editor

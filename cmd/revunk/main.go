@@ -87,7 +87,7 @@ func setup(ctx context.Context, dir, base string) (tui.Model, error) {
 	if err != nil {
 		return tui.Model{}, err
 	}
-	return tui.New(svc, root, base).WithHost(github.Client{}, pullRequestReview(github.Client{}, st)), nil
+	return tui.New(svc, root, base).WithHost(github.Client{}, pullRequestReview(github.Client{}, st)).WithPaneEdge(agent.FocusPane), nil
 }
 
 func pullRequestReview(client github.Client, st review.Store) func(review.PullRequest) *review.Service {

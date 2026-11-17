@@ -1148,3 +1148,35 @@ func TestQClosesCommentBoxesFromNormalMode(t *testing.T) {
 		t.Fatal("q in normal mode should close the review diff comment editor and keep the diff open")
 	}
 }
+
+func TestCtrlHJKLHandsFocusToHerdrAtTheEdges(t *testing.T) {
+	m, _ := pullsModel(t)
+	var moves []string
+	m = m.WithPaneEdge(func(_ context.Context, direction string) error {
+		moves = append(moves, direction)
+		if direction == "down" {
+			return errors.New("no pane below")
+		}
+		return nil
+	})
+	m = pressRun(t, m, "ctrl+h", "ctrl+l", "ctrl+l", "ctrl+h", "ctrl+k", "ctrl+j")
+	if want := []string{"left", "right", "up", "down"}; !slices.Equal(moves, want) {
+		t.Fatalf("the Pull Request tab should leave only at its edges, moves=%q", moves)
+	}
+	if strings.Contains(screen(m), "no pane below") {
+		t.Fatal("an edge with no herdr pane should do nothing, like vim")
+	}
+	m, moves = pressRun(t, m, "1"), nil
+	m = pressRun(t, m, "ctrl+k", "ctrl+k", "ctrl+l", "ctrl+l", "ctrl+j")
+	if want := []string{"up", "right", "down"}; !slices.Equal(moves, want) {
+		t.Fatalf("the Agent tab should leave only at its edges, moves=%q", moves)
+	}
+	m, moves = pressRun(t, m, "2", "g", "d"), nil
+	m = pressRun(t, m, "ctrl+l", "ctrl+l")
+	if want := []string{"right"}; !slices.Equal(moves, want) {
+		t.Fatalf("the review diff should leave at its edges too, moves=%q", moves)
+	}
+	if cmd := m.WithPaneEdge(nil).leavePane("ctrl+h"); cmd != nil {
+		t.Fatal("without herdr nothing should run")
+	}
+}

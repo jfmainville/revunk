@@ -376,12 +376,14 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pulls.filter = (m.pulls.filter + 1) % len(pullFilters)
 		m.pulls.list, m.pulls.cursor, m.pulls.loading, m.pulls.sidebar = nil, 0, true, false
 		return m, m.fetchPulls()
-	case is(key, k.WindowLeft):
+	case is(key, k.WindowLeft) && m.pulls.sidebar:
 		m.pulls.sidebar = false
 		return m, nil
-	case is(key, k.WindowRight):
+	case is(key, k.WindowRight) && !m.pulls.sidebar:
 		m.pulls.sidebar = true
 		return m, nil
+	case is(key, k.WindowLeft), is(key, k.WindowDown), is(key, k.WindowUp), is(key, k.WindowRight):
+		return m, m.leavePane(key)
 	case !ok:
 		return m, nil
 	case is(key, k.Assignees):
@@ -518,6 +520,7 @@ func (m *Model) openDiff(pr review.PullRequest) tea.Cmd {
 	}
 	d := New(m.openReview(pr), m.root, pr.Base)
 	d.reviewPullRequest(m.host, pr)
+	d.paneEdge = m.paneEdge
 	m.diffGen++
 	m.diff = &d
 	updated, _ := m.updateNested(tea.WindowSizeMsg{Width: m.width, Height: m.height})
