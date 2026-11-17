@@ -78,6 +78,7 @@ const (
 	modalReply
 	modalReact
 	modalSubmit
+	modalURL
 )
 
 type modalState struct {
@@ -115,7 +116,7 @@ type pullsMsg struct {
 	err    error
 }
 
-type branchPRMsg struct {
+type openPRMsg struct {
 	pr   review.PullRequest
 	diff bool
 	err  error
@@ -218,11 +219,26 @@ func (m Model) fetchBranchPR(diff bool) tea.Cmd {
 	host := m.host
 	return func() tea.Msg {
 		pr, err := host.BranchPullRequest(context.Background())
-		return branchPRMsg{pr: pr, diff: diff, err: err}
+		return openPRMsg{pr: pr, diff: diff, err: err}
 	}
 }
 
-func (m *Model) openBranchPR(msg branchPRMsg) tea.Cmd {
+func (m Model) fetchPR(repo string, number int) tea.Cmd {
+	host := m.host
+	return func() tea.Msg {
+		pr, err := host.PullRequest(context.Background(), repo, number)
+		if err != nil {
+			err = fmt.Errorf("open %s#%d: %w", repo, number, err)
+		}
+		return openPRMsg{pr: pr, diff: true, err: err}
+	}
+}
+
+func (m *Model) openPR(msg openPRMsg) tea.Cmd {
+	if msg.err != nil && m.tab == tabPulls {
+		m.pulls.err = msg.err
+		return nil
+	}
 	if msg.err != nil {
 		m.err = msg.err
 		return nil
@@ -348,6 +364,8 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		seq := m.prefix + " " + key
 		m.prefix = ""
 		switch {
+		case is(seq, k.OpenURL) && m.host != nil:
+			return m, m.openModal(modalURL, review.PullRequest{})
 		case is(seq, k.Top):
 			if m.pulls.sidebar {
 				m.pulls.scroll, m.pulls.item = 0, 0
@@ -554,6 +572,10 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		d.people, d.loading = slices.Clone(d.picked), true
 	case modalComment:
 		d.title, d.hasArea = fmt.Sprintf("comment on #%d", pr.Number), true
+	case modalURL:
+		d.title, d.labels = "review a pull request from its GitHub URL", []string{"url"}
+		d.fields = []textinput.Model{newField("", w-12)}
+		d.fields[0].Placeholder = "https://github.com/owner/repo/pull/123"
 	case modalSubmit:
 		d.title, d.hasArea = fmt.Sprintf("submit your review of #%d", pr.Number), true
 		for _, e := range reviewEvents {
@@ -758,7 +780,7 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		d.expanded = false
 	case is(key, k.Cancel) && (d.normal || !d.onArea()), is(key, k.Quit) && (d.onChoices() || d.onArea() && d.normal):
 		m.modal = modalState{}
-	case is(key, k.Save):
+	case is(key, k.Save), is(key, k.Open) && d.kind == modalURL:
 		return m.saveModal()
 	case is(key, k.NextFocus), is(key, k.PrevFocus):
 		step := 1
@@ -786,6 +808,19 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		d.fields[d.field()], cmd = d.fields[d.field()].Update(msg)
 	default:
 		cmd = d.update(&d.area, msg, k)
+	}
+	return m, cmd
+}
+
+func (m Model) pasteModal(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+	d := &m.modal
+	var cmd tea.Cmd
+	switch f := d.field(); {
+	case f >= 0:
+		d.fields[f], cmd = d.fields[f].Update(msg)
+		d.cursor = 0
+	case d.onArea():
+		d.area, cmd = d.area.Update(msg)
 	}
 	return m, cmd
 }
@@ -820,6 +855,14 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 	var notice string
 	var action func(context.Context) error
 	switch d.kind {
+	case modalURL:
+		repo, number, err := review.ParsePullRequestURL(d.fields[0].Value())
+		if err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		m.modal = modalState{}
+		return m, m.fetchPR(repo, number)
 	case modalEdit:
 		title := strings.TrimSpace(d.fields[0].Value())
 		if title == "" {

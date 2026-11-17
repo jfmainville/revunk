@@ -54,6 +54,7 @@ type keyMap struct {
 	NextFilter  key.Binding
 	EditPR      key.Binding
 	OpenDiff    key.Binding
+	OpenURL     key.Binding
 	Submit      key.Binding
 	Assignees   key.Binding
 	Reviewers   key.Binding
@@ -135,6 +136,7 @@ func defaultKeys() keyMap {
 		NextFilter:  bind("s"),
 		EditPR:      bind("g e"),
 		OpenDiff:    bind("g d"),
+		OpenURL:     bind("g u"),
 		Submit:      bind("g s"),
 		Assignees:   bind("A"),
 		Reviewers:   bind("R"),
@@ -264,7 +266,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
 			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
-			{desc: "edit the branch's pull request", keys: []key.Binding{k.EditPR}},
+			{desc: "edit the branch's pull request, or the reviewed one in a review diff", keys: []key.Binding{k.EditPR}},
 			{desc: "review the branch's pull request", keys: []key.Binding{k.OpenDiff}},
 		}},
 		{"pull requests", []hint{
@@ -273,6 +275,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "next / previous details tab", keys: []key.Binding{k.NextFocus, k.PrevFocus}},
 			{desc: "edit the title and description", keys: []key.Binding{k.EditPR}},
 			{desc: "review the diff with GitHub comments", keys: []key.Binding{k.OpenDiff}},
+			{desc: "review the diff of a pull request from its GitHub URL, on either tab", keys: []key.Binding{k.OpenURL}},
 			{desc: "submit the review: comment, approve, request changes", keys: []key.Binding{k.Submit}},
 			{desc: "pick assignees, reviewers", keys: []key.Binding{k.Assignees, k.Reviewers}},
 			{desc: "in a picker, move, select, save", keys: []key.Binding{k.PickDown, k.PickUp, k.Toggle, k.Save}},
@@ -368,6 +371,7 @@ func (k keyMap) mainHints() []hint {
 		{desc: "send", keys: []key.Binding{k.Send}},
 		{desc: "copy", keys: []key.Binding{k.Copy}},
 		{desc: "submit review", keys: []key.Binding{k.Submit}},
+		{desc: "edit PR", keys: []key.Binding{k.EditPR}},
 		{desc: "focus", keys: []key.Binding{k.NextFocus}},
 		{desc: "help", keys: []key.Binding{k.Help}},
 	}
@@ -379,6 +383,7 @@ func (k keyMap) pullsHints() []hint {
 		{desc: "details", keys: []key.Binding{k.Open}},
 		{desc: "filter", keys: []key.Binding{k.NextFilter}},
 		{desc: "diff", keys: []key.Binding{k.OpenDiff}},
+		{desc: "url", keys: []key.Binding{k.OpenURL}},
 		{desc: "edit", keys: []key.Binding{k.EditPR}},
 		{desc: "assignees", keys: []key.Binding{k.Assignees}},
 		{desc: "reviewers", keys: []key.Binding{k.Reviewers}},

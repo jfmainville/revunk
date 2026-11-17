@@ -3,6 +3,7 @@ package review_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -609,4 +610,36 @@ func TestPruneCommentsErrors(t *testing.T) {
 		t.Fatalf("comment read error not returned: %v", err)
 	}
 
+}
+
+func TestParsePullRequestURL(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://github.com/o/r/pull/7":                   "o/r#7",
+		"  http://www.github.com/o/r/pull/12/files?w=1  ": "o/r#12",
+		"github.com/o/r/pull/3#discussion_r1":             "o/r#3",
+		"https://github.com/o/r/pull/9/commits/abc1234":   "o/r#9",
+	} {
+		repo, number, err := review.ParsePullRequestURL(raw)
+		if got := fmt.Sprintf("%s#%d", repo, number); err != nil || got != want {
+			t.Errorf("%q = %s, %v, want %s", raw, got, err, want)
+		}
+	}
+	for _, raw := range []string{
+		"://x",
+		"ftp://github.com/o/r/pull/7",
+		"https://gitlab.com/o/r/pull/7",
+		"https://github.com/o/r/issues/7",
+		"https://github.com/o/r/pull",
+		"https://github.com/o/r/pull/x",
+		"https://github.com/o/r/pull/0",
+		"https://github.com//r/pull/7",
+		"o/r#7",
+	} {
+		if _, _, err := review.ParsePullRequestURL(raw); err == nil || !strings.Contains(err.Error(), "is not a GitHub pull request URL") {
+			t.Errorf("%q should be rejected, err=%v", raw, err)
+		}
+	}
+	if _, _, err := review.ParsePullRequestURL("  "); err == nil || err.Error() != "the pull request URL is empty" {
+		t.Fatalf("empty err = %v", err)
+	}
 }

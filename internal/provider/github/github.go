@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -84,19 +83,11 @@ func (c Client) BranchPullRequest(ctx context.Context) (review.PullRequest, erro
 	if err := json.Unmarshal(data, &found); err != nil {
 		return review.PullRequest{}, fmt.Errorf("read pull request: %w", err)
 	}
-	u, err := url.Parse(found.URL)
+	repo, number, err := review.ParsePullRequestURL(found.URL)
 	if err != nil {
-		return review.PullRequest{}, err
+		return review.PullRequest{}, fmt.Errorf("read pull request: %w", err)
 	}
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	number := 0
-	if len(parts) == 4 && parts[2] == "pull" {
-		number, _ = strconv.Atoi(parts[3])
-	}
-	if number == 0 {
-		return review.PullRequest{}, fmt.Errorf("read pull request: unexpected url %q", found.URL)
-	}
-	return c.PullRequest(ctx, parts[0]+"/"+parts[1], number)
+	return c.PullRequest(ctx, repo, number)
 }
 
 func (c Client) Assignable(ctx context.Context, repo string) ([]string, error) {

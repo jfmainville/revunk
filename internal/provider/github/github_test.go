@@ -459,6 +459,7 @@ func TestBranchPullRequestErrors(t *testing.T) {
 		"bad url":    `{"url":"://x"}`,
 		"not a pull": `{"url":"https://github.com/o/r/issues/7"}`,
 		"no number":  `{"url":"https://github.com/o/r/pull/x"}`,
+		"other host": `{"url":"https://ghe.example.com/o/r/pull/7"}`,
 	} {
 		gh := &fakeGH{replies: []string{reply}}
 		if _, err := gh.client().BranchPullRequest(context.Background()); err == nil || len(gh.calls) != 1 {

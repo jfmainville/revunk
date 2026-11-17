@@ -892,10 +892,10 @@ func TestAgentTabOpensTheBranchPullRequest(t *testing.T) {
 		t.Fatal("gd on the Agent tab should open the branch's review diff on the Pull Request tab")
 	}
 	calls := len(host.calls)
-	if m = pressRun(t, m, "g", "e"); slices.Contains(host.calls[calls:], "branch") {
-		t.Fatal("the review diff should not look up the branch's pull request")
+	if m = pressRun(t, m, "g", "e"); slices.Contains(host.calls[calls:], "branch") || !m.diff.modal.open || !strings.Contains(screen(m), "edit #7") {
+		t.Fatal("ge in the review diff should edit the reviewed pull request without looking up the branch's")
 	}
-	m = pressRun(t, m, "q", "1")
+	m = pressRun(t, m, "esc", "q", "1")
 	host.detailErr = errors.New("no pull requests found for branch")
 	if m = pressRun(t, m, "g", "d"); m.tab != tabAgent || m.diff != nil || !strings.Contains(screen(m), "no pull requests found") {
 		t.Fatal("a branch without a pull request should show the error and stay on the Agent tab")
@@ -903,6 +903,106 @@ func TestAgentTabOpensTheBranchPullRequest(t *testing.T) {
 	plain, _ := loaded(t)
 	if _, cmd := press(t, plain, "g", "e"); cmd != nil {
 		t.Fatal("without gh, ge does nothing")
+	}
+}
+
+func TestReviewDiffEditsTheReviewedPullRequest(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "g", "d", "g", "e")
+	if !m.diff.modal.open || m.diff.modal.kind != modalEdit || m.diff.modal.fields[0].Value() != "Add login" || m.diff.modal.area.Value() != "Adds **login** support" {
+		t.Fatalf("ge should open the edit modal filled with the reviewed pull request:\n%s", screen(m))
+	}
+	m = typeText(t, m, " v2")
+	detail := host.details["o/r#7"]
+	detail.Title = "Add login v2"
+	host.details["o/r#7"] = detail
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("edit o/r#7 Add login v2|Adds **login** support") || m.diff.modal.open || m.diff.notice != "updated #7" || m.diff.pr.Title != "Add login v2" {
+		t.Fatalf("saving should edit on GitHub and reload the reviewed pull request, calls=%q notice=%q", host.calls, m.diff.notice)
+	}
+	host.err = errors.New("HTTP 403: Resource not accessible")
+	if m = pressRun(t, m, "g", "e", "ctrl+s"); !strings.Contains(screen(m), "Resource not accessible") || m.diff == nil {
+		t.Fatalf("edit failures should show in the review diff:\n%s", screen(m))
+	}
+}
+
+func TestURLModalOpensTheReviewDiff(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "g", "u")
+	if out := screen(m); !m.modal.open || m.modal.kind != modalURL || !strings.Contains(out, "review a pull request from its GitHub URL") {
+		t.Fatalf("gu should open the URL modal:\n%s", out)
+	}
+	if m = pressRun(t, m, "enter"); !m.modal.open || !strings.Contains(screen(m), "the pull request URL is empty") {
+		t.Fatalf("an empty URL should keep the modal open with an error:\n%s", screen(m))
+	}
+	m = typeText(t, m, "https://gitlab.com/o/s/pull/8")
+	if m = pressRun(t, m, "enter"); !m.modal.open || !strings.Contains(screen(m), "is not a GitHub pull") || host.has("detail o/s#8") {
+		t.Fatalf("an unsupported URL should keep the modal open without loading anything:\n%s", screen(m))
+	}
+	m = pressRun(t, m, "esc", "g", "u")
+	if m.modal.fields[0].Value() != "" {
+		t.Fatal("the URL modal should open empty")
+	}
+	m = typeText(t, m, "https://github.com/o/s/pull/8/files")
+	if m = pressRun(t, m, "enter"); m.modal.open || !host.has("detail o/s#8") || m.diff == nil || m.diff.pr.Number != 8 || m.diff.pr.Repo != "o/s" || m.tab != tabPulls {
+		t.Fatalf("a valid URL should open its review diff, calls=%q", host.calls)
+	}
+	m = pressRun(t, m, "q")
+
+	host.detailErr = errors.New("gh api: HTTP 401: Bad credentials")
+	m = pressRun(t, m, "g", "u")
+	m = typeText(t, m, "github.com/o/r/pull/7")
+	if m = pressRun(t, m, "ctrl+s"); m.diff != nil || !strings.Contains(screen(m), "open o/r#7: gh api: HTTP 401: Bad credentials") {
+		t.Fatalf("access failures should show on the Pull Request tab:\n%s", screen(m))
+	}
+
+	m = pressRun(t, m, "1", "g", "u")
+	if !m.modal.open || m.tab != tabAgent {
+		t.Fatal("gu should open the URL modal on the Agent tab")
+	}
+	m = typeText(t, m, "https://github.com/o/r/pull/7")
+	if m = pressRun(t, m, "enter"); m.diff != nil || m.tab != tabAgent || !strings.Contains(screen(m), "Bad credentials") {
+		t.Fatalf("access failures should show on the Agent tab:\n%s", screen(m))
+	}
+	host.detailErr = nil
+	m = pressRun(t, m, "g", "u")
+	m = typeText(t, m, "https://github.com/o/r/pull/7")
+	if m = pressRun(t, m, "enter"); m.tab != tabPulls || m.diff == nil || m.diff.pr.Number != 7 {
+		t.Fatal("a valid URL on the Agent tab should open the review diff on the Pull Request tab")
+	}
+	plain, _ := loaded(t)
+	if plain, _ = press(t, plain, "g", "u"); plain.modal.open {
+		t.Fatal("without gh, gu does nothing")
+	}
+}
+
+func TestPastingFillsTheFocusedText(t *testing.T) {
+	m, host := pullsModel(t)
+	if m = update(t, m, tea.PasteMsg{Content: "q"}); m.modal.open || m.diff != nil {
+		t.Fatal("a paste with no text focused should do nothing")
+	}
+	m = pressRun(t, m, "g", "u")
+	m = update(t, m, tea.PasteMsg{Content: "https://github.com/o/s/pull/8"})
+	if got := m.modal.fields[0].Value(); got != "https://github.com/o/s/pull/8" {
+		t.Fatalf("pasted URL = %q", got)
+	}
+	if m = pressRun(t, m, "enter"); m.diff == nil || m.diff.pr.Number != 8 || !host.has("detail o/s#8") {
+		t.Fatal("a pasted URL should open its review diff")
+	}
+	m = pressRun(t, m, "g", "e", "tab")
+	m = update(t, m, tea.PasteMsg{Content: "pasted\nbody"})
+	if got := m.diff.modal.area.Value(); !strings.HasPrefix(got, "pasted\nbody") {
+		t.Fatalf("a paste in the review diff should reach its modal description, got %q", got)
+	}
+	m = pressRun(t, m, "esc", "esc", "q", "A")
+	m = update(t, m, tea.PasteMsg{Content: "bo"})
+	if m.modal.fields[0].Value() != "bo" || m.modal.cursor != 0 {
+		t.Fatal("a paste should fill the picker search")
+	}
+	m = pressRun(t, m, "esc", "c")
+	m = update(t, m, tea.PasteMsg{Content: "x"})
+	if m.modal.area.Value() != "x" {
+		t.Fatal("a paste should fill the comment modal")
 	}
 }
 
