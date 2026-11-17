@@ -78,7 +78,7 @@ func TestEveryBindingIsDocumented(t *testing.T) {
 			}
 		}
 	}
-	for _, list := range [][]hint{k.listHints(), k.mainHints(), k.rangeHints(), k.editorHints()} {
+	for _, list := range [][]hint{k.listHints(), k.mainHints(), k.rangeHints(), k.editorHints("insert")} {
 		for _, h := range list {
 			for _, b := range h.keys {
 				documented[strings.Join(b.Keys(), ",")] = true

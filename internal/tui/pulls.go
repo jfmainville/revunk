@@ -93,8 +93,7 @@ type modalState struct {
 	choices []string
 	choice  int
 	focus   int
-	normal  bool
-	pending string
+	vimState
 	people  []string
 	picked  []string
 	cursor  int
@@ -706,9 +705,7 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch d := &m.modal; {
 	case is(key, k.ForceQuit):
 		return m, tea.Quit
-	case d.onArea() && !d.normal && is(key, k.NormalMode):
-		d.normal, d.pending = true, ""
-	case is(key, k.Cancel):
+	case is(key, k.Cancel) && (d.normal || !d.onArea()):
 		m.modal = modalState{}
 	case is(key, k.Save):
 		return m.saveModal()
@@ -731,10 +728,8 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd = d.pickKey(msg, k)
 	case d.field() >= 0:
 		d.fields[d.field()], cmd = d.fields[d.field()].Update(msg)
-	case d.normal:
-		d.normalKey(key, k)
 	default:
-		cmd = d.insertKey(msg, k)
+		cmd = d.update(&d.area, msg, k)
 	}
 	return m, cmd
 }
@@ -744,133 +739,10 @@ func (d *modalState) onArea() bool {
 }
 
 func (d *modalState) mode() string {
-	switch {
-	case !d.onArea():
+	if !d.onArea() {
 		return ""
-	case d.normal:
-		return "normal"
 	}
-	return "insert"
-}
-
-func (d *modalState) insertKey(msg tea.KeyPressMsg, k keyMap) tea.Cmd {
-	key := msg.String()
-	if is(key, k.LeaveInsert) && d.pending == key {
-		d.press(tea.KeyBackspace, 0)
-		d.normal, d.pending = true, ""
-		return nil
-	}
-	d.pending = ""
-	if is(key, k.LeaveInsert) {
-		d.pending = key
-	}
-	var cmd tea.Cmd
-	d.area, cmd = d.area.Update(msg)
-	return cmd
-}
-
-func (d *modalState) press(code rune, mod tea.KeyMod) {
-	d.area, _ = d.area.Update(tea.KeyPressMsg{Code: code, Mod: mod})
-}
-
-func (d *modalState) normalKey(key string, k keyMap) {
-	seq := key
-	if d.pending != "" {
-		seq, d.pending = d.pending+" "+key, ""
-	}
-	a := &d.area
-	lines := strings.Split(a.Value(), "\n")
-	switch {
-	case is(seq, k.Top):
-		a.MoveToBegin()
-	case is(seq, k.Delete):
-		row := a.Line()
-		lines = slices.Delete(lines, row, row+1)
-		a.SetValue(strings.Join(lines, "\n"))
-		a.MoveToBegin()
-		for a.Line() < min(row, len(lines)-1) {
-			a.CursorDown()
-		}
-	case seq != key:
-	case is(key, k.Down):
-		a.CursorDown()
-	case is(key, k.Up):
-		a.CursorUp()
-	case is(key, k.Bottom):
-		a.MoveToEnd()
-	case is(key, k.CharLeft):
-		if a.Column() > 0 {
-			d.press(tea.KeyLeft, 0)
-		}
-	case is(key, k.CharRight):
-		if a.Column() < len([]rune(lines[a.Line()])) {
-			d.press(tea.KeyRight, 0)
-		}
-	case is(key, k.WordNext):
-		line, i := []rune(lines[a.Line()]), a.Column()
-		for i < len(line) && line[i] != ' ' {
-			i++
-		}
-		for i < len(line) && line[i] == ' ' {
-			i++
-		}
-		if i == len(line) && a.Line() < len(lines)-1 {
-			a.CursorDown()
-			a.CursorStart()
-		} else {
-			a.SetCursorColumn(i)
-		}
-	case is(key, k.WordPrev):
-		line, i := []rune(lines[a.Line()]), a.Column()
-		for i > 0 && line[i-1] == ' ' {
-			i--
-		}
-		for i > 0 && line[i-1] != ' ' {
-			i--
-		}
-		if a.Column() == 0 && a.Line() > 0 {
-			a.CursorUp()
-			a.CursorEnd()
-		} else {
-			a.SetCursorColumn(i)
-		}
-	case is(key, k.LineStart):
-		a.CursorStart()
-	case is(key, k.LineEnd):
-		a.CursorEnd()
-	case is(key, k.DeleteUnder):
-		if a.Column() < len([]rune(lines[a.Line()])) {
-			d.press(tea.KeyDelete, 0)
-		}
-	case is(key, k.Insert):
-		d.normal = false
-	case is(key, k.Append):
-		if a.Column() < len([]rune(lines[a.Line()])) {
-			d.press(tea.KeyRight, 0)
-		}
-		d.normal = false
-	case is(key, k.InsertStart):
-		a.CursorStart()
-		d.normal = false
-	case is(key, k.AppendEnd):
-		a.CursorEnd()
-		d.normal = false
-	case is(key, k.OpenBelow):
-		a.CursorEnd()
-		a.InsertRune('\n')
-		d.normal = false
-	case is(key, k.OpenAbove):
-		a.CursorStart()
-		a.InsertRune('\n')
-		a.CursorUp()
-		d.normal = false
-	default:
-		if _, ok := rest(k.Top, key); ok {
-			d.pending = key
-		} else if _, ok := rest(k.Delete, key); ok {
-			d.pending = key
-		}
-	}
+	return d.vimState.mode()
 }
 
 func quote(n review.Note) string {

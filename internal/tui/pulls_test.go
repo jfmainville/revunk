@@ -978,3 +978,17 @@ func TestEditModalSeparatesTheTitleFromTheDescription(t *testing.T) {
 		t.Fatal("modals without a title field should not draw the rule")
 	}
 }
+
+func TestReviewDiffCommentEditorUsesVimModes(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "g", "d", "l")
+	m.diff.cursor = rowOf(t, *m.diff, rowLine, 1, 3)
+	m = pressRun(t, m, "c")
+	m = typeText(t, m, "ajj")
+	if !m.diff.editing || !m.diff.editor.normal || m.diff.editor.area.Value() != "a" {
+		t.Fatalf("jj should switch the review diff editor to normal mode, value=%q", m.diff.editor.area.Value())
+	}
+	if m = pressRun(t, m, "esc"); m.diff.editing {
+		t.Fatal("esc in normal mode should close the review diff editor")
+	}
+}

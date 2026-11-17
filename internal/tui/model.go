@@ -50,6 +50,7 @@ type row struct {
 }
 
 type editorState struct {
+	vimState
 	area   textarea.Model
 	target review.Comment
 	kind   int
@@ -760,7 +761,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case is(key, k.ForceQuit):
 		return m, tea.Quit
-	case is(key, k.Cancel):
+	case is(key, k.Cancel) && m.editor.normal:
 		m.editing = false
 		m.relayout()
 		return m, nil
@@ -788,7 +789,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.injectSuggestion()
 		}
 	default:
-		m.editor.area, cmd = m.editor.area.Update(msg)
+		cmd = m.editor.update(&m.editor.area, msg, k)
 	}
 	m.editor.area.SetHeight(min(max(m.editor.area.LineCount(), 3), 12))
 	m.relayout()
@@ -1442,7 +1443,7 @@ func (m *Model) addEditor(file int) {
 		}
 	}
 	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(m.editor.area.View(), "\n")...)
-	lines = append(lines, hints(m.keys.editorHints()))
+	lines = append(lines, hints(m.keys.editorHints(m.editor.mode())))
 	for _, l := range commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth()) {
 		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
 	}
@@ -1800,7 +1801,7 @@ func (m Model) diffLines() []string {
 func (m Model) modeChip() string {
 	name, c := "NORMAL", colorPrimary
 	switch {
-	case m.editing, m.modal.open && !m.modal.normal:
+	case m.editing && !m.editor.normal, m.modal.open && !m.modal.normal:
 		name, c = "INSERT", colorAdd
 	case m.searching:
 		name, c = "SEARCH", colorNote
@@ -1849,7 +1850,7 @@ func (m Model) footer() string {
 	case m.modal.open:
 		return hints(m.modalHints())
 	case m.editing:
-		return hints(m.keys.editorHints())
+		return hints(m.keys.editorHints(m.editor.mode()))
 	case m.searching:
 		return hints(m.keys.searchHints())
 	case m.anchor >= 0:

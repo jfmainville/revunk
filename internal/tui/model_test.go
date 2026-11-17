@@ -455,7 +455,7 @@ func TestFileCommentFromFilesPaneAndHeader(t *testing.T) {
 	if !m.editing || !m.editor.target.FileLevel() {
 		t.Fatal("c in the diff on a file header should open a file comment")
 	}
-	m, _ = press(t, m, "esc")
+	m, _ = press(t, m, "esc", "esc")
 	m.cursor = rowOf(t, m, rowHunk, 0, 0)
 	m, cmd = press(t, m, "c")
 	if m.editing || cmd != nil || !strings.Contains(screen(m), "move to a line") {
@@ -503,9 +503,12 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	if m.editor.area.Value() != "first\nsecond" {
 		t.Fatalf("leaving suggestion should remove the block: %q", m.editor.area.Value())
 	}
+	if m, _ = press(t, m, "esc"); !m.editing || !m.editor.normal || !strings.Contains(screen(m), "NORMAL") || !strings.Contains(screen(m), "i insert") {
+		t.Fatal("esc while typing should only switch to normal mode")
+	}
 	m, _ = press(t, m, "esc")
 	if m.editing || len(st.comments) != 0 {
-		t.Fatal("esc should close the editor without saving")
+		t.Fatal("esc in normal mode should close the editor without saving")
 	}
 
 	m.cursor = rowOf(t, m, rowLine, 1, 2)
@@ -2078,5 +2081,31 @@ func TestChangeKeysVisitEachBlockOfChanges(t *testing.T) {
 	m.cursor = rowOf(t, m, rowLine, 0, 3)
 	if m, _ = press(t, m, "H"); m.cursor != want[0] {
 		t.Fatalf("H inside a block should go to its start, got %d", m.cursor)
+	}
+}
+
+func TestCommentEditorUsesVimModes(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	if m.editor.normal || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "esc jj normal") {
+		t.Fatal("the comment editor should start in insert mode")
+	}
+	m = typeText(t, m, "helo world")
+	m = typeText(t, m, "jj")
+	if !m.editor.normal || m.editor.area.Value() != "helo world" {
+		t.Fatalf("jj should switch to normal mode without typing, value=%q", m.editor.area.Value())
+	}
+	m = typeText(t, m, "0llil")
+	m, _ = press(t, m, "esc")
+	m = typeText(t, m, "Ax")
+	if m.editor.area.Value() != "hello worldx" {
+		t.Fatalf("i, l, 0, A, and esc should edit like vim, value=%q", m.editor.area.Value())
+	}
+	m, cmd := press(t, m, "esc", "ctrl+s")
+	m = run(t, m, cmd)
+	if len(st.comments) != 1 || st.comments[0].Body != "hello worldx" {
+		t.Fatalf("normal mode edits should save, comments=%+v", st.comments)
 	}
 }

@@ -274,9 +274,9 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "save", keys: []key.Binding{k.Save}},
 			{desc: "newline", keys: []key.Binding{k.Newline}},
 			{desc: "cycle type, suggestion adds the lines as a code block", keys: []key.Binding{k.NextKind}},
-			{desc: "cancel", keys: []key.Binding{k.Cancel}},
+			{desc: "cancel, from normal mode", keys: []key.Binding{k.Cancel}},
 		}},
-		{"text in a modal, vim style", []hint{
+		{"comment and modal text, vim style", []hint{
 			{desc: "normal mode, from insert", label: k.leaveLabel(), keys: []key.Binding{k.NormalMode, k.LeaveInsert}},
 			{desc: "insert before, after the cursor", keys: []key.Binding{k.Insert, k.Append}},
 			{desc: "insert at the line start, end", keys: []key.Binding{k.InsertStart, k.AppendEnd}},
@@ -295,13 +295,22 @@ func (k keyMap) helpSections() []helpSection {
 	}
 }
 
-func (k keyMap) editorHints() []hint {
-	return []hint{
+func (k keyMap) editorHints(mode string) []hint {
+	return append([]hint{
 		{desc: "save", keys: []key.Binding{k.Save}},
 		{desc: "newline", keys: []key.Binding{k.Newline}},
 		{desc: "type", keys: []key.Binding{k.NextKind}},
-		{desc: "cancel", keys: []key.Binding{k.Cancel}},
+	}, k.vimHints(mode)...)
+}
+
+func (k keyMap) vimHints(mode string) []hint {
+	switch mode {
+	case "insert":
+		return []hint{{desc: "normal", label: k.leaveLabel()}}
+	case "normal":
+		return []hint{{desc: "insert", keys: []key.Binding{k.Insert}}, {desc: "cancel", keys: []key.Binding{k.Cancel}}}
 	}
+	return []hint{{desc: "cancel", keys: []key.Binding{k.Cancel}}}
 }
 
 func (k keyMap) searchHints() []hint {
@@ -396,14 +405,7 @@ func (k keyMap) modalHints(choices bool, mode string) []hint {
 		{desc: "save", keys: []key.Binding{k.Save}},
 		{desc: "next field", keys: []key.Binding{k.NextFocus}},
 	}
-	switch mode {
-	case "insert":
-		list = append(list, hint{desc: "normal", label: k.leaveLabel()})
-	case "normal":
-		list = append(list, hint{desc: "insert", keys: []key.Binding{k.Insert}}, hint{desc: "cancel", keys: []key.Binding{k.Cancel}})
-	default:
-		list = append(list, hint{desc: "cancel", keys: []key.Binding{k.Cancel}})
-	}
+	list = append(list, k.vimHints(mode)...)
 	if choices {
 		list = append(list, hint{desc: "pick", keys: []key.Binding{k.Down, k.Up}})
 	}
