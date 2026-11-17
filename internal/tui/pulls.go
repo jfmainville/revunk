@@ -1332,7 +1332,12 @@ func (m Model) renderModal() string {
 	}
 	if d.hasArea {
 		if len(d.fields) > 0 {
-			lines = append(lines, "")
+			style := lipgloss.NewStyle().Foreground(colorRule)
+			if d.onArea() {
+				style = primaryStyle
+			}
+			name := "description "
+			lines = append(lines, "", " "+style.Render(name+strings.Repeat("─", max(m.modalWidth()-4-len(name), 0))))
 		}
 		for _, l := range strings.Split(d.area.View(), "\n") {
 			lines = append(lines, " "+l)

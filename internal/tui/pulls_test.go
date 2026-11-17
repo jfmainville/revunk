@@ -955,3 +955,26 @@ func TestModalHintsFollowTheFocus(t *testing.T) {
 		}
 	}
 }
+
+func TestEditModalSeparatesTheTitleFromTheDescription(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "g", "e")
+	rule := func() string {
+		for l := range strings.SplitSeq(m.renderModal(), "\n") {
+			if strings.Contains(ansi.Strip(l), "description ──") {
+				return l
+			}
+		}
+		return ""
+	}
+	onTitle := rule()
+	if onTitle == "" {
+		t.Fatalf("the edit modal should draw a description rule:\n%s", screen(m))
+	}
+	if m = pressRun(t, m, "tab"); rule() == onTitle {
+		t.Fatal("the rule should light up when the description has focus")
+	}
+	if m = pressRun(t, m, "esc", "esc", "c"); strings.Contains(screen(m), "description ──") {
+		t.Fatal("modals without a title field should not draw the rule")
+	}
+}
