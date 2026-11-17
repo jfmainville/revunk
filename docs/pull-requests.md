@@ -21,8 +21,8 @@ sequenceDiagram
     Host->>GH: gh api --paginate repos/owner/repo/assignees or labels
     TUI->>Host: Comment, Reply, React, Resolve, EditPullRequest, SetPeople, SetLabels, RequestCopilotReview, Close, Merge
     Host->>GH: gh pr edit, gh pr comment, gh pr close, or a GraphQL mutation
-    TUI->>Host: Branches() then CreatePullRequest(head, title, body)
-    Host->>GH: gh api repos/{owner}/{repo}/branches, then gh pr create --head
+    TUI->>Host: Branches(repo) then CreatePullRequest(head, base, title, body)
+    Host->>GH: gh api repos/R for the default branch and repos/R/branches, then gh pr create --head --base
     TUI->>Host: PullRequest(repo, number) to show the result
 ```
 

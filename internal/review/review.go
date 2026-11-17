@@ -255,14 +255,14 @@ type Host interface {
 	PullRequest(ctx context.Context, repo string, number int) (PullRequest, error)
 	BranchPullRequest(ctx context.Context) (PullRequest, error)
 	Assignable(ctx context.Context, repo string) ([]string, error)
-	EditPullRequest(ctx context.Context, pr PullRequest, title, body string) error
+	EditPullRequest(ctx context.Context, pr PullRequest, title, body, base string) error
 	SetPeople(ctx context.Context, pr PullRequest, assignees, reviewers []string) error
 	Labels(ctx context.Context, repo string) ([]string, error)
 	SetLabels(ctx context.Context, pr PullRequest, labels []string) error
 	RequestCopilotReview(ctx context.Context, pr PullRequest) error
 	Close(ctx context.Context, pr PullRequest, comment string) error
-	Branches(ctx context.Context) ([]string, error)
-	CreatePullRequest(ctx context.Context, head, title, body string) (PullRequest, error)
+	Branches(ctx context.Context, repo string) ([]string, string, error)
+	CreatePullRequest(ctx context.Context, head, base, title, body string) (PullRequest, error)
 	Comment(ctx context.Context, pr PullRequest, body string) error
 	Reply(ctx context.Context, threadID, body string) error
 	React(ctx context.Context, subjectID, content string, add bool) error

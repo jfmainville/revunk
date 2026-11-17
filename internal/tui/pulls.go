@@ -111,8 +111,7 @@ type modalState struct {
 	area    textarea.Model
 	hasArea bool
 	titled  bool
-	choices []string
-	choice  int
+	drops   []drop
 	focus   int
 	vimState
 	expanded bool
@@ -121,6 +120,16 @@ type modalState struct {
 	cursor   int
 	loading  bool
 	failed   error
+}
+
+type drop struct {
+	name    string
+	choices []string
+	choice  int
+}
+
+func (d drop) value() string {
+	return d.choices[d.choice]
 }
 
 type pickerMsg struct {
@@ -603,22 +612,31 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 	case modalMerge:
 		d.title, d.warning = fmt.Sprintf("merge #%d into %s", pr.Number, pr.Base), mergeWarning(pr.MergeState)
 		d.hasArea, d.titled = true, true
+		methods := drop{name: "method"}
 		for _, mm := range mergeMethods {
 			if slices.Contains(pr.MergeMethods, mm.method) {
-				d.choices = append(d.choices, mm.label)
+				methods.choices = append(methods.choices, mm.label)
 			}
 		}
+		d.drops = []drop{methods}
 	case modalSubmit:
 		d.title, d.hasArea = fmt.Sprintf("submit your review of #%d", pr.Number), true
+		events := drop{name: "review"}
 		for _, e := range reviewEvents {
-			d.choices = append(d.choices, e.label)
+			events.choices = append(events.choices, e.label)
 		}
+		d.drops = []drop{events}
 	case modalClose:
 		d.title, d.hasArea = fmt.Sprintf("close #%d without merging", pr.Number), true
 	case modalGeneral:
 		d.title, d.hasArea = "general comment, sent straight to the agent", true
 	case modalCreate:
-		d.title, d.hasArea, d.titled = "create a pull request into the default branch", true, true
+		d.title, d.hasArea, d.titled = "create a pull request", true, true
+		current := ""
+		if m.svc != nil {
+			current = m.svc.Branch()
+		}
+		d.drops = []drop{{name: "branch", choices: []string{current}}, {name: "into", choices: []string{""}}}
 	case modalActions:
 		d.title, d.labels = "actions", []string{"search"}
 		if pr.Number > 0 {
@@ -640,9 +658,10 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 			d.area.Placeholder = "optional comment, markdown works"
 		}
 		d.area.SetWidth(w)
-		d.area.SetHeight(max(min(m.panesHeight()-8-len(d.fields)-len(d.choices), 12), 1))
+		rows := len(d.drops) + min(len(d.drops), 1)
+		d.area.SetHeight(max(min(m.panesHeight()-8-len(d.fields)-rows, 12), 1))
 		if d.titled {
-			d.area.SetHeight(max(m.panesHeight()-8-min(len(d.choices), 2)-2*min(len(d.warning), 1), 1))
+			d.area.SetHeight(max(m.panesHeight()-8-rows-2*min(len(d.warning), 1), 1))
 		}
 		if d.titled {
 			d.area.SetWidth(w - gutter)
@@ -654,6 +673,9 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 			d.area.Placeholder = "the title on the first line, the description below it, markdown works"
 			d.area.SetValue(pr.Title + "\n\n" + pr.Body)
 			d.area.MoveToBegin()
+			if pr.Base != "" {
+				d.drops = []drop{{name: "into", choices: []string{pr.Base}}}
+			}
 		case modalCreate:
 			d.area.SetValue("\n\n")
 			d.area.MoveToBegin()
@@ -661,7 +683,18 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 	}
 	m.modal = d
 	m.modal.normal = kind == modalEdit || kind == modalCreate
-	cmd := m.modal.setFocus(0)
+	focus := 0
+	if kind == modalEdit {
+		focus = len(d.drops)
+	}
+	cmd := m.modal.setFocus(focus)
+	if len(d.drops) > 0 && (kind == modalEdit || kind == modalCreate) {
+		host, repo := m.host, pr.Repo
+		cmd = tea.Batch(cmd, func() tea.Msg {
+			list, def, err := host.Branches(context.Background(), repo)
+			return branchesMsg{repo: repo, list: list, def: def, err: err}
+		})
+	}
 	if d.loading {
 		host := m.host
 		cmd = tea.Batch(cmd, func() tea.Msg {
@@ -717,50 +750,44 @@ func (m Model) actions() []action {
 	if m.pr.Number == 0 {
 		list = append(list,
 			action{"↗", "Review a pull request from its URL", k.OpenURL, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalURL, review.PullRequest{}) }},
-			action{"+", "Create a pull request", key.Binding{}, func(m *Model, _ review.PullRequest) tea.Cmd { return m.fetchBranches() }},
+			action{"+", "Create a pull request", key.Binding{}, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalCreate, review.PullRequest{}) }},
 		)
 	}
 	return list
 }
 
 type branchesMsg struct {
-	list []string
-	err  error
+	repo, def string
+	list      []string
+	err       error
 }
 
-func (m Model) fetchBranches() tea.Cmd {
-	host := m.host
-	return func() tea.Msg {
-		list, err := host.Branches(context.Background())
-		return branchesMsg{list: list, err: err}
-	}
-}
-
-func (m *Model) openCreate(msg branchesMsg) tea.Cmd {
-	if msg.err != nil {
-		m.pulls.err = fmt.Errorf("list the branches: %w", msg.err)
-		return nil
-	}
-	current := ""
-	if m.svc != nil {
-		current = m.svc.Branch()
-	}
-	branches := []string{current}
-	for _, b := range msg.list {
-		if b != current {
-			branches = append(branches, b)
+func first(value string, list []string) []string {
+	out := []string{value}
+	for _, b := range list {
+		if b != value {
+			out = append(out, b)
 		}
 	}
-	if current == "" {
-		branches = branches[1:]
+	return out
+}
+
+func (m *Model) applyBranches(msg branchesMsg) {
+	d := &m.modal
+	if !d.open || (d.kind != modalEdit && d.kind != modalCreate) || d.pr.Repo != msg.repo || len(d.drops) == 0 {
+		return
 	}
-	if len(branches) == 0 {
-		m.warning = "the repository has no branches to open a pull request from"
-		return nil
+	if msg.err != nil {
+		d.warning = "couldn't list the branches, " + msg.err.Error()
+		return
 	}
-	m.openModal(modalCreate, review.PullRequest{})
-	m.modal.choices = branches
-	return m.modal.setFocus(0)
+	into := &d.drops[len(d.drops)-1]
+	if d.kind == modalCreate {
+		d.drops[0].choices = first(d.drops[0].value(), msg.list)
+		into.choices = first(msg.def, msg.list)
+		return
+	}
+	into.choices = first(into.value(), msg.list)
 }
 
 type createdMsg struct {
@@ -769,10 +796,10 @@ type createdMsg struct {
 	err  error
 }
 
-func (m Model) createPR(head, title, body string) tea.Cmd {
+func (m Model) createPR(head, base, title, body string) tea.Cmd {
 	host := m.host
 	return func() tea.Msg {
-		pr, err := host.CreatePullRequest(context.Background(), head, title, body)
+		pr, err := host.CreatePullRequest(context.Background(), head, base, title, body)
 		return createdMsg{pr: pr, head: head, err: err}
 	}
 }
@@ -782,7 +809,7 @@ func (m *Model) applyCreated(msg createdMsg) tea.Cmd {
 		m.pulls.err = fmt.Errorf("create a pull request from %s: %w", msg.head, msg.err)
 		return nil
 	}
-	m.applyDetail(detailMsg{key: prKey(msg.pr), pr: msg.pr, notice: fmt.Sprintf("created #%d from %s", msg.pr.Number, msg.head)})
+	m.applyDetail(detailMsg{key: prKey(msg.pr), pr: msg.pr, notice: fmt.Sprintf("created #%d from %s into %s", msg.pr.Number, msg.head, msg.pr.Base)})
 	return m.fetchPulls()
 }
 
@@ -862,7 +889,7 @@ func (m *Model) openMerge(pr review.PullRequest) tea.Cmd {
 
 func (d *modalState) mergeMethod() review.MergeMethod {
 	for _, mm := range mergeMethods {
-		if mm.label == d.choices[d.choice] {
+		if mm.label == d.drops[0].value() {
 			return mm.method
 		}
 	}
@@ -900,33 +927,36 @@ const dropdownRows = 8
 
 func (m Model) dropdownLines() []string {
 	d := m.modal
-	width := 2
-	for _, c := range d.choices {
-		width = max(width, len(c)+4)
-	}
-	labelStyle, value := dimStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorRule)
-	if d.onChoices() {
-		labelStyle, value = primaryStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary)
-	}
-	arrow := "▾"
-	if d.expanded {
-		arrow = "▴"
-	}
-	name := "review"
-	switch d.kind {
-	case modalMerge:
-		name = "method"
-	case modalCreate:
-		name = "branch"
-	}
-	lines := []string{" " + labelStyle.Render(fmt.Sprintf("%-10s", name)) + " " + value.Render(fmt.Sprintf(" %-*s%s ", width-2, d.choices[d.choice], arrow))}
-	if d.expanded {
+	var lines []string
+	for n, dr := range d.drops {
+		width := 2
+		for _, c := range dr.choices {
+			width = max(width, len(c)+4)
+		}
+		labelStyle, value := dimStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorRule)
+		if d.focus == n {
+			labelStyle, value = primaryStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary)
+		}
+		expanded := d.expanded && d.focus == n
+		arrow := "▾"
+		if expanded {
+			arrow = "▴"
+		}
+		shown := dr.value()
+		if shown == "" {
+			shown = "default branch"
+			width = max(width, len(shown)+4)
+		}
+		lines = append(lines, " "+labelStyle.Render(fmt.Sprintf("%-10s", dr.name))+" "+value.Render(fmt.Sprintf(" %-*s%s ", width-2, shown, arrow)))
+		if !expanded {
+			continue
+		}
 		var items []string
-		top := max(d.choice-dropdownRows+1, 0)
-		for i, c := range d.choices[top:min(top+dropdownRows, len(d.choices))] {
+		top := max(dr.choice-dropdownRows+1, 0)
+		for i, c := range dr.choices[top:min(top+dropdownRows, len(dr.choices))] {
 			i += top
 			style, mark := dimStyle, "  "
-			if i == d.choice {
+			if i == dr.choice {
 				style, mark = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary), "▸ "
 			}
 			items = append(items, style.Render(fmt.Sprintf("%-*s", width, mark+c)))
@@ -946,7 +976,7 @@ func (m Model) modalHints() []hint {
 	if m.modal.kind == modalActions {
 		return m.keys.actionsHints(m.modal.normal)
 	}
-	return m.keys.modalHints(m.modal.parts() > 1, len(m.modal.choices) > 0, m.modal.mode())
+	return m.keys.modalHints(m.modal.parts() > 1, len(m.modal.drops) > 0, m.modal.mode())
 }
 
 func reviewerLogins(pr review.PullRequest) []string {
@@ -1014,19 +1044,18 @@ func (m *Model) openNoteModal(kind modalKind, pr review.PullRequest, item commen
 	m.modal.title = "reply to @" + item.note.Author
 	if kind == modalReact {
 		m.modal.title, m.modal.hasArea = "react to @"+item.note.Author+", picking one you gave removes it", false
+		var choices []string
 		for _, r := range reactions {
-			m.modal.choices = append(m.modal.choices, r.emoji+" "+strings.ToLower(strings.ReplaceAll(r.content, "_", " ")))
+			choices = append(choices, r.emoji+" "+strings.ToLower(strings.ReplaceAll(r.content, "_", " ")))
 		}
+		m.modal.drops = []drop{{choices: choices}}
 		return m.modal.setFocus(0)
 	}
 	return cmd
 }
 
 func (d *modalState) parts() int {
-	n := len(d.fields)
-	if len(d.choices) > 0 {
-		n++
-	}
+	n := len(d.fields) + len(d.drops)
 	if d.hasArea {
 		n++
 	}
@@ -1034,22 +1063,19 @@ func (d *modalState) parts() int {
 }
 
 func (d *modalState) onChoices() bool {
-	return len(d.choices) > 0 && d.focus == 0
+	return d.focus < len(d.drops)
 }
 
 func (d *modalState) field() int {
-	i := d.focus
-	if len(d.choices) > 0 {
-		i--
-	}
-	if i < len(d.fields) {
+	i := d.focus - len(d.drops)
+	if i >= 0 && i < len(d.fields) {
 		return i
 	}
 	return -1
 }
 
 func (d *modalState) dropdown() bool {
-	return d.hasArea && len(d.choices) > 0
+	return d.hasArea && len(d.drops) > 0
 }
 
 func (d *modalState) setFocus(i int) tea.Cmd {
@@ -1092,18 +1118,19 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		cmd = d.setFocus((d.focus + step) % max(d.parts(), 1))
 	case d.onChoices():
-		opens, picked := is(key, k.Open) || is(key, k.Toggle), d.choice
+		dr := &d.drops[d.focus]
+		opens, picked := is(key, k.Open) || is(key, k.Toggle), dr.choice
 		switch {
 		case d.dropdown() && !d.expanded && (opens || is(key, k.Down) || is(key, k.Up)):
 			d.expanded = true
 		case d.dropdown() && opens:
 			d.expanded = false
 		case is(key, k.Down):
-			d.choice = min(d.choice+1, len(d.choices)-1)
+			dr.choice = min(dr.choice+1, len(dr.choices)-1)
 		case is(key, k.Up):
-			d.choice = max(d.choice-1, 0)
+			dr.choice = max(dr.choice-1, 0)
 		}
-		if d.kind == modalMerge && d.choice != picked {
+		if d.kind == modalMerge && dr.choice != picked {
 			d.fillMerge()
 		}
 	case d.picker():
@@ -1166,7 +1193,7 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.modal = modalState{}
-		return m, m.createPR(d.choices[d.choice], title, description)
+		return m, m.createPR(d.drops[0].value(), d.drops[1].value(), title, description)
 	case modalGeneral:
 		m.modal = modalState{}
 		return m, m.sendGeneral(body)
@@ -1184,8 +1211,12 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 			m.warning = "the title on the first line can't be empty"
 			return m, nil
 		}
+		base := pr.Base
+		if len(d.drops) > 0 {
+			base = d.drops[0].value()
+		}
 		notice = fmt.Sprintf("updated #%d", pr.Number)
-		action = func(ctx context.Context) error { return host.EditPullRequest(ctx, pr, title, description) }
+		action = func(ctx context.Context) error { return host.EditPullRequest(ctx, pr, title, description, base) }
 	case modalLabels:
 		notice = fmt.Sprintf("updated the labels of #%d", pr.Number)
 		action = func(ctx context.Context) error { return host.SetLabels(ctx, pr, d.picked) }
@@ -1210,7 +1241,7 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 			return host.Reply(ctx, d.thread.ID, body)
 		}
 	case modalReact:
-		r := reactions[d.choice]
+		r := reactions[d.drops[0].choice]
 		add := !slices.ContainsFunc(d.note.Reactions, func(x review.Reaction) bool { return x.Content == r.content && x.Mine })
 		notice = "reacted " + r.emoji
 		if !add {
@@ -1232,7 +1263,7 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 			return nil
 		}
 	case modalSubmit:
-		e := reviewEvents[d.choice]
+		e := reviewEvents[d.drops[0].choice]
 		notice = fmt.Sprintf("submitted %s on #%d", strings.ToLower(e.label), pr.Number)
 		action = func(ctx context.Context) error {
 			fresh, err := host.PullRequest(ctx, pr.Repo, pr.Number)
@@ -1630,10 +1661,10 @@ func (m Model) renderModal(background string) string {
 	}
 	if d.dropdown() {
 		lines = append(lines, m.dropdownLines()...)
-	} else if len(d.choices) > 0 {
-		for i, c := range d.choices {
+	} else if len(d.drops) > 0 {
+		for i, c := range d.drops[0].choices {
 			style, mark := dimStyle, "  "
-			if i == d.choice {
+			if i == d.drops[0].choice {
 				style, mark = primaryStyle, "▸ "
 				if d.onChoices() {
 					style = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary)

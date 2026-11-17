@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -56,8 +57,12 @@ func (h *fakeHost) record(call string) error {
 	return h.err
 }
 
-func (h *fakeHost) EditPullRequest(_ context.Context, pr review.PullRequest, title, body string) error {
-	return h.record(fmt.Sprintf("edit %s %s|%s", prKey(pr), title, body))
+func (h *fakeHost) EditPullRequest(_ context.Context, pr review.PullRequest, title, body, base string) error {
+	call := fmt.Sprintf("edit %s %s|%s", prKey(pr), title, body)
+	if base != pr.Base {
+		call += " into " + base
+	}
+	return h.record(call)
 }
 
 func (h *fakeHost) SetPeople(_ context.Context, pr review.PullRequest, assignees, reviewers []string) error {
@@ -101,16 +106,16 @@ func (h *fakeHost) Close(_ context.Context, pr review.PullRequest, comment strin
 	return h.record("close " + prKey(pr) + " " + comment)
 }
 
-func (h *fakeHost) Branches(context.Context) ([]string, error) {
-	h.calls = append(h.calls, "branches")
-	return h.branches, h.usersErr
+func (h *fakeHost) Branches(_ context.Context, repo string) ([]string, string, error) {
+	h.calls = append(h.calls, "branches "+repo)
+	return h.branches, "main", h.usersErr
 }
 
-func (h *fakeHost) CreatePullRequest(_ context.Context, head, title, body string) (review.PullRequest, error) {
-	if err := h.record(fmt.Sprintf("create %s %s|%s", head, title, body)); err != nil {
+func (h *fakeHost) CreatePullRequest(_ context.Context, head, base, title, body string) (review.PullRequest, error) {
+	if err := h.record(fmt.Sprintf("create %s %s %s|%s", head, base, title, body)); err != nil {
 		return review.PullRequest{}, err
 	}
-	pr := review.PullRequest{Repo: "o/r", Number: 12, Title: title, Head: head, State: "OPEN", Detailed: true}
+	pr := review.PullRequest{Repo: "o/r", Number: 12, Title: title, Head: head, Base: cmp.Or(base, "main"), State: "OPEN", Detailed: true}
 	h.details["o/r#12"] = pr
 	return pr, nil
 }
@@ -1596,46 +1601,90 @@ func TestCtrlWMovesBetweenTheListAndSidebar(t *testing.T) {
 
 func TestCreatePullRequestFromTheActions(t *testing.T) {
 	m, host := pullsModel(t)
-	host.branches = []string{"main", "feature", "login"}
+	host.branches = []string{"main", "feature", "login", "release"}
 	m = runAction(t, m, "create")
 	out := screen(m)
-	if !host.has("branches") || !m.modal.open || m.modal.kind != modalCreate || !m.modal.normal || !slices.Equal(m.modal.choices, []string{"feature", "main", "login"}) {
-		t.Fatalf("create should open in normal mode with the current branch first, choices=%q", m.modal.choices)
+	if !host.has("branches ") || !m.modal.open || m.modal.kind != modalCreate || !m.modal.normal || m.modal.focus != 0 {
+		t.Fatalf("create should open in normal mode on the branch dropdown, calls=%q", host.calls)
 	}
-	if !strings.Contains(out, "create a pull request into the default branch") || !strings.Contains(out, "branch      feature") || !strings.Contains(out, "title") || !strings.Contains(out, "description") {
-		t.Fatalf("the modal should show the branch dropdown and the labeled title and description:\n%s", out)
+	if !slices.Equal(m.modal.drops[0].choices, []string{"feature", "main", "login", "release"}) || !slices.Equal(m.modal.drops[1].choices, []string{"main", "feature", "login", "release"}) {
+		t.Fatalf("the current branch and the default branch should come first, drops=%+v", m.modal.drops)
+	}
+	if !strings.Contains(out, "branch      feature") || !strings.Contains(out, "into        main") || !strings.Contains(out, "title") || !strings.Contains(out, "description") {
+		t.Fatalf("the modal should show both dropdowns and the labeled title and description:\n%s", out)
 	}
 	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title on the first line can't be empty" {
 		t.Fatal("an empty title should not create anything")
 	}
-	m = pressRun(t, m, "enter", "j", "enter", "tab", "i")
+	m = pressRun(t, m, "enter", "j", "enter", "tab", "enter", "j", "j", "j", "enter")
+	if out := screen(m); !strings.Contains(out, "branch      main") || !strings.Contains(out, "into        release") {
+		t.Fatalf("each dropdown should keep its own pick:\n%s", out)
+	}
+	m = pressRun(t, m, "tab", "i")
 	m = typeText(t, m, "Add login")
 	m = pressRun(t, m, "esc", "j", "j", "i")
 	m = typeText(t, m, "Adds login")
 	m = pressRun(t, m, "ctrl+s")
-	if !host.has("create main Add login|Adds login") || m.modal.open || m.notice != "created #12 from main" || m.pulls.details["o/r#12"].Head != "main" {
-		t.Fatalf("ctrl+s should create from the picked branch, calls=%q notice=%q", host.calls, m.notice)
+	if !host.has("create main release Add login|Adds login") || m.modal.open || m.notice != "created #12 from main into release" || m.pulls.details["o/r#12"].Head != "main" {
+		t.Fatalf("ctrl+s should create from and into the picked branches, calls=%q notice=%q", host.calls, m.notice)
 	}
-	if i := slices.Index(host.calls, "create main Add login|Adds login"); !slices.Contains(host.calls[i:], "list assignee:@me") {
+	if i := slices.Index(host.calls, "create main release Add login|Adds login"); !slices.Contains(host.calls[i:], "list assignee:@me") {
 		t.Fatalf("the list should reload after creating, calls=%q", host.calls)
 	}
 
 	host.err = errors.New("you must first push the current branch")
 	m = runAction(t, m, "create")
 	m.modal.area.SetValue("Title\n\nBody")
-	if m = pressRun(t, m, "ctrl+s"); !strings.Contains(screen(m), "create a pull request from feature: you must first push") {
-		t.Fatalf("a failed create should show the reason:\n%s", screen(m))
+	if m = pressRun(t, m, "ctrl+s"); !strings.Contains(statusText(m), "create a pull request from feature: you must first push") {
+		t.Fatalf("a failed create should show the reason, got %q", statusText(m))
 	}
 	host.err, m.pulls.err = nil, nil
 	host.usersErr = errors.New("HTTP 404")
-	if m = runAction(t, m, "create"); m.modal.open || !strings.Contains(screen(m), "list the branches: HTTP 404") {
-		t.Fatalf("a failed branch load should show the error:\n%s", screen(m))
+	m = runAction(t, m, "create")
+	if !m.modal.open || !strings.Contains(screen(m), "couldn't list the branches, HTTP 404") || !strings.Contains(screen(m), "into        default branch") {
+		t.Fatalf("a failed branch load should keep the modal with the default branch:\n%s", screen(m))
 	}
-	host.usersErr, m.pulls.err = nil, nil
-	plain, _ := pullsModel(t)
-	plain.svc = nil
-	if plain.openCreate(branchesMsg{}); plain.modal.open || plain.warning != "the repository has no branches to open a pull request from" {
-		t.Fatal("no branches at all should explain")
+	host.usersErr = nil
+	m.modal.area.SetValue("Title\n\nBody")
+	if m = pressRun(t, m, "ctrl+s"); !host.has("create feature  Title|Body") {
+		t.Fatalf("saving before the branches load should leave the target to GitHub, calls=%q", host.calls)
+	}
+}
+
+func TestEditModalChangesTheTargetBranch(t *testing.T) {
+	m, host := pullsModel(t)
+	host.branches = []string{"main", "release"}
+	m = runAction(t, m, "edit")
+	if !host.has("branches o/r") || !m.modal.onArea() || !slices.Equal(m.modal.drops[0].choices, []string{"main", "release"}) || !strings.Contains(screen(m), "into        main") {
+		t.Fatalf("edit should start on the text with the current base first, calls=%q:\n%s", host.calls, screen(m))
+	}
+	m = pressRun(t, m, "ctrl+s")
+	lastEdit := func() string {
+		for i := len(host.calls) - 1; i >= 0; i-- {
+			if strings.HasPrefix(host.calls[i], "edit ") {
+				return host.calls[i]
+			}
+		}
+		return ""
+	}
+	if last := lastEdit(); !strings.HasPrefix(last, "edit o/r#7 Add login|") || strings.Contains(last, " into ") {
+		t.Fatalf("keeping the base should not change it, got %q", last)
+	}
+	m = runAction(t, m, "edit")
+	m = pressRun(t, m, "shift+tab", "enter", "j", "enter", "ctrl+s")
+	if last := lastEdit(); !strings.HasPrefix(last, "edit o/r#7 Add login|") || !strings.HasSuffix(last, " into release") {
+		t.Fatalf("a new base should be sent, got %q", last)
+	}
+	m = runAction(t, m, "edit")
+	m.applyBranches(branchesMsg{repo: "o/other", list: []string{"x"}})
+	m.applyBranches(branchesMsg{repo: "o/r", list: []string{"y"}, err: errors.New("late")})
+	if !slices.Equal(m.modal.drops[0].choices, []string{"main", "release"}) || !strings.Contains(m.modal.warning, "late") {
+		t.Fatalf("branches of another repository should be ignored, drops=%+v", m.modal.drops)
+	}
+	undetailed, _ := pullsModel(t)
+	undetailed.openModal(modalEdit, review.PullRequest{Repo: "o/r", Number: 7, Title: "t"})
+	if len(undetailed.modal.drops) != 0 {
+		t.Fatal("without a known base the edit modal should not offer to change it")
 	}
 }
 
@@ -1658,10 +1707,10 @@ func TestOpenDropdownShowsAWindowOfChoices(t *testing.T) {
 	m, _ := pullsModel(t)
 	m.openModal(modalCreate, review.PullRequest{})
 	for i := range 20 {
-		m.modal.choices = append(m.modal.choices, fmt.Sprintf("branch-%02d", i))
+		m.modal.drops[0].choices = append(m.modal.drops[0].choices, fmt.Sprintf("branch-%02d", i))
 	}
 	m.modal.setFocus(0)
-	m.modal.expanded, m.modal.choice = true, 12
+	m.modal.expanded, m.modal.drops[0].choice = true, 13
 	lines := strings.Join(m.dropdownLines(), "\n")
 	if strings.Contains(lines, "branch-04") || !strings.Contains(lines, "branch-05") || !strings.Contains(lines, "▸ branch-12") || strings.Contains(lines, "branch-13") {
 		t.Fatalf("the open dropdown should show the %d rows ending at the picked one:\n%s", dropdownRows, ansi.Strip(lines))

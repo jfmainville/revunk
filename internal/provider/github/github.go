@@ -407,11 +407,15 @@ func number(pr review.PullRequest) string {
 	return strconv.Itoa(pr.Number)
 }
 
-func (c Client) EditPullRequest(ctx context.Context, pr review.PullRequest, title, body string) error {
+func (c Client) EditPullRequest(ctx context.Context, pr review.PullRequest, title, body, base string) error {
 	if strings.TrimSpace(title) == "" {
 		return errors.New("title is empty")
 	}
-	_, err := c.run(ctx, "pr", "edit", number(pr), "--repo", pr.Repo, "--title", title, "--body", body)
+	args := []string{"pr", "edit", number(pr), "--repo", pr.Repo, "--title", title, "--body", body}
+	if base != "" && base != pr.Base {
+		args = append(args, "--base", base)
+	}
+	_, err := c.run(ctx, args...)
 	return err
 }
 
@@ -480,23 +484,34 @@ func (c Client) Close(ctx context.Context, pr review.PullRequest, comment string
 	return err
 }
 
-func (c Client) Branches(ctx context.Context) ([]string, error) {
-	branches, err := apiList[struct{ Name string }](ctx, c, "repos/{owner}/{repo}/branches?per_page=100")
+func (c Client) Branches(ctx context.Context, repo string) ([]string, string, error) {
+	if repo == "" {
+		repo = "{owner}/{repo}"
+	}
+	out, err := c.run(ctx, "api", "repos/"+repo, "--jq", ".default_branch")
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	branches, err := apiList[struct{ Name string }](ctx, c, "repos/"+repo+"/branches?per_page=100")
+	if err != nil {
+		return nil, "", err
 	}
 	names := make([]string, len(branches))
 	for i, b := range branches {
 		names[i] = b.Name
 	}
-	return names, nil
+	return names, strings.TrimSpace(string(out)), nil
 }
 
-func (c Client) CreatePullRequest(ctx context.Context, head, title, body string) (review.PullRequest, error) {
+func (c Client) CreatePullRequest(ctx context.Context, head, base, title, body string) (review.PullRequest, error) {
 	if strings.TrimSpace(title) == "" {
 		return review.PullRequest{}, errors.New("title is empty")
 	}
-	out, err := c.run(ctx, "pr", "create", "--head", head, "--title", title, "--body", body)
+	args := []string{"pr", "create", "--head", head, "--title", title, "--body", body}
+	if base != "" {
+		args = append(args, "--base", base)
+	}
+	out, err := c.run(ctx, args...)
 	if err != nil {
 		return review.PullRequest{}, err
 	}

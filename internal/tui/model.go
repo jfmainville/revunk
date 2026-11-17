@@ -417,7 +417,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openPRMsg:
 		return m, m.openPR(msg)
 	case branchesMsg:
-		return m, m.openCreate(msg)
+		m.applyBranches(msg)
+		return m, nil
 	case createdMsg:
 		return m, m.applyCreated(msg)
 	case tea.PasteMsg:

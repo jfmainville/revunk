@@ -211,14 +211,22 @@ var pr = review.PullRequest{ID: "PR_1", Repo: "o/r", Number: 7, Assignees: []str
 
 func TestEditPullRequest(t *testing.T) {
 	f := &fakeGH{}
-	if err := f.client().EditPullRequest(context.Background(), pr, "  ", "b"); err == nil || len(f.calls) > 0 {
+	if err := f.client().EditPullRequest(context.Background(), pr, "  ", "b", ""); err == nil || len(f.calls) > 0 {
 		t.Fatal("an empty title should be refused before calling gh")
 	}
-	if err := f.client().EditPullRequest(context.Background(), pr, "New", "Body"); err != nil {
+	based := pr
+	based.Base = "main"
+	if err := f.client().EditPullRequest(context.Background(), based, "New", "Body", "main"); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"pr", "edit", "7", "--repo", "o/r", "--title", "New", "--body", "Body"}; !reflect.DeepEqual(f.calls[0], want) {
-		t.Fatalf("call = %q", f.calls[0])
+		t.Fatalf("an unchanged base should not be sent, call = %q", f.calls[0])
+	}
+	if err := f.client().EditPullRequest(context.Background(), based, "New", "Body", "release"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"pr", "edit", "7", "--repo", "o/r", "--title", "New", "--body", "Body", "--base", "release"}; !reflect.DeepEqual(f.calls[1], want) {
+		t.Fatalf("a new base should be sent, call = %q", f.calls[1])
 	}
 }
 
@@ -379,31 +387,47 @@ func TestLabelsCopilotAndClose(t *testing.T) {
 
 func TestBranchesAndCreatePullRequest(t *testing.T) {
 	ctx := context.Background()
-	f := &fakeGH{replies: []string{`[{"name":"main"},{"name":"login"}]`}}
-	if names, err := f.client().Branches(ctx); err != nil || !reflect.DeepEqual(names, []string{"main", "login"}) || !slices.Contains(f.calls[0], "repos/{owner}/{repo}/branches?per_page=100") {
-		t.Fatalf("Branches = %q, %v, call %q", names, err, f.calls[0])
+	f := &fakeGH{replies: []string{"trunk\n", `[{"name":"trunk"},{"name":"login"}]`}}
+	names, def, err := f.client().Branches(ctx, "")
+	if err != nil || !reflect.DeepEqual(names, []string{"trunk", "login"}) || def != "trunk" {
+		t.Fatalf("Branches = %q, %q, %v", names, def, err)
+	}
+	if !slices.Contains(f.calls[0], "repos/{owner}/{repo}") || !slices.Contains(f.calls[1], "repos/{owner}/{repo}/branches?per_page=100") {
+		t.Fatalf("an empty repository should mean the current one, calls %q", f.calls)
+	}
+	f = &fakeGH{replies: []string{"main", `[]`}}
+	if _, _, err := f.client().Branches(ctx, "o/s"); err != nil || !slices.Contains(f.calls[0], "repos/o/s") || !slices.Contains(f.calls[1], "repos/o/s/branches?per_page=100") {
+		t.Fatalf("a named repository should be listed, calls %q, err %v", f.calls, err)
+	}
+	f = &fakeGH{replies: []string{"main", "{"}}
+	if _, _, err := f.client().Branches(ctx, "o/s"); err == nil {
+		t.Fatal("expected the branch list parse error")
 	}
 	f = &fakeGH{replies: []string{"Creating pull request\nhttps://github.com/o/r/pull/7\n", detailJSON}}
-	created, err := f.client().CreatePullRequest(ctx, "login", "Add login", "Adds login")
+	created, err := f.client().CreatePullRequest(ctx, "login", "", "Add login", "Adds login")
 	if err != nil || created.Number != 7 || created.Repo != "o/r" {
 		t.Fatalf("CreatePullRequest = %+v, %v", created, err)
 	}
 	if want := []string{"pr", "create", "--head", "login", "--title", "Add login", "--body", "Adds login"}; !reflect.DeepEqual(f.calls[0], want) {
-		t.Fatalf("create call = %q", f.calls[0])
+		t.Fatalf("without a base gh should pick the default branch, create call = %q", f.calls[0])
+	}
+	f = &fakeGH{replies: []string{"https://github.com/o/r/pull/7", detailJSON}}
+	if _, err := f.client().CreatePullRequest(ctx, "login", "release", "T", "B"); err != nil || !reflect.DeepEqual(f.calls[0][len(f.calls[0])-2:], []string{"--base", "release"}) {
+		t.Fatalf("a picked base should be sent, call = %q, err %v", f.calls[0], err)
 	}
 	f = &fakeGH{}
-	if _, err := f.client().CreatePullRequest(ctx, "login", " ", "x"); err == nil || len(f.calls) != 0 {
+	if _, err := f.client().CreatePullRequest(ctx, "login", "", " ", "x"); err == nil || len(f.calls) != 0 {
 		t.Fatalf("an empty title should fail before calling gh, err=%v", err)
 	}
 	f = &fakeGH{replies: []string{"done"}}
-	if _, err := f.client().CreatePullRequest(ctx, "login", "T", ""); err == nil || !strings.Contains(err.Error(), "read the created pull request") {
+	if _, err := f.client().CreatePullRequest(ctx, "login", "", "T", ""); err == nil || !strings.Contains(err.Error(), "read the created pull request") {
 		t.Fatalf("unreadable output error = %v", err)
 	}
 	failing := (&fakeGH{err: errors.New("gh: must push first")}).client()
-	if _, err := failing.CreatePullRequest(ctx, "login", "T", ""); err == nil || !strings.Contains(err.Error(), "must push") {
+	if _, err := failing.CreatePullRequest(ctx, "login", "", "T", ""); err == nil || !strings.Contains(err.Error(), "must push") {
 		t.Fatalf("create error = %v", err)
 	}
-	if _, err := failing.Branches(ctx); err == nil {
+	if _, _, err := failing.Branches(ctx, ""); err == nil {
 		t.Fatal("expected the branches error")
 	}
 }
