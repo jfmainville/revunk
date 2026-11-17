@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,8 @@ type fakeHost struct {
 	detailErr error
 	users     []string
 	usersErr  error
+	labels    []string
+	branches  []string
 }
 
 func (h *fakeHost) Assignable(_ context.Context, repo string) ([]string, error) {
@@ -54,8 +57,12 @@ func (h *fakeHost) record(call string) error {
 	return h.err
 }
 
-func (h *fakeHost) EditPullRequest(_ context.Context, pr review.PullRequest, title, body string) error {
-	return h.record(fmt.Sprintf("edit %s %s|%s", prKey(pr), title, body))
+func (h *fakeHost) EditPullRequest(_ context.Context, pr review.PullRequest, title, body, base string) error {
+	call := fmt.Sprintf("edit %s %s|%s", prKey(pr), title, body)
+	if base != pr.Base {
+		call += " into " + base
+	}
+	return h.record(call)
 }
 
 func (h *fakeHost) SetPeople(_ context.Context, pr review.PullRequest, assignees, reviewers []string) error {
@@ -82,8 +89,39 @@ func (h *fakeHost) SubmitReview(_ context.Context, pr review.PullRequest, event 
 	return h.record(fmt.Sprintf("submit %s %s %s %s", prKey(pr), pr.PendingReview, event, body))
 }
 
-func (h *fakeHost) Merge(_ context.Context, pr review.PullRequest, method review.MergeMethod) error {
-	if err := h.record(fmt.Sprintf("merge %s %s", prKey(pr), method)); err != nil {
+func (h *fakeHost) Labels(_ context.Context, repo string) ([]string, error) {
+	h.calls = append(h.calls, "labels "+repo)
+	return h.labels, h.usersErr
+}
+
+func (h *fakeHost) SetLabels(_ context.Context, pr review.PullRequest, labels []string) error {
+	return h.record(fmt.Sprintf("set labels %s %s", prKey(pr), strings.Join(labels, ",")))
+}
+
+func (h *fakeHost) RequestCopilotReview(_ context.Context, pr review.PullRequest) error {
+	return h.record("copilot " + prKey(pr))
+}
+
+func (h *fakeHost) Close(_ context.Context, pr review.PullRequest, comment string) error {
+	return h.record("close " + prKey(pr) + " " + comment)
+}
+
+func (h *fakeHost) Branches(_ context.Context, repo string) ([]string, string, error) {
+	h.calls = append(h.calls, "branches "+repo)
+	return h.branches, "main", h.usersErr
+}
+
+func (h *fakeHost) CreatePullRequest(_ context.Context, head, base, title, body string) (review.PullRequest, error) {
+	if err := h.record(fmt.Sprintf("create %s %s %s|%s", head, base, title, body)); err != nil {
+		return review.PullRequest{}, err
+	}
+	pr := review.PullRequest{Repo: "o/r", Number: 12, Title: title, Head: head, Base: cmp.Or(base, "main"), State: "OPEN", Detailed: true}
+	h.details["o/r#12"] = pr
+	return pr, nil
+}
+
+func (h *fakeHost) Merge(_ context.Context, pr review.PullRequest, method review.MergeMethod, message review.MergeMessage) error {
+	if err := h.record(fmt.Sprintf("merge %s %s %s|%s", prKey(pr), method, message.Headline, message.Body)); err != nil {
 		return err
 	}
 	d := h.details[prKey(pr)]
@@ -117,6 +155,10 @@ func samplePulls() (review.PullRequest, review.PullRequest) {
 	detail.Additions, detail.Deletions, detail.ChangedFiles, detail.Detailed = 10, 2, 1, true
 	detail.Assignees = []string{"me"}
 	detail.MergeState, detail.MergeMethods = "CLEAN", []review.MergeMethod{review.MergeCommit, review.MergeSquash, review.MergeRebase}
+	detail.MergeMessages = map[review.MergeMethod]review.MergeMessage{
+		review.MergeCommit: {Headline: "Merge pull request #7 from o/login", Body: "Add login"},
+		review.MergeSquash: {Headline: "Add login (#7)", Body: "* add login"},
+	}
 	detail.Reviewers = []review.Reviewer{{Login: "bob", State: "APPROVED"}, {Login: "cy", State: "PENDING"}}
 	detail.Labels = []string{"auth"}
 	detail.Checks = []review.Check{{Name: "build", State: "SUCCESS"}, {Name: "test", State: "FAILURE"}, {Name: "lint", State: "IN_PROGRESS"}}
@@ -161,7 +203,7 @@ func drainCmd(t *testing.T, m Model, cmd tea.Cmd) Model {
 		return m
 	}
 	switch msg := msg.(type) {
-	case nil, pullsTickMsg, tickMsg:
+	case nil, pullsTickMsg, tickMsg, statusTickMsg:
 		return m
 	case tea.BatchMsg:
 		for _, c := range msg {
@@ -169,7 +211,7 @@ func drainCmd(t *testing.T, m Model, cmd tea.Cmd) Model {
 		}
 		return m
 	case nestedMsg:
-		if _, ok := msg.msg.(tickMsg); ok {
+		if _, ok := msg.msg.(tickMsg); ok || msg.msg == (statusTickMsg{}) {
 			return m
 		}
 		updated, next := m.Update(msg)
@@ -192,9 +234,11 @@ func pressRun(t *testing.T, m Model, keys ...string) Model {
 
 func pullsModel(t *testing.T) (Model, *fakeHost) {
 	t.Helper()
-	old, oldNow, oldReview := pullsPollEvery, now, reviewPollEvery
-	pullsPollEvery, reviewPollEvery, now = time.Millisecond, time.Millisecond, func() time.Time { return clock }
-	t.Cleanup(func() { pullsPollEvery, now, reviewPollEvery = old, oldNow, oldReview })
+	old, oldNow, oldReview, oldStatus, oldSpin := pullsPollEvery, now, reviewPollEvery, statusEvery, spinEvery
+	pullsPollEvery, reviewPollEvery, statusEvery, spinEvery, now = time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond, func() time.Time { return clock }
+	t.Cleanup(func() {
+		pullsPollEvery, now, reviewPollEvery, statusEvery, spinEvery = old, oldNow, oldReview, oldStatus, oldSpin
+	})
 	host := newHost()
 	m, _ := loaded(t)
 	m = m.WithHost(host, func(pr review.PullRequest) *review.Service {
@@ -209,7 +253,7 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 		t.Fatalf("tab=%d calls=%q", m.tab, host.calls)
 	}
 	out := screen(m)
-	for _, want := range []string{"Agent", "Pull Request", "pull requests", "assigned · 2", "#7", "Add login", "o/r 2h", "#8", "Fix logout", "o/s 2d",
+	for _, want := range []string{"Agent", "Pull Request", "pull requests", "assigned · 2", "#7", "Add login", "o/r", "2h", "#8", "Fix logout", "o/s", "2d", "author", "updated",
 		"#7 o/r", "Overview", "Activity", "Comments", "Commits", "Files", "OPEN · @ana wants to merge login into main", "+10 -2 · 1 files · 1 commits",
 		"assignees  @me", "reviewers  ✓ @bob  ● @cy", "labels     auth", "checks     ✓ 1  ● 1  ✗ 1", "✓ build success", "✗ test failure", "description", "Adds login support"} {
 		if !strings.Contains(out, want) {
@@ -235,7 +279,7 @@ func TestPullsTabWithoutHostOrWithErrors(t *testing.T) {
 	if !strings.Contains(screen(m), "pull requests need the GitHub CLI") {
 		t.Fatalf("missing host error:\n%s", screen(m))
 	}
-	if m = pressRun(t, m, "s", "j", "c"); m.modal.open || m.pulls.filter != 0 {
+	if m = pressRun(t, m, "s", "j", "A"); m.modal.open || m.pulls.filter != 0 {
 		t.Fatal("keys should do nothing without a host")
 	}
 
@@ -247,7 +291,7 @@ func TestPullsTabWithoutHostOrWithErrors(t *testing.T) {
 	}
 	host.listErr, host.err = nil, errors.New("gh pr: not allowed")
 	m = pressRun(t, m, "s", "s", "s")
-	m = pressRun(t, m, "c")
+	m = runAction(t, m, "comment")
 	m = typeText(t, m, "hi")
 	m = pressRun(t, m, "ctrl+s")
 	if !strings.Contains(screen(m), "not allowed") || m.modal.open {
@@ -376,11 +420,14 @@ func TestDetailsScrollAndRevealTheSelectedComment(t *testing.T) {
 
 func TestCommentModalPostsToGitHub(t *testing.T) {
 	m, host := pullsModel(t)
-	m = pressRun(t, m, "c")
+	if m = pressRun(t, m, "c"); m.modal.open {
+		t.Fatal("c no longer comments on the list, the actions do")
+	}
+	m = runAction(t, m, "comment")
 	if !m.modal.open || !strings.Contains(screen(m), "comment on #7") || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "C-s save") {
 		t.Fatalf("c should open the comment modal:\n%s", screen(m))
 	}
-	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.notice != "write something before saving" {
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "write something before saving" {
 		t.Fatal("an empty comment should not be sent")
 	}
 	m = typeText(t, m, "Looks **good**")
@@ -390,47 +437,164 @@ func TestCommentModalPostsToGitHub(t *testing.T) {
 	if m.modal.open || !host.has("comment o/r#7 Looks **good**\nok") || host.last() != "detail o/r#7" || m.notice != "commented on #7" {
 		t.Fatalf("calls=%q notice=%q", host.calls, m.notice)
 	}
-	m = pressRun(t, m, "c")
+	m = runAction(t, m, "comment")
 	m = typeText(t, m, "nope")
 	if m = pressRun(t, m, "esc", "esc"); m.modal.open || host.has("comment o/r#7 nope") {
 		t.Fatal("esc twice should cancel without sending")
 	}
 }
 
+func runAction(t *testing.T, m Model, query string) Model {
+	t.Helper()
+	m = pressRun(t, m, "A")
+	m = typeText(t, m, query)
+	return pressRun(t, m, "enter")
+}
+
+func noMerge(host *fakeHost) bool {
+	return !slices.ContainsFunc(host.calls, func(c string) bool { return strings.HasPrefix(c, "merge") })
+}
+
+func TestActionsListEveryPullRequestAction(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "A")
+	out := screen(m)
+	for _, want := range []string{"actions for #7", "✎  Edit the title and description", "ge", "±  Review the diff", "gd", "↗  Review a pull request from its URL", "gu",
+		"❝  Comment", "✓  Submit a review", "⎇  Merge", "✗  Close without merging", "◉  Assignees", "◎  Reviewers", "◆  Labels", "✦  Request a review from Copilot", "⏎ run  esc list"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the actions should list %q:\n%s", want, out)
+		}
+	}
+	raw := m.View().Content
+	for i, a := range m.actions() {
+		if i > 0 && !strings.Contains(raw, primaryStyle.Render(a.icon)) {
+			t.Fatalf("icon %q of %q should use the accent color", a.icon, a.title)
+		}
+		if w := lipgloss.Width(a.icon); w != 1 {
+			t.Fatalf("icon %q of %q is %d cells wide, icons should be one cell like the rest of the interface", a.icon, a.title, w)
+		}
+	}
+	m = typeText(t, m, "REVIEW")
+	if got := len(m.matchingActions()); got != 5 || m.modal.cursor != 0 {
+		t.Fatalf("the search should filter without case, got %d matches", got)
+	}
+	m = pressRun(t, m, "down", "down", "down", "down", "up")
+	if m.modal.cursor != 3 {
+		t.Fatalf("down and up should move within the matches, cursor=%d", m.modal.cursor)
+	}
+	m = typeText(t, m, "zzz")
+	if out := screen(m); !strings.Contains(out, "no action matches") || m.modal.cursor != 0 {
+		t.Fatalf("an empty search should say so:\n%s", out)
+	}
+	if m = pressRun(t, m, "enter"); !m.modal.open || m.modal.kind != modalActions {
+		t.Fatal("enter with no match should do nothing")
+	}
+	if m = pressRun(t, m, "esc", "esc"); m.modal.open {
+		t.Fatal("esc should close the actions")
+	}
+	if m = runAction(t, m, "edit"); !m.modal.open || m.modal.kind != modalEdit {
+		t.Fatal("enter should run the selected action")
+	}
+	m = pressRun(t, m, "esc", "esc")
+	if m = runAction(t, m, "review the diff"); m.diff == nil {
+		t.Fatal("the review diff action should open the diff")
+	}
+	m = pressRun(t, m, "A")
+	if got := ansi.Strip(screen(m)); strings.Contains(got, "Review the diff") || strings.Contains(got, "from its URL") || !strings.Contains(got, "Merge") {
+		t.Fatalf("the review diff should list only the actions that make sense there:\n%s", got)
+	}
+	m = pressRun(t, m, "esc", "esc")
+	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(footer, "A actions") {
+		t.Fatalf("the review diff footer should show the actions key: %s", footer)
+	}
+	agent, _ := loaded(t)
+	if footer := ansi.Strip(agent.footer()); strings.Contains(footer, "actions") {
+		t.Fatal("the Agent tab has no pull request actions")
+	}
+	if agent, _ = press(t, agent, "A"); agent.modal.open {
+		t.Fatal("A does nothing on the Agent tab")
+	}
+}
+
+func TestCopilotAndCloseActions(t *testing.T) {
+	m, host := pullsModel(t)
+	if m = runAction(t, m, "copilot"); !host.has("copilot o/r#7") || host.last() != "detail o/r#7" || m.notice != "requested a review of #7 from Copilot" {
+		t.Fatalf("calls=%q notice=%q", host.calls, m.notice)
+	}
+	m = runAction(t, m, "close")
+	if out := screen(m); !m.modal.open || !strings.Contains(out, "close #7 without merging") || !strings.Contains(out, "optional comment") {
+		t.Fatalf("close should ask for confirmation with an optional comment:\n%s", out)
+	}
+	if m = pressRun(t, m, "esc", "esc"); m.modal.open || slices.ContainsFunc(host.calls, func(c string) bool { return strings.HasPrefix(c, "close") }) {
+		t.Fatal("esc should cancel without closing")
+	}
+	m = runAction(t, m, "close")
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("close o/r#7 ") || m.notice != "closed #7" {
+		t.Fatalf("the comment should be optional, calls=%q", host.calls)
+	}
+	m = runAction(t, m, "close")
+	m = typeText(t, m, "Superseded by #9")
+	if m = pressRun(t, m, "ctrl+s"); !host.has("close o/r#7 Superseded by #9") {
+		t.Fatalf("calls=%q", host.calls)
+	}
+	detail := host.details["o/r#7"]
+	detail.State = "CLOSED"
+	m.pulls.details["o/r#7"] = detail
+	if m = runAction(t, m, "close"); m.modal.open || m.warning != "#7 is already closed" {
+		t.Fatalf("a closed pull request should not close again, notice=%q", m.notice)
+	}
+}
+
 func TestMergeConfirmsThenMergesOnGitHub(t *testing.T) {
 	m, host := pullsModel(t)
-	m = pressRun(t, m, "g", "m")
+	m = runAction(t, m, "merge")
 	out := screen(m)
-	if !m.modal.open || !strings.Contains(out, "merge #7 into main") || !strings.Contains(out, "Create a merge commit") || !strings.Contains(out, "Squash and merge") || !strings.Contains(out, "Rebase and merge") ||
-		!strings.Contains(out, "⏎ C-s merge  j k pick  esc q cancel") || strings.Contains(out, "next field") {
-		t.Fatalf("gm should open the merge confirmation with every allowed method:\n%s", out)
+	if !m.modal.open || !strings.Contains(out, "merge #7 into main") || !strings.Contains(out, "method      Create a merge commit") ||
+		!strings.Contains(out, "title       Merge pull request #7 from o/login") || !strings.Contains(out, "description Add login") {
+		t.Fatalf("merge should open the confirmation with GitHub's commit message:\n%s", out)
 	}
-	if m = pressRun(t, m, "esc"); m.modal.open || slices.ContainsFunc(host.calls, func(c string) bool { return strings.HasPrefix(c, "merge") }) {
+	if m = pressRun(t, m, "esc"); m.modal.open || !noMerge(host) {
 		t.Fatalf("esc should cancel without merging, calls=%q", host.calls)
 	}
-	if m = pressRun(t, m, "g", "m", "q"); m.modal.open || slices.ContainsFunc(host.calls, func(c string) bool { return strings.HasPrefix(c, "merge") }) {
-		t.Fatal("q should also cancel without merging")
+	m = runAction(t, m, "merge")
+	m = pressRun(t, m, "enter")
+	if !m.modal.expanded || !noMerge(host) {
+		t.Fatal("enter should open the method dropdown, not merge")
 	}
+	m = pressRun(t, m, "j", "enter")
+	if title, body := m.modal.headline.Value(), m.modal.area.Value(); title != "Add login (#7)" || body != "* add login" {
+		t.Fatalf("picking squash should fill its commit message, got %q and %q", title, body)
+	}
+	m = pressRun(t, m, "j", "j", "enter")
+	if out := screen(m); m.modal.area.Value() != "" || m.modal.headline.Value() != "" || !strings.Contains(out, "rebasing keeps the message of each commit") {
+		t.Fatalf("rebase has no commit message:\n%s", out)
+	}
+	m = pressRun(t, m, "esc", "esc")
 
 	host.err = errors.New("Pull request is not mergeable")
-	m = pressRun(t, m, "g", "m", "enter")
-	if !host.has("merge o/r#7 MERGE") || m.modal.open || m.notice == "merged #7 into main" || !strings.Contains(screen(m), "merge #7: Pull request is not mergeable") {
-		t.Fatalf("a refused merge should show GitHub's reason without reporting success, notice=%q:\n%s", m.notice, screen(m))
+	m = runAction(t, m, "merge")
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("merge o/r#7 MERGE Merge pull request #7 from o/login|Add login") || m.modal.open || m.notice == "merged #7 into main" || !strings.Contains(screen(m), "merge #7: Pull request is not mergeable") {
+		t.Fatalf("a refused merge should show GitHub's reason without reporting success, calls=%q:\n%s", host.calls, screen(m))
 	}
 	if pr, _ := m.selectedPR(); pr.State != "OPEN" {
 		t.Fatal("a refused merge should leave the pull request open")
 	}
 
-	host.err = nil
-	m.pulls.err = nil
-	m = pressRun(t, m, "g", "m", "j", "enter")
-	if !host.has("merge o/r#7 SQUASH") || host.last() != "detail o/r#7" || m.notice != "merged #7 into main" {
-		t.Fatalf("enter should merge with the picked method and reload, calls=%q notice=%q", host.calls, m.notice)
+	host.err, m.pulls.err = nil, nil
+	m = runAction(t, m, "merge")
+	m = pressRun(t, m, "enter", "j", "enter", "tab")
+	m.modal.headline.SetValue("Add login everywhere (#7)")
+	m.modal.area.SetValue("Squashed")
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("merge o/r#7 SQUASH Add login everywhere (#7)|Squashed") || host.last() != "detail o/r#7" || m.notice != "merged #7 into main" {
+		t.Fatalf("ctrl+s should merge with the edited commit message and reload, calls=%q notice=%q", host.calls, m.notice)
 	}
 	if pr, _ := m.selectedPR(); pr.State != "MERGED" || !strings.Contains(screen(m), "MERGED") {
 		t.Fatalf("the merged state should show after a merge:\n%s", screen(m))
 	}
-	if m = pressRun(t, m, "g", "m"); m.modal.open || m.notice != "#7 is merged, only open pull requests merge" {
+	if m = runAction(t, m, "merge"); m.modal.open || m.warning != "#7 is merged, only open pull requests merge" {
 		t.Fatalf("a merged pull request should not merge again, notice=%q", m.notice)
 	}
 }
@@ -438,15 +602,24 @@ func TestMergeConfirmsThenMergesOnGitHub(t *testing.T) {
 func TestMergeFollowsRepositorySettingsAndState(t *testing.T) {
 	m, host := pullsModel(t)
 	detail := host.details["o/r#7"]
-	detail.MergeState, detail.MergeMethods = "BLOCKED", []review.MergeMethod{review.MergeRebase}
+	detail.MergeState, detail.MergeMethods = "BLOCKED", []review.MergeMethod{review.MergeRebase, review.MergeSquash}
 	m.pulls.details["o/r#7"] = detail
-	m = pressRun(t, m, "g", "m")
+	m = runAction(t, m, "merge")
 	out := screen(m)
-	if !strings.Contains(out, "branch protection blocks it") || !strings.Contains(out, "Rebase and merge") || strings.Contains(out, "Squash and merge") {
-		t.Fatalf("the modal should warn about the merge state and list only allowed methods:\n%s", out)
+	if !strings.Contains(out, "branch protection blocks it") || !strings.Contains(out, "Squash and merge") || strings.Contains(out, "Create a merge commit") {
+		t.Fatalf("the modal should warn about the merge state and offer only allowed methods:\n%s", out)
 	}
-	if m = pressRun(t, m, "ctrl+s"); !host.has("merge o/r#7 REBASE") {
-		t.Fatalf("ctrl+s should merge with the only method, calls=%q", host.calls)
+	m = pressRun(t, m, "tab")
+	m.modal.headline.SetValue(" ")
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the commit title can't be empty" || !noMerge(host) {
+		t.Fatal("an empty commit title should not merge")
+	}
+	m = pressRun(t, m, "esc", "esc")
+	detail.MergeMethods = []review.MergeMethod{review.MergeRebase}
+	m.pulls.details["o/r#7"] = detail
+	m = runAction(t, m, "merge")
+	if m = pressRun(t, m, "ctrl+s"); !host.has("merge o/r#7 REBASE |") {
+		t.Fatalf("a rebase merges without a commit message, calls=%q", host.calls)
 	}
 
 	for _, c := range []struct {
@@ -458,8 +631,8 @@ func TestMergeFollowsRepositorySettingsAndState(t *testing.T) {
 		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN", Draft: true, MergeMethods: detail.MergeMethods}, "#9 is a draft, mark it ready for review on GitHub before merging"},
 		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN"}, "o/r allows no merge method, check its settings on GitHub"},
 	} {
-		if cmd := m.openMerge(c.pr); cmd != nil || m.modal.kind == modalMerge && m.modal.pr.Number == 9 || m.notice != c.notice {
-			t.Fatalf("openMerge(%+v) notice = %q, want %q", c.pr, m.notice, c.notice)
+		if cmd := m.openMerge(c.pr); cmd != nil || m.modal.kind == modalMerge && m.modal.pr.Number == 9 || m.warning != c.notice {
+			t.Fatalf("openMerge(%+v) warning = %q, want %q", c.pr, m.warning, c.notice)
 		}
 	}
 	for state, want := range map[string]string{"DIRTY": "conflicts", "BEHIND": "behind its base", "UNSTABLE": "checks are failing", "UNKNOWN": "still checking", "CLEAN": "", "HAS_HOOKS": ""} {
@@ -471,12 +644,13 @@ func TestMergeFollowsRepositorySettingsAndState(t *testing.T) {
 
 func TestReviewDiffMergesTheReviewedPullRequest(t *testing.T) {
 	m, host := pullsModel(t)
-	m = pressRun(t, m, "g", "d", "g", "m")
+	m = pressRun(t, m, "g", "d")
+	m = runAction(t, m, "merge")
 	if !m.diff.modal.open || !strings.Contains(screen(m), "merge #7 into main") {
-		t.Fatalf("gm should open the merge confirmation in the review diff:\n%s", screen(m))
+		t.Fatalf("the merge action should open the confirmation in the review diff:\n%s", screen(m))
 	}
-	m = pressRun(t, m, "enter")
-	if !host.has("merge o/r#7 MERGE") || m.diff.notice != "merged #7 into main" || m.diff.pr.State != "MERGED" {
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("merge o/r#7 MERGE Merge pull request #7 from o/login|Add login") || m.diff.notice != "merged #7 into main" || m.diff.pr.State != "MERGED" {
 		t.Fatalf("calls=%q notice=%q", host.calls, m.diff.notice)
 	}
 }
@@ -484,7 +658,7 @@ func TestReviewDiffMergesTheReviewedPullRequest(t *testing.T) {
 func TestReplyReactResolveTargetTheSelectedComment(t *testing.T) {
 	m, host := pullsModel(t)
 	m = pressRun(t, m, "enter", "tab", "tab", "x")
-	if m.notice != "only review threads on code can be resolved" {
+	if m.warning != "only review threads on code can be resolved" {
 		t.Fatalf("resolve on a conversation comment: %q", m.notice)
 	}
 	m = pressRun(t, m, "r")
@@ -507,11 +681,11 @@ func TestReplyReactResolveTargetTheSelectedComment(t *testing.T) {
 	if !strings.Contains(screen(m), "▸ 👍 thumbs up") || !strings.Contains(screen(m), "j k pick") {
 		t.Fatalf("missing reaction picker:\n%s", screen(m))
 	}
-	m = pressRun(t, m, "j", "j", "k", "enter")
+	m = pressRun(t, m, "j", "j", "k", "enter", "ctrl+s")
 	if !host.has("react C_1 THUMBS_DOWN true") || m.notice != "reacted 👎" {
 		t.Fatalf("calls=%q notice=%q", host.calls, m.notice)
 	}
-	m = pressRun(t, m, "k", "+", "k", "enter")
+	m = pressRun(t, m, "k", "+", "k", "ctrl+s")
 	if !host.has("react IC_1 THUMBS_UP false") || m.notice != "removed 👍" {
 		t.Fatalf("picking your own reaction should remove it: %q", host.calls)
 	}
@@ -532,7 +706,7 @@ func TestReplyReactResolveTargetTheSelectedComment(t *testing.T) {
 
 	pr.Threads = nil
 	m = update(t, m, detailMsg{key: "o/r#7", pr: pr})
-	if m = pressRun(t, m, "r"); m.modal.open || !strings.Contains(m.notice, "no comments yet") || m.pulls.item != 0 {
+	if m = pressRun(t, m, "r"); m.modal.open || !strings.Contains(m.warning, "no comments yet") || m.pulls.item != 0 {
 		t.Fatal("with no comments there is nothing to reply to")
 	}
 }
@@ -541,19 +715,30 @@ func TestEditModalUpdatesTitleAndDescription(t *testing.T) {
 	m, host := pullsModel(t)
 	m = pressRun(t, m, "g", "e")
 	out := screen(m)
-	if !m.modal.open || !strings.Contains(out, "edit #7") || !strings.Contains(out, "title      Add login") || !strings.Contains(out, "Adds **login** support") {
-		t.Fatalf("ge should open the edit modal with the current values:\n%s", out)
+	if !m.modal.open || !strings.Contains(out, "edit #7") || !strings.Contains(out, "title       Add login") || !strings.Contains(out, "description Adds **login** support") {
+		t.Fatalf("ge should open the title and description boxes:\n%s", out)
 	}
+	if !m.modal.normal || !strings.Contains(out, "NORMAL") || !m.modal.onHeadline() {
+		t.Fatal("the edit modal should start on the title in normal mode")
+	}
+	if m.modal.headline.Value() != "Add login" || m.modal.area.Value() != "Adds **login** support" {
+		t.Fatalf("the title and description should fill their own boxes, %q and %q", m.modal.headline.Value(), m.modal.area.Value())
+	}
+	m = pressRun(t, m, "A")
 	m = typeText(t, m, " v2")
-	m = pressRun(t, m, "tab")
+	m = pressRun(t, m, "esc", "tab")
+	if !m.modal.onArea() || m.modal.mode() != "normal" {
+		t.Fatal("tab should move from the title to the description, keeping the vim mode")
+	}
+	m = pressRun(t, m, "I")
 	m = typeText(t, m, "> ")
 	m = pressRun(t, m, "ctrl+s")
 	if !host.has("edit o/r#7 Add login v2|> Adds **login** support") || m.notice != "updated #7" {
-		t.Fatalf("calls=%q", host.calls)
+		t.Fatalf("the title and description should save from their boxes, calls=%q", host.calls)
 	}
 	m = pressRun(t, m, "g", "e")
-	m.modal.fields[0].SetValue("  ")
-	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.notice != "the title can't be empty" {
+	m.modal.headline.SetValue("  ")
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title can't be empty" {
 		t.Fatal("an empty title should not be saved")
 	}
 	m = pressRun(t, m, "esc")
@@ -567,10 +752,10 @@ func TestEditModalUpdatesTitleAndDescription(t *testing.T) {
 func TestPickersSetAssigneesAndReviewers(t *testing.T) {
 	m, host := pullsModel(t)
 	host.users = []string{"ana", "me", "dan", "dave"}
-	m = pressRun(t, m, "A")
+	m = runAction(t, m, "assignees")
 	out := screen(m)
 	if !host.has("assignable o/r") || !strings.Contains(out, "assignees of #7") || !strings.Contains(out, "[x] @me") || !strings.Contains(out, "[ ] @dan") || !strings.Contains(out, "[ ] @ana") {
-		t.Fatalf("A should open the assignee picker with the current ones selected:\n%s", out)
+		t.Fatalf("the assignees action should open the picker with the current ones selected:\n%s", out)
 	}
 	m = typeText(t, m, "DA")
 	if out = screen(m); !slices.Equal(m.modal.matches(), []string{"dan", "dave"}) || !strings.Contains(out, "[ ] @dave") {
@@ -580,36 +765,58 @@ func TestPickersSetAssigneesAndReviewers(t *testing.T) {
 	if !host.has("people o/r#7 me,dan bob,cy") || m.notice != "updated the assignees of #7" {
 		t.Fatalf("calls=%q notice=%q", host.calls, m.notice)
 	}
-	m = pressRun(t, m, "R")
+	m = runAction(t, m, "reviewers")
 	out = screen(m)
-	if !strings.Contains(out, "reviewers of #7") || !strings.Contains(out, "[x] @bob") || !strings.Contains(out, "[x] @cy") || slices.Contains(m.modal.people, "ana") {
-		t.Fatalf("R should open the reviewer picker without the author:\n%s", out)
+	if !strings.Contains(out, "reviewers of #7") || !strings.Contains(out, "[x] @bob") || !strings.Contains(out, "[x] @cy") || slices.Contains(m.modal.options, "ana") {
+		t.Fatalf("the reviewers action should open the picker without the author:\n%s", out)
 	}
 	m = pressRun(t, m, "space", "ctrl+s")
 	if !host.has("people o/r#7 me cy") || m.notice != "updated the reviewers of #7" {
 		t.Fatalf("calls=%q", host.calls)
 	}
-	m = pressRun(t, m, "R")
+	m = runAction(t, m, "reviewers")
 	m = typeText(t, m, "zz")
 	if out = screen(m); !strings.Contains(out, "no one matches") {
 		t.Fatalf("an empty search should say so:\n%s", out)
 	}
-	if m = pressRun(t, m, "space", "esc"); m.modal.open || host.has("people o/r#7 me bob,cy,") {
+	if m = pressRun(t, m, "space", "esc", "esc"); m.modal.open || host.has("people o/r#7 me bob,cy,") {
 		t.Fatal("esc should close the picker without saving")
 	}
-	m = pressRun(t, m, "R")
-	if m.modal.people = nil; !strings.Contains(screen(m), "no one to pick") {
+	m = runAction(t, m, "reviewers")
+	if m.modal.options = nil; !strings.Contains(screen(m), "no one to pick") {
 		t.Fatal("a repository with no one else to pick should say so")
 	}
-	m = pressRun(t, m, "space", "esc")
+	m = pressRun(t, m, "space", "esc", "esc")
 	host.usersErr = errors.New("forbidden")
-	if m = pressRun(t, m, "A"); !strings.Contains(screen(m), "forbidden") {
+	if m = runAction(t, m, "assignees"); !strings.Contains(screen(m), "forbidden") {
 		t.Fatal("a failed load should show the error")
 	}
-	m = pressRun(t, m, "esc")
-	m.modal.applyAssignable(assignableMsg{repo: "o/r", logins: []string{"late"}})
-	if m.modal.open || m.modal.people != nil {
+	m = pressRun(t, m, "esc", "esc")
+	m.modal.applyPicker(pickerMsg{repo: "o/r", items: []string{"late"}})
+	if m.modal.open || m.modal.options != nil {
 		t.Fatal("users that load after the picker closes should be dropped")
+	}
+}
+
+func TestLabelsPickerSetsLabels(t *testing.T) {
+	m, host := pullsModel(t)
+	host.labels = []string{"auth", "bug", "docs"}
+	m = runAction(t, m, "labels")
+	out := screen(m)
+	if !host.has("labels o/r") || !strings.Contains(out, "labels of #7") || !strings.Contains(out, "[x] auth") || !strings.Contains(out, "[ ] bug") || strings.Contains(out, "@bug") {
+		t.Fatalf("the labels action should open a picker of the repository's labels with the current ones selected:\n%s", out)
+	}
+	m = pressRun(t, m, "down", "space", "up", "space", "ctrl+s")
+	if !host.has("set labels o/r#7 bug") || m.notice != "updated the labels of #7" {
+		t.Fatalf("calls=%q notice=%q", host.calls, m.notice)
+	}
+	m = runAction(t, m, "labels")
+	m = typeText(t, m, "zz")
+	if out := screen(m); !strings.Contains(out, "no label matches") {
+		t.Fatalf("an empty search should say so:\n%s", out)
+	}
+	if m.modal.options = nil; !strings.Contains(screen(m), "the repository has no labels") {
+		t.Fatal("a repository without labels should say so")
 	}
 }
 
@@ -637,7 +844,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 		t.Fatal("gd should open the review diff")
 	}
 	out := screen(m)
-	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "main…o/r#7") || !strings.Contains(footer, "gs submit review") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") || strings.Contains(footer, "x resolve") || strings.Contains(footer, "r reply") {
+	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "main…o/r#7") || !strings.Contains(footer, "A actions") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") || strings.Contains(footer, "x resolve") || strings.Contains(footer, "r reply") {
 		t.Fatalf("review diff screen:\n%s", out)
 	}
 	if m = pressRun(t, m, "S"); m.diff.notice != "" {
@@ -652,9 +859,9 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 		t.Fatal("messages from an older diff should be ignored")
 	}
 
-	m = pressRun(t, m, "g", "s")
+	m = runAction(t, m, "submit")
 	if out := screen(m); !m.diff.modal.open || !strings.Contains(out, "submit your review of #7") || !strings.Contains(out, "review      Comment") || strings.Contains(out, "Approve") || !strings.Contains(out, "optional message") {
-		t.Fatalf("gs should open the submit modal with a closed dropdown:\n%s", out)
+		t.Fatalf("the submit action should open the modal with a closed dropdown:\n%s", out)
 	}
 	if m = pressRun(t, m, "1"); m.tab != tabPulls {
 		t.Fatal("tab keys are text while the modal is open")
@@ -665,7 +872,8 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 	if m = pressRun(t, m, "ctrl+s"); !host.has("submit o/r#7 PRR_9 COMMENT ") || m.diff.modal.open {
 		t.Fatalf("the message should be optional, calls=%q", host.calls)
 	}
-	m = pressRun(t, m, "g", "s", "enter")
+	m = runAction(t, m, "submit")
+	m = pressRun(t, m, "enter")
 	if out := screen(m); !m.diff.modal.expanded || !strings.Contains(out, "▸ Comment") || !strings.Contains(out, "Request changes") {
 		t.Fatalf("enter should open the dropdown:\n%s", out)
 	}
@@ -678,7 +886,8 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 		t.Fatalf("calls=%q notice=%q", host.calls, m.diff.notice)
 	}
 	host.err = errors.New("can't approve your own pull request")
-	m = pressRun(t, m, "g", "s", "j", "j", "j", "esc")
+	m = runAction(t, m, "submit")
+	m = pressRun(t, m, "j", "j", "j", "esc")
 	if !m.diff.modal.open || m.diff.modal.expanded {
 		t.Fatal("esc should close the dropdown and keep the modal")
 	}
@@ -688,7 +897,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 	}
 	m = typeText(t, m, "Please fix")
 	m = pressRun(t, m, "ctrl+s")
-	if !host.has("submit o/r#7 PRR_9 REQUEST_CHANGES Please fix") || !strings.Contains(screen(m), "can't approve your own") {
+	if !host.has("submit o/r#7 PRR_9 REQUEST_CHANGES Please fix") || !strings.Contains(statusText(m), "can't approve your own") {
 		t.Fatalf("errors should show in the review diff:\n%s", screen(m))
 	}
 
@@ -703,8 +912,13 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 	if m.diff.width != 90 {
 		t.Fatal("resizes should reach the review diff")
 	}
-	if m = pressRun(t, m, "q"); m.diff != nil || m.tab != tabPulls {
-		t.Fatal("q should close the review diff")
+	m = pressRun(t, m, "/")
+	m = typeText(t, m, "func")
+	if m = pressRun(t, m, "enter", "esc"); m.diff == nil {
+		t.Fatal("esc should clear the search before closing the review diff")
+	}
+	if m = pressRun(t, m, "esc"); m.diff != nil || m.tab != tabPulls {
+		t.Fatal("esc should close the review diff")
 	}
 	m.openReview = nil
 	if m = pressRun(t, m, "g", "d"); m.diff != nil {
@@ -746,7 +960,7 @@ func TestNestWrapsOnlyModelMessages(t *testing.T) {
 
 func TestPullsMouseSelectsAndScrolls(t *testing.T) {
 	m, host := pullsModel(t)
-	m, cmd := click(t, m, 5, 3)
+	m, cmd := click(t, m, 5, 6)
 	m = drainCmd(t, m, cmd)
 	if m.pulls.cursor != 1 || host.last() != "detail o/s#8" {
 		t.Fatal("clicking a row should select it")
@@ -768,7 +982,7 @@ func TestPullsMouseSelectsAndScrolls(t *testing.T) {
 	if m.pulls.scroll != 3 {
 		t.Fatalf("the wheel over the sidebar should scroll it, scroll=%d", m.pulls.scroll)
 	}
-	m = pressRun(t, m, "c")
+	m = pressRun(t, m, "A")
 	if m, _ = click(t, m, 5, 3); m.pulls.cursor != 0 {
 		t.Fatal("clicks are ignored while a modal is open")
 	}
@@ -962,6 +1176,7 @@ func TestClickingDetailTabsOpensThem(t *testing.T) {
 	if m, _ = click(t, m, x+len(" Overview  Activity  C"), 3); m.pulls.section != 0 {
 		t.Fatal("clicks below the tabs should not switch them")
 	}
+	m = update(t, m, tea.WindowSizeMsg{Width: 200, Height: 40})
 	if m, _ = click(t, m, m.width-2, 2); m.pulls.section != 0 {
 		t.Fatal("clicks past the last tab should not switch them")
 	}
@@ -978,11 +1193,10 @@ func TestTabAtFindsTheLabelUnderX(t *testing.T) {
 
 func TestAgentTabOpensTheBranchPullRequest(t *testing.T) {
 	m, host := pullsModel(t)
-	m = pressRun(t, m, "1", "g", "e")
-	if !host.has("branch") || m.tab != tabAgent || !m.modal.open || !strings.Contains(screen(m), "edit #7") {
-		t.Fatalf("ge on the Agent tab should edit the branch's pull request in place, calls=%q", host.calls)
+	if m = pressRun(t, m, "1", "g", "e"); host.has("branch") || m.modal.open {
+		t.Fatalf("ge does nothing on the Agent tab, calls=%q", host.calls)
 	}
-	m = pressRun(t, m, "esc", "g", "d")
+	m = pressRun(t, m, "g", "d")
 	if m.tab != tabPulls || m.diff == nil || m.diff.pr.Number != 7 {
 		t.Fatal("gd on the Agent tab should open the branch's review diff on the Pull Request tab")
 	}
@@ -990,23 +1204,24 @@ func TestAgentTabOpensTheBranchPullRequest(t *testing.T) {
 	if m = pressRun(t, m, "g", "e"); slices.Contains(host.calls[calls:], "branch") || !m.diff.modal.open || !strings.Contains(screen(m), "edit #7") {
 		t.Fatal("ge in the review diff should edit the reviewed pull request without looking up the branch's")
 	}
-	m = pressRun(t, m, "esc", "q", "1")
+	m = pressRun(t, m, "esc", "esc", "esc", "1")
 	host.detailErr = errors.New("no pull requests found for branch")
 	if m = pressRun(t, m, "g", "d"); m.tab != tabAgent || m.diff != nil || !strings.Contains(screen(m), "no pull requests found") {
 		t.Fatal("a branch without a pull request should show the error and stay on the Agent tab")
 	}
 	plain, _ := loaded(t)
-	if _, cmd := press(t, plain, "g", "e"); cmd != nil {
-		t.Fatal("without gh, ge does nothing")
+	if _, cmd := press(t, plain, "g", "d"); cmd != nil {
+		t.Fatal("without gh, gd does nothing")
 	}
 }
 
 func TestReviewDiffEditsTheReviewedPullRequest(t *testing.T) {
 	m, host := pullsModel(t)
 	m = pressRun(t, m, "g", "d", "g", "e")
-	if !m.diff.modal.open || m.diff.modal.kind != modalEdit || m.diff.modal.fields[0].Value() != "Add login" || m.diff.modal.area.Value() != "Adds **login** support" {
+	if !m.diff.modal.open || m.diff.modal.kind != modalEdit || m.diff.modal.headline.Value() != "Add login" || m.diff.modal.area.Value() != "Adds **login** support" {
 		t.Fatalf("ge should open the edit modal filled with the reviewed pull request:\n%s", screen(m))
 	}
+	m = pressRun(t, m, "A")
 	m = typeText(t, m, " v2")
 	detail := host.details["o/r#7"]
 	detail.Title = "Add login v2"
@@ -1016,7 +1231,7 @@ func TestReviewDiffEditsTheReviewedPullRequest(t *testing.T) {
 		t.Fatalf("saving should edit on GitHub and reload the reviewed pull request, calls=%q notice=%q", host.calls, m.diff.notice)
 	}
 	host.err = errors.New("HTTP 403: Resource not accessible")
-	if m = pressRun(t, m, "g", "e", "ctrl+s"); !strings.Contains(screen(m), "Resource not accessible") || m.diff == nil {
+	if m = pressRun(t, m, "g", "e", "ctrl+s"); !strings.Contains(statusText(m), "Resource not accessible") || m.diff == nil {
 		t.Fatalf("edit failures should show in the review diff:\n%s", screen(m))
 	}
 }
@@ -1027,11 +1242,14 @@ func TestURLModalOpensTheReviewDiff(t *testing.T) {
 	if out := screen(m); !m.modal.open || m.modal.kind != modalURL || !strings.Contains(out, "review a pull request from its GitHub URL") {
 		t.Fatalf("gu should open the URL modal:\n%s", out)
 	}
-	if m = pressRun(t, m, "enter"); !m.modal.open || !strings.Contains(screen(m), "the pull request URL is empty") {
+	if m = pressRun(t, m, "enter"); !m.modal.open || strings.Contains(screen(m), "the pull request URL is empty") {
+		t.Fatal("enter should not save, only ctrl+s does")
+	}
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || !strings.Contains(screen(m), "the pull request URL is empty") {
 		t.Fatalf("an empty URL should keep the modal open with an error:\n%s", screen(m))
 	}
 	m = typeText(t, m, "https://gitlab.com/o/s/pull/8")
-	if m = pressRun(t, m, "enter"); !m.modal.open || !strings.Contains(screen(m), "is not a GitHub pull") || host.has("detail o/s#8") {
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || !strings.Contains(statusText(m), "is not a GitHub pull") || host.has("detail o/s#8") {
 		t.Fatalf("an unsupported URL should keep the modal open without loading anything:\n%s", screen(m))
 	}
 	m = pressRun(t, m, "esc", "g", "u")
@@ -1039,10 +1257,10 @@ func TestURLModalOpensTheReviewDiff(t *testing.T) {
 		t.Fatal("the URL modal should open empty")
 	}
 	m = typeText(t, m, "https://github.com/o/s/pull/8/files")
-	if m = pressRun(t, m, "enter"); m.modal.open || !host.has("detail o/s#8") || m.diff == nil || m.diff.pr.Number != 8 || m.diff.pr.Repo != "o/s" || m.tab != tabPulls {
+	if m = pressRun(t, m, "ctrl+s"); m.modal.open || !host.has("detail o/s#8") || m.diff == nil || m.diff.pr.Number != 8 || m.diff.pr.Repo != "o/s" || m.tab != tabPulls {
 		t.Fatalf("a valid URL should open its review diff, calls=%q", host.calls)
 	}
-	m = pressRun(t, m, "q")
+	m = pressRun(t, m, "esc")
 
 	host.detailErr = errors.New("gh api: HTTP 401: Bad credentials")
 	m = pressRun(t, m, "g", "u")
@@ -1056,13 +1274,13 @@ func TestURLModalOpensTheReviewDiff(t *testing.T) {
 		t.Fatal("gu should open the URL modal on the Agent tab")
 	}
 	m = typeText(t, m, "https://github.com/o/r/pull/7")
-	if m = pressRun(t, m, "enter"); m.diff != nil || m.tab != tabAgent || !strings.Contains(screen(m), "Bad credentials") {
+	if m = pressRun(t, m, "ctrl+s"); m.diff != nil || m.tab != tabAgent || !strings.Contains(screen(m), "Bad credentials") {
 		t.Fatalf("access failures should show on the Agent tab:\n%s", screen(m))
 	}
 	host.detailErr = nil
 	m = pressRun(t, m, "g", "u")
 	m = typeText(t, m, "https://github.com/o/r/pull/7")
-	if m = pressRun(t, m, "enter"); m.tab != tabPulls || m.diff == nil || m.diff.pr.Number != 7 {
+	if m = pressRun(t, m, "ctrl+s"); m.tab != tabPulls || m.diff == nil || m.diff.pr.Number != 7 {
 		t.Fatal("a valid URL on the Agent tab should open the review diff on the Pull Request tab")
 	}
 	plain, _ := loaded(t)
@@ -1081,20 +1299,27 @@ func TestPastingFillsTheFocusedText(t *testing.T) {
 	if got := m.modal.fields[0].Value(); got != "https://github.com/o/s/pull/8" {
 		t.Fatalf("pasted URL = %q", got)
 	}
-	if m = pressRun(t, m, "enter"); m.diff == nil || m.diff.pr.Number != 8 || !host.has("detail o/s#8") {
+	if m = pressRun(t, m, "ctrl+s"); m.diff == nil || m.diff.pr.Number != 8 || !host.has("detail o/s#8") {
 		t.Fatal("a pasted URL should open its review diff")
 	}
-	m = pressRun(t, m, "g", "e", "tab")
+	m = pressRun(t, m, "g", "e")
+	m = update(t, m, tea.PasteMsg{Content: "pasted\ntitle"})
+	if got := m.diff.modal.headline.Value(); !strings.HasPrefix(got, "pasted title") {
+		t.Fatalf("a paste on the title should stay on one line, got %q", got)
+	}
+	m = pressRun(t, m, "tab")
 	m = update(t, m, tea.PasteMsg{Content: "pasted\nbody"})
 	if got := m.diff.modal.area.Value(); !strings.HasPrefix(got, "pasted\nbody") {
 		t.Fatalf("a paste in the review diff should reach its modal description, got %q", got)
 	}
-	m = pressRun(t, m, "esc", "esc", "q", "A")
+	m = pressRun(t, m, "esc", "esc", "esc")
+	m = runAction(t, m, "assignees")
 	m = update(t, m, tea.PasteMsg{Content: "bo"})
 	if m.modal.fields[0].Value() != "bo" || m.modal.cursor != 0 {
 		t.Fatal("a paste should fill the picker search")
 	}
-	m = pressRun(t, m, "esc", "c")
+	m = pressRun(t, m, "esc", "esc")
+	m = runAction(t, m, "comment")
 	m = update(t, m, tea.PasteMsg{Content: "x"})
 	if m.modal.area.Value() != "x" {
 		t.Fatal("a paste should fill the comment modal")
@@ -1103,7 +1328,7 @@ func TestPastingFillsTheFocusedText(t *testing.T) {
 
 func TestModalTextUsesVimModes(t *testing.T) {
 	m, _ := pullsModel(t)
-	m = pressRun(t, m, "g", "e", "tab")
+	m = runAction(t, m, "comment")
 	area := func() string { return m.modal.area.Value() }
 	if m.modal.normal || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "esc jj normal") {
 		t.Fatal(screen(m), "the description should start in insert mode")
@@ -1159,33 +1384,37 @@ func TestModalTextUsesVimModes(t *testing.T) {
 
 func TestModalHintsFollowTheFocus(t *testing.T) {
 	k := defaultKeys()
-	for mode, want := range map[string]string{"": "esc cancel", "insert": "esc jj normal", "normal": "i insert  esc q cancel"} {
-		if got := ansi.Strip(hints(k.modalHints(false, mode))); !strings.Contains(got, want) {
+	for mode, want := range map[string]string{"": "esc cancel", "insert": "esc jj normal", "normal": "i insert  esc cancel"} {
+		if got := ansi.Strip(hints(k.modalHints(false, false, mode))); !strings.Contains(got, want) {
 			t.Errorf("mode %q hints %q, want %q", mode, got, want)
 		}
 	}
 }
 
-func TestEditModalSeparatesTheTitleFromTheDescription(t *testing.T) {
+func TestTitledModalsLabelTheTitleLine(t *testing.T) {
 	m, _ := pullsModel(t)
 	m = pressRun(t, m, "g", "e")
-	rule := func() string {
-		for l := range strings.SplitSeq(m.render(), "\n") {
-			if strings.Contains(ansi.Strip(l), "description ──") {
-				return l
+	if got := m.modal.area.Width(); got != m.modalWidth(modalEdit)-4-gutter || m.modalWidth(modalEdit) <= m.modalWidth(modalComment) {
+		t.Fatalf("the edit modal should be wider than the others and leave room for the labels, width=%d", got)
+	}
+	m.modal.headline.SetValue(strings.Repeat("long title ", 20))
+	m.modal.area.SetValue("The description")
+	lines := strings.Split(ansi.Strip(m.render()), "\n")
+	row := func(text string) int {
+		for i, l := range lines {
+			if strings.Contains(l, text) {
+				return i
 			}
 		}
-		return ""
+		return -1
 	}
-	onTitle := rule()
-	if onTitle == "" {
-		t.Fatalf("the edit modal should draw a description rule:\n%s", screen(m))
+	if title, description := row("title       long title"), row("description The description"); title < 0 || description != title+2 {
+		t.Fatalf("a long title should stay on its row above an empty line and the description:\n%s", strings.Join(lines, "\n"))
 	}
-	if m = pressRun(t, m, "tab"); rule() == onTitle {
-		t.Fatal("the rule should light up when the description has focus")
-	}
-	if m = pressRun(t, m, "esc", "esc", "c"); strings.Contains(screen(m), "description ──") {
-		t.Fatal("modals without a title field should not draw the rule")
+	m = pressRun(t, m, "esc")
+	m = runAction(t, m, "comment")
+	if strings.Contains(ansi.Strip(m.renderModal("")), "title  ") {
+		t.Fatal("modals without a title should not label lines")
 	}
 }
 
@@ -1205,15 +1434,16 @@ func TestReviewDiffCommentEditorUsesVimModes(t *testing.T) {
 
 func TestModalsOverlayTheScreen(t *testing.T) {
 	m, _ := pullsModel(t)
-	m = pressRun(t, m, "c")
+	m = runAction(t, m, "comment")
 	if out := screen(m); !strings.Contains(out, "comment on #7") || !strings.Contains(out, "pull requests") {
 		t.Fatalf("the list should stay visible behind the modal:\n%s", out)
 	}
-	m = pressRun(t, m, "esc", "esc", "1", "g", "e")
-	if out := screen(m); !strings.Contains(out, "edit #7") || !strings.Contains(out, "commits") {
+	m = pressRun(t, m, "esc", "esc", "1", "M")
+	if out := screen(m); !strings.Contains(out, "general comment") || !strings.Contains(out, "files") {
 		t.Fatalf("the Agent panes should stay visible behind the modal:\n%s", out)
 	}
-	m = pressRun(t, m, "esc", "2", "g", "d", "g", "s")
+	m = pressRun(t, m, "esc", "esc", "2", "g", "d")
+	m = runAction(t, m, "submit")
 	if out := screen(m); !strings.Contains(out, "submit your review of #7") || !strings.Contains(out, "files") {
 		t.Fatalf("the review diff should stay visible behind the submit modal:\n%s", out)
 	}
@@ -1301,32 +1531,42 @@ func update1(t *testing.T, m Model, msg tea.Msg) tea.Msg {
 	return nil
 }
 
-func TestQClosesCommentBoxesFromNormalMode(t *testing.T) {
+func TestOnlyEscClosesModalsAndOnlyCtrlSSaves(t *testing.T) {
 	m, host := pullsModel(t)
-	m = pressRun(t, m, "c")
+	m = runAction(t, m, "comment")
 	m = typeText(t, m, "q")
 	if !m.modal.open || m.modal.area.Value() != "q" {
 		t.Fatal("q in insert mode should type")
 	}
-	if m = pressRun(t, m, "esc", "q"); m.modal.open || host.has("comment o/r#7 q") {
-		t.Fatal("q in normal mode should close the comment modal without sending")
+	if m = pressRun(t, m, "esc", "q"); !m.modal.open {
+		t.Fatal("q in normal mode should not close the comment modal")
 	}
-	m = pressRun(t, m, "g", "e")
-	if m = typeText(t, m, "q"); !m.modal.open || !strings.HasSuffix(m.modal.fields[0].Value(), "q") {
-		t.Fatal("q in the title field should type")
+	if m = pressRun(t, m, "esc"); m.modal.open || host.has("comment o/r#7 q") {
+		t.Fatal("esc in normal mode should close the comment modal without sending")
 	}
-	if m = pressRun(t, m, "esc", "enter", "tab", "tab", "+"); !m.modal.open || m.modal.kind != modalReact {
+	m = pressRun(t, m, "g", "e", "tab", "tab", "+")
+	if !m.modal.open || m.modal.kind != modalEdit {
+		t.Fatal("tab and + are text in the edit modal")
+	}
+	m = pressRun(t, m, "esc", "esc", "enter", "tab", "tab", "+")
+	if !m.modal.open || m.modal.kind != modalReact {
 		t.Fatal("+ should open the reaction picker")
 	}
-	if m = typeText(t, m, "q"); m.modal.open {
-		t.Fatal("q should close a modal that is only a list")
+	if m = pressRun(t, m, "q", "enter"); !m.modal.open || slices.ContainsFunc(host.calls, func(c string) bool { return strings.HasPrefix(c, "react") }) {
+		t.Fatal("q and enter should neither close nor save a list modal")
+	}
+	if m = pressRun(t, m, "esc"); m.modal.open {
+		t.Fatal("esc should close a list modal")
 	}
 	m = pressRun(t, m, "g", "d", "l")
 	m.diff.cursor = rowOf(t, *m.diff, rowLine, 1, 3)
 	m = pressRun(t, m, "c")
 	m = typeText(t, m, "q")
-	if m = pressRun(t, m, "esc", "q"); m.diff.editing || m.diff == nil {
-		t.Fatal("q in normal mode should close the review diff comment editor and keep the diff open")
+	if m = pressRun(t, m, "esc", "q"); !m.diff.editing {
+		t.Fatal("q in normal mode should keep the review diff comment editor open")
+	}
+	if m = pressRun(t, m, "esc"); m.diff == nil || m.diff.editing {
+		t.Fatal("esc in normal mode should close the review diff comment editor and keep the diff open")
 	}
 }
 
@@ -1346,5 +1586,448 @@ func TestCtrlWMovesBetweenTheListAndSidebar(t *testing.T) {
 	empty.pulls.list = nil
 	if empty = pressRun(t, empty, "ctrl+w", "l"); empty.pulls.sidebar {
 		t.Fatal("ctrl+w l should do nothing without a pull request")
+	}
+}
+
+func TestCreatePullRequestFromTheActions(t *testing.T) {
+	m, host := pullsModel(t)
+	host.branches = []string{"main", "feature", "login", "release"}
+	m = runAction(t, m, "create")
+	out := screen(m)
+	if !host.has("branches ") || !m.modal.open || m.modal.kind != modalCreate || !m.modal.normal || m.modal.focus != 0 {
+		t.Fatalf("create should open in normal mode on the branch dropdown, calls=%q", host.calls)
+	}
+	if !slices.Equal(m.modal.drops[0].choices, []string{"feature", "main", "login", "release"}) || !slices.Equal(m.modal.drops[1].choices, []string{"main", "feature", "login", "release"}) {
+		t.Fatalf("the current branch and the default branch should come first, drops=%+v", m.modal.drops)
+	}
+	if !strings.Contains(out, "branch      feature") || !strings.Contains(out, "into        main") || !strings.Contains(out, "title") || !strings.Contains(out, "description") {
+		t.Fatalf("the modal should show both dropdowns and the labeled title and description:\n%s", out)
+	}
+	rows := strings.Split(out, "\n")
+	at := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, "branch      feature") })
+	if !strings.Contains(rows[at+2], "into        main") || strings.Trim(rows[at+1][strings.Index(rows[at+1], "│ "):], "│ ◌▌") != "" {
+		t.Fatalf("an empty line should separate the source and target branches:\n%s", strings.Join(rows[at:at+3], "\n"))
+	}
+	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title can't be empty" {
+		t.Fatal("an empty title should not create anything")
+	}
+	m = pressRun(t, m, "enter", "j", "enter", "tab", "enter", "j", "j", "j", "enter")
+	if out := screen(m); !strings.Contains(out, "branch      main") || !strings.Contains(out, "into        release") {
+		t.Fatalf("each dropdown should keep its own pick:\n%s", out)
+	}
+	m = pressRun(t, m, "tab", "i")
+	m = typeText(t, m, "Add login")
+	m = pressRun(t, m, "esc", "tab", "i")
+	m = typeText(t, m, "Adds login")
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("create main release Add login|Adds login") || m.modal.open || m.notice != "created #12 from main into release" || m.pulls.details["o/r#12"].Head != "main" {
+		t.Fatalf("ctrl+s should create from and into the picked branches, calls=%q notice=%q", host.calls, m.notice)
+	}
+	if i := slices.Index(host.calls, "create main release Add login|Adds login"); !slices.Contains(host.calls[i:], "list assignee:@me") {
+		t.Fatalf("the list should reload after creating, calls=%q", host.calls)
+	}
+
+	host.err = errors.New("you must first push the current branch")
+	m = runAction(t, m, "create")
+	m.modal.headline.SetValue("Title")
+	m.modal.area.SetValue("Body")
+	if m = pressRun(t, m, "ctrl+s"); !strings.Contains(statusText(m), "create a pull request from feature: you must first push") {
+		t.Fatalf("a failed create should show the reason, got %q", statusText(m))
+	}
+	host.err, m.pulls.err = nil, nil
+	host.usersErr = errors.New("HTTP 404")
+	m = runAction(t, m, "create")
+	if !m.modal.open || !strings.Contains(screen(m), "couldn't list the branches, HTTP 404") || !strings.Contains(screen(m), "into        default branch") {
+		t.Fatalf("a failed branch load should keep the modal with the default branch:\n%s", screen(m))
+	}
+	host.usersErr = nil
+	m.modal.headline.SetValue("Title")
+	m.modal.area.SetValue("Body")
+	if m = pressRun(t, m, "ctrl+s"); !host.has("create feature  Title|Body") {
+		t.Fatalf("saving before the branches load should leave the target to GitHub, calls=%q", host.calls)
+	}
+}
+
+func TestEditModalChangesTheTargetBranch(t *testing.T) {
+	m, host := pullsModel(t)
+	host.branches = []string{"main", "release"}
+	m = runAction(t, m, "edit")
+	if !host.has("branches o/r") || !m.modal.onHeadline() || !slices.Equal(m.modal.drops[0].choices, []string{"main", "release"}) || !strings.Contains(screen(m), "into        main") {
+		t.Fatalf("edit should start on the text with the current base first, calls=%q:\n%s", host.calls, screen(m))
+	}
+	m = pressRun(t, m, "ctrl+s")
+	lastEdit := func() string {
+		for i := len(host.calls) - 1; i >= 0; i-- {
+			if strings.HasPrefix(host.calls[i], "edit ") {
+				return host.calls[i]
+			}
+		}
+		return ""
+	}
+	if last := lastEdit(); !strings.HasPrefix(last, "edit o/r#7 Add login|") || strings.Contains(last, " into ") {
+		t.Fatalf("keeping the base should not change it, got %q", last)
+	}
+	m = runAction(t, m, "edit")
+	m = pressRun(t, m, "shift+tab", "enter", "j", "enter", "ctrl+s")
+	if last := lastEdit(); !strings.HasPrefix(last, "edit o/r#7 Add login|") || !strings.HasSuffix(last, " into release") {
+		t.Fatalf("a new base should be sent, got %q", last)
+	}
+	m = runAction(t, m, "edit")
+	m.applyBranches(branchesMsg{repo: "o/other", list: []string{"x"}})
+	m.applyBranches(branchesMsg{repo: "o/r", list: []string{"y"}, err: errors.New("late")})
+	if !slices.Equal(m.modal.drops[0].choices, []string{"main", "release"}) || !strings.Contains(m.modal.warning, "late") {
+		t.Fatalf("branches of another repository should be ignored, drops=%+v", m.modal.drops)
+	}
+	undetailed, _ := pullsModel(t)
+	undetailed.openModal(modalEdit, review.PullRequest{Repo: "o/r", Number: 7, Title: "t"})
+	if len(undetailed.modal.drops) != 0 {
+		t.Fatal("without a known base the edit modal should not offer to change it")
+	}
+}
+
+func TestActionsWithoutASelectedPullRequest(t *testing.T) {
+	m, _ := pullsModel(t)
+	m.pulls.list = nil
+	m = pressRun(t, m, "A")
+	out := screen(m)
+	if !m.modal.open || !strings.Contains(out, "actions ") || strings.Contains(out, "actions for") || len(m.matchingActions()) != 2 || !strings.Contains(out, "Create a pull request") || strings.Contains(out, "Merge") {
+		t.Fatalf("without a pull request only the actions that need none should show:\n%s", out)
+	}
+	m, _ = pullsModel(t)
+	m = pressRun(t, m, "g", "d", "A")
+	if strings.Contains(screen(m), "Create a pull request") {
+		t.Fatal("the review diff should not offer to create a pull request")
+	}
+}
+
+func TestOpenDropdownShowsAWindowOfChoices(t *testing.T) {
+	m, _ := pullsModel(t)
+	m.openModal(modalCreate, review.PullRequest{})
+	for i := range 20 {
+		m.modal.drops[0].choices = append(m.modal.drops[0].choices, fmt.Sprintf("branch-%02d", i))
+	}
+	m.modal.setFocus(0)
+	m.modal.expanded, m.modal.drops[0].choice = true, 13
+	lines := m.dropdownList()
+	if strings.Contains(lines, "branch-04") || !strings.Contains(lines, "branch-05") || !strings.Contains(lines, "▸ branch-12") || strings.Contains(lines, "branch-13") {
+		t.Fatalf("the open dropdown should show the %d rows ending at the picked one:\n%s", dropdownRows, ansi.Strip(lines))
+	}
+}
+
+func TestDetailsSidebarLeavesMostRoomToTheList(t *testing.T) {
+	m, _ := pullsModel(t)
+	if m.sidebarWidth() >= m.pullsWidth() || m.sidebarWidth()+m.pullsWidth() != m.width {
+		t.Fatalf("the sidebar (%d) should be narrower than the list (%d)", m.sidebarWidth(), m.pullsWidth())
+	}
+}
+
+func statusText(m Model) string {
+	if m.diff != nil {
+		m = *m.diff
+	}
+	_, text := m.status()
+	return text
+}
+
+func statusRow(m Model) string {
+	rows := strings.Split(m.View().Content, "\n")
+	return rows[len(rows)-2]
+}
+
+func TestStatusMessagesShowOnTheRightWithAnIconForFiveSeconds(t *testing.T) {
+	m, _ := pullsModel(t)
+	if row := ansi.Strip(statusRow(m)); strings.Contains(row, "shows every key") || strings.TrimSpace(row) != "NORMAL" {
+		t.Fatalf("without a message the bar should only show the mode, got %q", row)
+	}
+	for _, c := range []struct {
+		set  func(*Model)
+		want string
+	}{
+		{func(m *Model) { m.notice = "merged #7" }, "✓ merged #7"},
+		{func(m *Model) { m.warning = "#7 is a draft" }, "⚠ #7 is a draft"},
+		{func(m *Model) { m.pulls.err = errors.New("HTTP 502") }, "✗ HTTP 502"},
+	} {
+		c.set(&m)
+		m = update(t, m, tea.FocusMsg{})
+		row := ansi.Strip(statusRow(m))
+		if !strings.HasSuffix(strings.TrimRight(row, " "), c.want) || strings.Index(row, c.want) < m.width/2 {
+			t.Fatalf("the message should sit on the right of the bar, got %q", row)
+		}
+		if m = update(t, m, statusTickMsg{}); !strings.Contains(statusRow(m), strings.SplitN(c.want, " ", 2)[1]) {
+			t.Fatal("the message should stay before five seconds")
+		}
+		later := clock.Add(statusFor)
+		now = func() time.Time { return later }
+		if m = update(t, m, statusTickMsg{}); strings.Contains(ansi.Strip(statusRow(m)), c.want) || m.notice != "" || m.warning != "" || m.pulls.err != nil {
+			t.Fatalf("the message should clear after five seconds, got %q", ansi.Strip(statusRow(m)))
+		}
+		now = func() time.Time { return clock }
+	}
+
+	m.pulls.loading = true
+	m = update(t, m, tea.FocusMsg{})
+	first := ansi.Strip(statusRow(m))
+	if !strings.Contains(first, spinnerFrames[m.spin%len(spinnerFrames)]+" loading pull requests") || m.statusTick() == nil {
+		t.Fatalf("a sync should show a spinner, got %q", first)
+	}
+	later := clock.Add(time.Minute)
+	now = func() time.Time { return later }
+	m = update(t, m, statusTickMsg{})
+	if second := ansi.Strip(statusRow(m)); second == first || !strings.Contains(second, "loading pull requests") {
+		t.Fatalf("the spinner should turn and never expire, %q then %q", first, second)
+	}
+	now = func() time.Time { return clock }
+}
+
+func TestStatusBarHasItsOwnBackground(t *testing.T) {
+	m, _ := pullsModel(t)
+	m.pulls.err = errors.New("boom")
+	on := lipgloss.NewStyle().Background(colorRule).Foreground(colorForeground).Render(" ")
+	on = on[:strings.Index(on, " ")]
+	if row := statusRow(m); !strings.Contains(row, "\x1b[m"+on) || lipgloss.Width(row) != m.width {
+		t.Fatalf("the bar background should carry across styled parts and span the width: %q", row)
+	}
+}
+
+func TestPullListShowsTwoLineRowsInColumns(t *testing.T) {
+	m, host := pullsModel(t)
+	list := host.lists["assignee:@me"]
+	list[0].Additions, list[0].Deletions, list[0].CreatedAt = 120, 4, clock.Add(-72*time.Hour)
+	list[1].Title = strings.Repeat("A very long title ", 10)
+	m.pulls.list = list
+	var rows []string
+	for r := range strings.SplitSeq(screen(m), "\n") {
+		rows = append(rows, ansi.Truncate(r, m.pullsWidth(), ""))
+	}
+	find := func(s string) string {
+		for _, r := range rows {
+			if strings.Contains(r, s) {
+				return r
+			}
+		}
+		t.Fatalf("no row with %q:\n%s", s, screen(m))
+		return ""
+	}
+	header, first, second := find("updated"), find("#7"), find("#8")
+	col := func(row, s string) int { return ansi.StringWidth(row[:strings.Index(row, s)]) }
+	if col(first, "@ana") != col(second, "@bob") || col(header, "author") != col(first, "@ana") || col(first, "Add login") != col(second, "A very") {
+		t.Fatalf("the columns should line up:\n%s\n%s\n%s", header, first, second)
+	}
+	for _, want := range []string{"+120", "-4", "3d", "2h"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("the first line should show %q: %q", want, first)
+		}
+	}
+	if !strings.Contains(second, "…") || ansi.StringWidth(second) != ansi.StringWidth(first) {
+		t.Fatalf("a long title should end with … and keep the row width: %q", second)
+	}
+	i := slices.Index(rows, first)
+	if !strings.Contains(rows[i+1], "o/r") || strings.Contains(rows[i+1], "#") {
+		t.Fatalf("the second line should show the repository: %q", rows[i+1])
+	}
+}
+
+func TestTitledModalsLeaveAnEmptyLineBeforeTheDescription(t *testing.T) {
+	for _, query := range []string{"edit", "merge", "create"} {
+		m, host := pullsModel(t)
+		host.branches = []string{"main"}
+		m = runAction(t, m, query)
+		var title, description int
+		for i, row := range strings.Split(screen(m), "\n") {
+			if strings.Contains(row, "│ title ") {
+				title = i
+			}
+			if strings.Contains(row, "│ description ") {
+				description = i
+			}
+		}
+		if title == 0 || description != title+2 {
+			t.Fatalf("%s should show description two rows under title, title=%d description=%d:\n%s", query, title, description, screen(m))
+		}
+	}
+}
+
+func TestListsMoveWithJKOutsideTheSearch(t *testing.T) {
+	m, host := pullsModel(t)
+	host.labels = []string{"auth", "bug", "docs"}
+	m = pressRun(t, m, "A")
+	if m = typeText(t, m, "j"); m.modal.fields[0].Value() != "j" || m.modal.normal {
+		t.Fatal("while searching, j should type")
+	}
+	m = pressRun(t, m, "backspace", "esc")
+	if !m.modal.open || !m.modal.normal || m.modal.fields[0].Focused() || !strings.Contains(screen(m), "j k move") || !strings.Contains(screen(m), "/ i search") {
+		t.Fatalf("esc should leave the search for the list:\n%s", screen(m))
+	}
+	if m = pressRun(t, m, "j", "j", "k", "j"); m.modal.cursor != 2 || m.modal.fields[0].Value() != "" {
+		t.Fatalf("j and k should move the list, cursor=%d", m.modal.cursor)
+	}
+	if m = pressRun(t, m, "x"); m.modal.fields[0].Value() != "" {
+		t.Fatal("other keys should not type outside the search")
+	}
+	if m = pressRun(t, m, "/"); m.modal.normal || !m.modal.fields[0].Focused() {
+		t.Fatal("/ should go back to the search")
+	}
+	m = typeText(t, m, "labels")
+	m = pressRun(t, m, "enter")
+	if m.modal.kind != modalLabels || m.modal.normal {
+		t.Fatal("the picked action should run")
+	}
+	m = pressRun(t, m, "esc", "j", "space")
+	if !slices.Contains(m.modal.picked, host.labels[1]) || m.modal.cursor != 1 {
+		t.Fatalf("j should move the label picker, picked=%q", m.modal.picked)
+	}
+	if m = pressRun(t, m, "i", "esc", "esc"); m.modal.open {
+		t.Fatal("esc in the list should close the picker")
+	}
+}
+
+func TestVimTextBoxesScrollWithTheCursor(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = runAction(t, m, "edit")
+	var body []string
+	for i := range 80 {
+		body = append(body, fmt.Sprintf("line %02d", i))
+	}
+	m = pressRun(t, m, "tab")
+	m.modal.area.SetValue(strings.Join(body, "\n"))
+	m.modal.area.MoveToBegin()
+	m = pressRun(t, m, "G")
+	if out := screen(m); !strings.Contains(out, "line 79") || strings.Contains(out, "line 00") {
+		t.Fatalf("G should scroll to the end:\n%s", out)
+	}
+	m = pressRun(t, m, "g", "g")
+	if out := screen(m); !strings.Contains(out, "line 00") || strings.Contains(out, "line 79") {
+		t.Fatal("gg should scroll back to the top")
+	}
+	half := max(m.modal.area.Height()/2, 1)
+	if m = pressRun(t, m, "ctrl+d"); m.modal.area.Line() != half {
+		t.Fatalf("ctrl+d should move half the box, line=%d want %d", m.modal.area.Line(), half)
+	}
+	if m = pressRun(t, m, "ctrl+d", "ctrl+u"); m.modal.area.Line() != half {
+		t.Fatalf("ctrl+u should move back half the box, line=%d", m.modal.area.Line())
+	}
+	m = pressRun(t, m, "G")
+	for range 79 {
+		m = pressRun(t, m, "k")
+	}
+	if out := screen(m); !strings.Contains(out, "line 00") || strings.Contains(out, "line 79") {
+		t.Fatal("k should scroll up past the top of the box")
+	}
+}
+
+func TestPullRequestsLoadInTheBackgroundOnceTheBranchLoads(t *testing.T) {
+	host := newHost()
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "", "main").
+		WithHost(host, func(pr review.PullRequest) *review.Service {
+			return review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, prKey(pr))
+		})
+	m = update(t, m, m.Init()())
+	if !m.pulls.started || !m.pulls.loading || m.tab == tabPulls {
+		t.Fatal("the pull request list should start loading without leaving the Agent tab")
+	}
+	if _, text := m.status(); text != "" {
+		t.Fatalf("the Agent tab should not show the pull request spinner, got %q", text)
+	}
+	if cmd := m.showPulls(); cmd != nil {
+		t.Fatal("opening the tab should not load the list a second time")
+	}
+	nested := m
+	nested.pr = review.PullRequest{Number: 7}
+	nested.pulls.started = false
+	if nested.startPulls(); nested.pulls.started {
+		t.Fatal("a pull request's review diff should not load the list")
+	}
+}
+
+func TestOpenDropdownOverlaysTheModal(t *testing.T) {
+	m, host := pullsModel(t)
+	host.branches = []string{"main", "feature", "login", "release"}
+	m = runAction(t, m, "create")
+	closed := strings.Split(screen(m), "\n")
+	m = pressRun(t, m, "enter")
+	open := strings.Split(screen(m), "\n")
+	row := slices.IndexFunc(closed, func(r string) bool { return strings.Contains(r, "branch      feature") })
+	if row < 0 || !strings.Contains(open[row], "branch      feature") || !strings.Contains(open[row], "▴") {
+		t.Fatalf("the dropdown should stay on its row:\n%s", strings.Join(open, "\n"))
+	}
+	for _, label := range []string{"into ", "│ title", "│ description"} {
+		before := slices.IndexFunc(closed, func(r string) bool { return strings.Contains(r, label) })
+		after := slices.IndexFunc(open, func(r string) bool { return strings.Contains(r, label) && !strings.Contains(r, "▸") })
+		if before < 0 || label != "into " && before != after {
+			t.Fatalf("%q moved from row %d to %d when the dropdown opened", label, before, after)
+		}
+	}
+	col := strings.Index(open[row], "feature")
+	for i, want := range []string{"▸ feature", "  main", "  login", "  release"} {
+		got := open[row+2+i]
+		if !strings.Contains(got, want) || ansi.StringWidth(got[:strings.Index(got, want)]) != ansi.StringWidth(open[row][:col]) {
+			t.Fatalf("the list should open under the dropdown, row %d = %q", i, got)
+		}
+	}
+	if m = pressRun(t, m, "enter"); strings.Contains(screen(m), "▸ feature") || len(strings.Split(screen(m), "\n")) != len(closed) {
+		t.Fatal("closing the dropdown should remove the list")
+	}
+}
+
+func TestGCOpensTheCreateModalAndShowsInTheFooter(t *testing.T) {
+	m, host := pullsModel(t)
+	host.branches = []string{"main", "feature"}
+	if footer := ansi.Strip(m.pullsFooter()); !strings.Contains(footer, "gc create") {
+		t.Fatalf("the Pull Request footer should show gc, got %q", footer)
+	}
+	if m = pressRun(t, m, "g", "c"); !m.modal.open || m.modal.kind != modalCreate || !host.has("branches ") {
+		t.Fatal("gc should open the create modal")
+	}
+	m = pressRun(t, m, "esc", "esc", "A")
+	m = typeText(t, m, "create")
+	if out := screen(m); !strings.Contains(out, "Create a pull request") || !strings.Contains(out, "gc") {
+		t.Fatalf("the create action should list its gc shortcut:\n%s", out)
+	}
+	nohost, _ := pullsModel(t)
+	nohost.host = nil
+	if nohost = pressRun(t, nohost, "g", "c"); nohost.modal.open {
+		t.Fatal("without gh, gc should do nothing")
+	}
+}
+
+func TestMergeMessageOpensInNormalModeAtARegularSize(t *testing.T) {
+	m, host := pullsModel(t)
+	m = runAction(t, m, "merge")
+	if m.modalWidth(modalMerge) >= m.modalWidth(modalEdit) || m.modal.area.Height() > 12 {
+		t.Fatalf("the merge modal should be smaller than the edit modal, width=%d height=%d", m.modalWidth(modalMerge), m.modal.area.Height())
+	}
+	m = pressRun(t, m, "tab")
+	if !m.modal.onHeadline() || m.modal.mode() != "normal" {
+		t.Fatalf("the commit title should start in normal mode, mode=%q", m.modal.mode())
+	}
+	m = pressRun(t, m, "tab", "A")
+	m = typeText(t, m, " and logout")
+	m = pressRun(t, m, "ctrl+s")
+	if !host.has("merge o/r#7 MERGE Merge pull request #7 from o/login|Add login and logout") {
+		t.Fatalf("j should reach the description to edit it, calls=%q", host.calls)
+	}
+}
+
+func TestTitleBoxIsOneVimLine(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = runAction(t, m, "edit")
+	m = pressRun(t, m, "o")
+	m = typeText(t, m, "more")
+	m = pressRun(t, m, "enter")
+	if v := m.modal.headline.Value(); strings.Contains(v, "\n") || !strings.Contains(v, "Add login") || !strings.Contains(v, "more") {
+		t.Fatalf("o and enter should keep the title on one line, got %q", v)
+	}
+	if v := m.View(); v.Cursor == nil || v.Cursor.Shape != tea.CursorBar {
+		t.Fatal("insert mode in the title should show a bar cursor")
+	}
+	m = pressRun(t, m, "esc", "0", "x")
+	if v := m.modal.headline.Value(); !strings.HasPrefix(v, "dd login") {
+		t.Fatalf("normal mode commands should edit the title, got %q", v)
+	}
+	if m.View().Cursor != nil {
+		t.Fatal("normal mode should draw a block, not the bar")
+	}
+	if m.modal.area.Value() != "Adds **login** support" {
+		t.Fatal("editing the title should leave the description alone")
 	}
 }

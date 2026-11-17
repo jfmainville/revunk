@@ -168,7 +168,7 @@ func run(t *testing.T, m Model, cmd tea.Cmd) Model {
 }
 
 func screen(m Model) string {
-	return ansi.Strip(m.render())
+	return ansi.Strip(m.View().Content)
 }
 
 func rowOf(t *testing.T, m Model, kind rowKind, file, line int) int {
@@ -770,9 +770,9 @@ func TestHelpOverlayAndQuit(t *testing.T) {
 	if out := screen(m); !strings.Contains(out, "help · esc closes") || !strings.Contains(out, "mark file viewed") {
 		t.Fatalf("help not shown:\n%s", out)
 	}
-	m, cmd := press(t, m, "q")
-	if m.help || cmd != nil {
-		t.Fatal("q in help should close help, not quit")
+	m, cmd := press(t, m, "q", "?")
+	if !m.help || cmd != nil {
+		t.Fatal("only esc closes the help, q and ? do nothing there")
 	}
 	m, _ = press(t, m, "?", "esc")
 	if m.help {
@@ -2086,7 +2086,7 @@ func TestOpenFileWithGF(t *testing.T) {
 	m = update(t, m, m.Init()())
 	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	if m, cmd := press(t, m, "g", "f"); cmd != nil || !strings.Contains(m.notice, "README.md is not in the working tree") {
+	if m, cmd := press(t, m, "g", "f"); cmd != nil || !strings.Contains(m.warning, "README.md is not in the working tree") {
 		t.Fatalf("a missing file should not open: %q", m.notice)
 	}
 	m, _ = press(t, m, "j")
@@ -2226,12 +2226,12 @@ func TestMarkdownViewHighlightsAndDrawsTheCursor(t *testing.T) {
 	a.Prompt, a.ShowLineNumbers = "", false
 	a.SetWidth(30)
 	a.Placeholder = "write here"
-	if got := markdownView(a); !strings.Contains(ansi.Strip(got), "write here") {
+	if got := markdownView(a, false); !strings.Contains(ansi.Strip(got), "write here") {
 		t.Fatalf("an empty box should show its placeholder: %q", got)
 	}
 	a.Focus()
 	a.SetValue("# Title\n- **item**")
-	got := markdownView(a)
+	got := markdownView(a, false)
 	if plain := ansi.Strip(got); !strings.Contains(plain, "# Title") || !strings.Contains(plain, "- **item**") {
 		t.Fatalf("the text should stay the same: %q", plain)
 	}
@@ -2243,16 +2243,24 @@ func TestMarkdownViewHighlightsAndDrawsTheCursor(t *testing.T) {
 		t.Fatalf("the cursor should show after the last character: %q", lines[1])
 	}
 	a.MoveToBegin()
-	if got := strings.Split(markdownView(a), "\n")[0]; !strings.HasPrefix(got, lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Reverse(true).Render("#")) {
+	if got := strings.Split(markdownView(a, false), "\n")[0]; !strings.HasPrefix(got, lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Reverse(true).Render("#")) {
 		t.Fatalf("the cursor should reverse the character under it: %q", got)
 	}
+	if lines := strings.Split(markdownView(a, false), "\n"); strings.Contains(lines[1], "\x1b[7") {
+		t.Fatalf("moving the cursor should clear it from the line it left: %q", lines[1])
+	}
+	a.SetValue("plain\n- **item**")
+	a.MoveToBegin()
+	if plain := ansi.Strip(markdownView(a, false)); !strings.HasPrefix(plain, "plain") || strings.Contains(plain, "# Title") {
+		t.Fatalf("an edit should show the new text, not the cached one: %q", plain)
+	}
 	a.Blur()
-	if got := markdownView(a); strings.Contains(got, "\x1b[7m") {
+	if got := markdownView(a, false); strings.Contains(got, "\x1b[7m") {
 		t.Fatal("a blurred box should not draw a cursor")
 	}
 }
 
-func TestQClosesTheCommentEditorFromNormalMode(t *testing.T) {
+func TestOnlyEscClosesTheCommentEditor(t *testing.T) {
 	m, st := loaded(t)
 	m, _ = press(t, m, "l")
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
@@ -2261,8 +2269,11 @@ func TestQClosesTheCommentEditorFromNormalMode(t *testing.T) {
 	if !m.editing || m.editor.area.Value() != "q" {
 		t.Fatal("q in insert mode should type")
 	}
-	if m, _ = press(t, m, "esc", "q"); m.editing || len(st.comments) != 0 {
-		t.Fatal("q in normal mode should close the editor without saving")
+	if m, _ = press(t, m, "esc", "q"); !m.editing {
+		t.Fatal("q in normal mode should not close the editor")
+	}
+	if m, _ = press(t, m, "esc"); m.editing || len(st.comments) != 0 {
+		t.Fatal("esc in normal mode should close the editor without saving")
 	}
 	if _, cmd := press(t, m, "q"); cmd == nil {
 		t.Fatal("q outside the editor should still quit")
@@ -2323,5 +2334,143 @@ func TestCtrlWDeletesAWordWhileTyping(t *testing.T) {
 	m = typeText(t, m, "two words")
 	if m, _ = press(t, m, "ctrl+w"); !m.editing || m.editor.area.Value() != "two " {
 		t.Fatalf("ctrl+w should delete a word in the editor, value=%q", m.editor.area.Value())
+	}
+}
+
+func TestAgentFooterShowsOnlyTheEssentialKeys(t *testing.T) {
+	m, _ := loaded(t)
+	if got := ansi.Strip(m.footer()); got != "c comment  v range  t comments  S send  / search  ? help" {
+		t.Fatalf("footer = %q", got)
+	}
+}
+
+func TestInsertModeShowsABarCursor(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = runAction(t, m, "comment")
+	m = typeText(t, m, "hello")
+	v := m.View()
+	if v.Cursor == nil || v.Cursor.Shape != tea.CursorBar || strings.ContainsFunc(v.Content, func(r rune) bool { return r >= cursorBase }) {
+		t.Fatalf("insert mode should show a bar cursor without the marker, cursor=%+v", v.Cursor)
+	}
+	lines := strings.Split(ansi.Strip(v.Content), "\n")
+	if row := lines[v.Cursor.Y]; !strings.HasSuffix(strings.TrimRight(ansi.Truncate(row, v.Cursor.X, ""), " "), "hello") {
+		t.Fatalf("the bar should sit right after the typed text, x=%d row=%q", v.Cursor.X, row)
+	}
+	m = pressRun(t, m, "esc", "0")
+	if v := m.View(); v.Cursor != nil || !strings.Contains(v.Content, ";7mh") {
+		t.Fatal("normal mode should draw the block cursor and no bar")
+	}
+	m = pressRun(t, m, "i")
+	v = m.View()
+	if v.Cursor == nil || !strings.Contains(ansi.Strip(v.Content), "hello") {
+		t.Fatalf("the character under the bar should stay visible:\n%s", ansi.Strip(v.Content))
+	}
+	m = pressRun(t, m, "esc", "esc", "g", "d", "l")
+	m.diff.cursor = rowOf(t, *m.diff, rowLine, 1, 3)
+	m = pressRun(t, m, "c")
+	m = typeText(t, m, "x")
+	if v := m.View(); v.Cursor == nil || v.Cursor.Shape != tea.CursorBar {
+		t.Fatal("the review diff comment editor should show a bar in insert mode")
+	}
+	agent, _ := loaded(t)
+	if v := agent.View(); v.Cursor != nil {
+		t.Fatal("no text box focused, no cursor")
+	}
+}
+
+func TestBarCursorRestoresTheCharacterUnderIt(t *testing.T) {
+	screen, c := barCursor("x\n> a" + mark("b") + "c")
+	if screen != "x\n> abc" || c == nil || c.X != 3 || c.Y != 1 || c.Shape != tea.CursorBar {
+		t.Fatalf("barCursor = %q, %+v", screen, c)
+	}
+	if screen, _ := barCursor("ab" + mark("")); screen != "ab " {
+		t.Fatalf("an empty cell should restore as a space, got %q", screen)
+	}
+	if screen, _ := barCursor("ab" + mark("🙂")); screen != "ab " {
+		t.Fatalf("a character the mark can't carry should restore as a space, got %q", screen)
+	}
+	if screen, c := barCursor("plain"); screen != "plain" || c != nil {
+		t.Fatal("without a mark there is no cursor")
+	}
+}
+
+func TestModalFieldsShowABarCursor(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "A")
+	v := m.View()
+	if v.Cursor == nil || v.Cursor.Shape != tea.CursorBar || !strings.Contains(ansi.Strip(v.Content), "search     type to filter") {
+		t.Fatalf("the focused search field should show a bar and keep its placeholder:\n%s", ansi.Strip(v.Content))
+	}
+	m = typeText(t, m, "mer")
+	v = m.View()
+	row := ansi.Strip(strings.Split(v.Content, "\n")[v.Cursor.Y])
+	if !strings.HasSuffix(ansi.Truncate(row, v.Cursor.X, ""), "mer") {
+		t.Fatalf("the bar should sit after the typed text, x=%d row=%q", v.Cursor.X, row)
+	}
+}
+
+func TestPollUnmarksAViewedFileOnceItChanges(t *testing.T) {
+	files := slices.Clone(sample.files[""])
+	src := fakeSource{commits: sample.commits, files: map[string][]review.File{"": files}}
+	m := update(t, newModel(t, src, &fakeStore{viewed: map[string]string{}}), tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ = press(t, m, "j")
+	m, cmd := press(t, m, "-")
+	m = run(t, m, cmd)
+	if m = run(t, m, m.poll()); !m.viewed["a/main.go"] {
+		t.Fatal("a poll without changes should keep the file viewed")
+	}
+	files = slices.Clone(files)
+	src.files[""] = files
+	files[1].Patch = "@@ -1,3 +1,5 @@\n package main\n-func old() {}\n+func a() {}\n+func b() {}\n+func c() {}\n // end"
+	m = run(t, m, m.poll())
+	if m.viewed["a/main.go"] || !strings.Contains(screen(m), "0/3 viewed") || !strings.Contains(fmt.Sprint(m.lines[1]), "func c() {}") {
+		t.Fatalf("a change to a viewed file should unmark and expand it:\n%s", screen(m))
+	}
+}
+
+func TestCommitsPaneStaysShortAndScrolls(t *testing.T) {
+	var commits []review.Commit
+	for i := range 40 {
+		commits = append(commits, review.Commit{SHA: fmt.Sprintf("%07dabc", i), Subject: fmt.Sprintf("commit %02d", i)})
+	}
+	src := fakeSource{commits: commits, files: sample.files}
+	m := update(t, newModel(t, src, &fakeStore{viewed: map[string]string{}}), tea.WindowSizeMsg{Width: 120, Height: 80})
+	if m.commitsHeight() != commitsMax || m.panesHeight()/3 <= commitsMax {
+		t.Fatalf("a tall window with many commits should cap the pane at %d rows, got %d", commitsMax, m.commitsHeight())
+	}
+	m, _ = press(t, m, "tab", "tab")
+	for range 20 {
+		m, _ = press(t, m, "j")
+	}
+	if out := screen(m); !strings.Contains(out, "commit 19") || strings.Contains(out, "commit 00") {
+		t.Fatalf("moving down the commits should scroll the pane:\n%s", out)
+	}
+	if few := update(t, newModel(t, sample, &fakeStore{viewed: map[string]string{}}), tea.WindowSizeMsg{Width: 120, Height: 80}); few.commitsHeight() != len(sample.commits)+3 {
+		t.Fatal("a few commits should only take the rows they need")
+	}
+}
+
+func TestLoadShowsThePlainDiffThenColorsIt(t *testing.T) {
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "", "main")
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	loaded := m.Init()().(loadedMsg)
+	if toks := loaded.diff.tokens[1]; len(toks[1]) != 1 || toks[1][0].text != "package main" {
+		t.Fatalf("the first load should skip highlighting, got %+v", toks[1])
+	}
+	m = update(t, m, loaded)
+	colored := parsed{}.parse(m.files)
+	stale := parsed{}.parse(slices.Clone(m.files))
+	stale.files[0].Patch = "@@ -1 +1 @@\n+other"
+	m = update(t, m, colorMsg(stale))
+	if len(m.tokens[0][1]) != 1 {
+		t.Fatal("colors for a patch that changed since should be dropped")
+	}
+	m = update(t, m, colorMsg(colored))
+	if !reflect.DeepEqual(m.tokens, colored.tokens) || len(m.tokens[1][1]) < 2 {
+		t.Fatalf("the colors should replace the plain lines, got %+v", m.tokens[1][1])
+	}
+	m.refreshFiles(parsed{files: m.files, lines: m.lines, tokens: loaded.diff.tokens})
+	if !reflect.DeepEqual(m.tokens, colored.tokens) {
+		t.Fatal("a refresh carrying older plain lines for unchanged files should keep the colors")
 	}
 }

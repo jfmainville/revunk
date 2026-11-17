@@ -107,15 +107,15 @@ func TestReboundKeysDriveBehaviorAndLabels(t *testing.T) {
 		t.Fatalf("the new key should move, cursor=%d", m.cursor)
 	}
 	out := screen(m)
-	if !strings.Contains(out, "H1 shows every key") {
+	if !strings.Contains(out, "H1 help") {
 		t.Fatalf("labels should follow the binding:\n%s", out)
 	}
 
 	st.comments = []review.Comment{{ID: "a", Path: "README.md", Body: "x"}}
 	m.comments = st.comments
 	m, _ = press(t, m, "z")
-	if !strings.Contains(m.notice, "press z again") {
-		t.Fatalf("notice = %q", m.notice)
+	if !strings.Contains(m.warning, "press z again") {
+		t.Fatalf("warning = %q", m.warning)
 	}
 	m, cmd := press(t, m, "z")
 	if m = run(t, m, cmd); len(st.comments) != 0 {

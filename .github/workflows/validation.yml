@@ -11,12 +11,6 @@ on:
     paths:
       - "**"
       - "!**/*.md"
-  push:
-    branches:
-      - main
-    paths:
-      - "**"
-      - "!**/*.md"
 
 permissions:
   contents: read

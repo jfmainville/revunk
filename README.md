@@ -23,16 +23,20 @@ Each [GitHub release](https://github.com/jfmainville/revunk/releases) has `revun
 | Vet         | `go vet ./...`                              |
 | Test        | `go test ./...`                             |
 
+## Status bar
+
+The bar under the panes shows the mode on the left and messages on the right, each after an icon, `✗` for an error, `⚠` for a warning, `✓` for a result, or a spinner while loading or sending. A message clears after 5 seconds, or at the next key, and a spinner stays until the work is done. On the Agent tab the bar also shows the branch, the search, and the comment and viewed counts.
+
 ## Agent tab
 
 Run Revunk from inside a git repository. The **Agent** tab compares the current branch with its base branch, from their merge base to the working tree, so commits, staged and unstaged edits, and untracked files all show. Untracked files that are binary or larger than 1 MB are listed without a diff.
 
-- **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff.
+- **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff. The pane takes at most 10 rows, or a third of the height when that is smaller, and scrolls to keep the selected commit in view.
 - **files** lists the changed files grouped by directory, each with its added and removed line counts, and the totals in the pane title. Reviewed files move to a **Reviewed** section at the bottom, listed by full path. Marking a file reviewed from this pane selects the next file still to review. Selecting a file scrolls the diff to it, and moving through the diff keeps the file under the cursor selected, marked with a yellow bar.
-- **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, each line shows its number in the current file, or in the old file for removed lines, and code is syntax highlighted. Lines wider than the pane wrap onto the next rows without changing the file.
+- **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, each line shows its number in the current file, or in the old file for removed lines, and code is syntax highlighted. The diff shows as soon as it loads and its colors follow a moment later, since highlighting a large diff takes longer than reading it. Lines wider than the pane wrap onto the next rows without changing the file.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
 - **comments**, hidden until `t` is pressed, lists every comment on the branch with its file, lines, commit, and state. `enter` jumps to the selected comment, switching to its commit view when needed, `x` resolves or reopens it, and `dd` deletes it. Resolved comments show a `✓` and the `resolved` state.
-- A file marked viewed collapses and stays viewed until its diff changes.
+- A file marked viewed collapses and stays viewed until its diff changes. The reload notices the change, on the Agent tab and in a pull request's review diff, and expands the file again as not viewed.
 
 Comments and viewed state are saved per branch in `.git/revunk.json`. When Revunk starts, it drops the comments and viewed state of branches that no longer exist locally, or whose upstream is gone after a `git fetch --prune`. The current branch, even a detached `HEAD`, is always kept.
 
@@ -70,14 +74,14 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `DD`                             | Delete every comment on the branch                                           |
 | `-`                              | Toggle the file's viewed state                                               |
 | `S`                              | Send unsent comments to the agent                                            |
+| `M`                              | Write a general comment and send it straight to the agent, on either tab     |
 | `y`                              | Copy unsent comments to the clipboard                                        |
 | `gf`                             | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
-| `ge`                             | Edit the title and description of the branch's pull request                  |
 | `gd`                             | Review the branch's pull request on the **Pull Request** tab                 |
 | `gu`                             | Review a pull request from its GitHub URL on the **Pull Request** tab        |
 | `1`, `2`                         | Show the **Agent** or **Pull Request** tab, also by clicking its name        |
-| `?`                              | Show every key                                                               |
-| `esc`                            | Stop selecting, clear the search, or close the help                          |
+| `?`                              | Show every key, the bar at the bottom lists only the essential ones          |
+| `esc`                            | Stop selecting, clear the search, or close the help, a modal, or a window    |
 | `q`, `ctrl+c`                    | Quit                                                                         |
 
 Clicking a comment in the comments pane jumps to it like `enter`. While mouse support is on, most terminals select text with `shift` held down.
@@ -89,13 +93,17 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 | `ctrl+s`           | Save the comment                                                                                                                                                                            |
 | `enter`            | Insert a newline                                                                                                                                                                            |
 | `tab`, `shift+tab` | Cycle the type (comment, note, suggestion), each drawn in its own color. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
-| `esc`, `jj`        | Switch to normal mode, where `esc` or `q` cancels                                                                                                                                           |
+| `esc`, `jj`        | Switch to normal mode, where `esc` cancels                                                                                                                                                  |
 
-The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` or `q` in normal mode cancels.
+The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `ctrl+d` `ctrl+u`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels. A text longer than its box scrolls to follow the cursor. The cursor is a bar in insert mode and a block in normal mode, in every comment box and modal, and the one line fields of the modals, always typing, show a bar.
+
+Every modal and editor saves with `ctrl+s` only and cancels or closes with `esc` only, so `q` and `enter` are never a shortcut for either.
+
+`M` opens a modal for a general comment that is not tied to a line. `ctrl+s` sends it straight to the agent, without storing it with the review comments.
 
 ## Pull Request tab
 
-Press `2` to open the **Pull Request** tab, and `1` to go back to the **Agent** tab. It lists the open pull requests assigned to you on GitHub, across every repository, and `s` switches the filter to the ones where your review is requested, the ones you authored, and the ones that involve you. Each row shows the pull request's number, title, repository, and last update, with a mark for its latest checks, `✓` passed, `●` running, `✗` failed, or `◌` for a draft.
+Press `2` to open the **Pull Request** tab, and `1` to go back to the **Agent** tab. It lists the open pull requests assigned to you on GitHub, across every repository, loaded in the background once the branch loads so the tab opens with them, and `s` switches the filter to the ones where your review is requested, the ones you authored, and the ones that involve you. Each pull request takes two lines. The first shows a mark for its latest checks, `✓` passed, `●` running, `✗` failed, or `◌` for a draft, then its number, its title, cut with `…` when it doesn't fit, its added and removed lines, its author, and how long ago it was opened and last updated, each in a column under a header so the rows line up. The second line shows the repository. The list takes 60% of the width and the details sidebar the rest.
 
 The sidebar on the right shows the selected pull request, and `enter` focuses it. `tab` and `shift+tab` move between its tabs:
 
@@ -106,11 +114,28 @@ The sidebar on the right shows the selected pull request, and `enter` focuses it
 
 Every change is sent to GitHub through `gh`, then the pull request reloads. The list and the selected pull request also reload every 10 seconds while the tab is open, so new checks, comments, and reviews show up on their own.
 
-`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. `gs` submits the review, picking comment, approve, or request changes in a dropdown that `enter` opens, with an optional Markdown message. Like on GitHub, a comment or request for changes without a message needs inline comments in the review. `ge` edits the title and description of the reviewed pull request without leaving the diff. The review diff reloads every 15 seconds, and `q` closes it. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
+`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. The review diff reloads every 15 seconds, and `esc` closes it once nothing is selected or searched. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
 
-`gm` merges the selected pull request, or the reviewed one from the review diff, after you confirm in a modal that lists only the merge methods the repository allows. `enter` or `ctrl+s` merges and `esc` or `q` cancels. The modal warns when the branch conflicts with its base, is behind it, has failing checks, or is blocked by branch protection. GitHub still decides, so a blocked merge, missing permission, or a branch that got new commits since it loaded shows GitHub's reason in the status line and leaves the pull request open. A successful merge reloads the pull request to show its merged state. Draft, closed, and merged pull requests don't open the modal.
+`A` opens the actions of the selected pull request, also from the review diff. With no pull request selected it lists only the ones that need none. It opens in its search, where typing filters them and `↓` `↑` or `ctrl+n` `ctrl+p` move. `esc` leaves the search for the list, where `j` `k` move and `/` or `i` goes back to the search, and `esc` there closes it. `enter` runs the selected action. Each action has a one cell icon in the accent color:
 
-`gu`, on either tab, opens a modal that takes a pull request URL such as `https://github.com/owner/repo/pull/123` and opens its review diff, so a pull request outside the list needs no searching. `enter` or `ctrl+s` opens it. A URL that is not a `github.com` pull request keeps the modal open with the reason, and a repository or pull request you can't reach, or a `gh` sign in problem, shows the `gh` error in the status line.
+| Action                               | Does                                                                                                                                                                                                       |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✎ Edit the title and description     | Same as `ge`                                                                                                                                                                                               |
+| ± Review the diff                    | Same as `gd`, not listed in the review diff                                                                                                                                                                |
+| ↗ Review a pull request from its URL | Same as `gu`, not listed in the review diff                                                                                                                                                                |
+| + Create a pull request              | Same as `gc`. Pick the branch, the current one by default, and the target branch, the default branch by default, then write the title and description in the same boxes as `ge`. The branch must be pushed |
+| ❝ Comment                            | Comment on the pull request                                                                                                                                                                                |
+| ✓ Submit a review                    | Comment, approve, or request changes, picked in a dropdown that `enter` opens. Like on GitHub, a comment or request for changes without a message needs inline comments in the review                      |
+| ⎇ Merge                              | Merge after confirming the method and the commit message                                                                                                                                                   |
+| ✗ Close without merging              | Close after confirming, with an optional comment                                                                                                                                                           |
+| ◉ Assignees, ◎ Reviewers, ◆ Labels   | Pick in a searchable list of the repository's users or labels                                                                                                                                              |
+| ✦ Request a review from Copilot      | Ask Copilot for a review, like `gh pr edit --add-reviewer @copilot`                                                                                                                                        |
+
+`ge` opens a large modal with two vim boxes, a one line `title` and the Markdown `description` under it, and `tab` moves between them, keeping the vim mode. It starts on the title in normal mode. An `into` dropdown above it changes the target branch, starting on the current one, and `shift+tab` reaches it. The branches load in the background, so the modal opens right away.
+
+Merging asks to confirm in a modal that lists only the merge methods the repository allows, with the commit message GitHub would use in the same title and description boxes as `ge`, starting in normal mode. The description box is smaller than the one of `ge` and scrolls when the message is longer. A rebase keeps each commit's message, so it has none. The modal warns when the branch conflicts with its base, is behind it, has failing checks, or is blocked by branch protection. GitHub still decides, so a blocked merge, missing permission, or a branch that got new commits since it loaded shows GitHub's reason in the status line and leaves the pull request open. A successful merge reloads the pull request to show its merged state. Draft, closed, and merged pull requests don't open the modal.
+
+`gu`, on either tab, opens a modal that takes a pull request URL such as `https://github.com/owner/repo/pull/123` and opens its review diff, so a pull request outside the list needs no searching. `ctrl+s` opens it. A URL that is not a `github.com` pull request keeps the modal open with the reason, and a repository or pull request you can't reach, or a `gh` sign in problem, shows the `gh` error in the status line.
 
 | Key                    | Action                                                                      |
 | ---------------------- | --------------------------------------------------------------------------- |
@@ -121,21 +146,19 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `ctrl+w` then `l`, `h` | Focus the sidebar or the list                                               |
 | `tab`, `shift+tab`     | Next or previous sidebar tab                                                |
 | `s`                    | Next filter: assigned, review requested, authored, involved                 |
+| `A`                    | Search and run the pull request's actions, also from the review diff        |
 | `ge`                   | Edit the title and the Markdown description, also from the review diff      |
-| `A`, `R`               | Pick the assignees or reviewers in a searchable list                        |
-| `c`                    | Comment on the pull request                                                 |
 | `r`                    | Reply to the selected comment, quoting it when it is not in a review thread |
 | `+`                    | React to the selected comment, picking a reaction you gave removes it       |
 | `x`                    | Resolve or reopen the selected review thread                                |
 | `gd`                   | Review the diff with GitHub review comments                                 |
 | `gu`                   | Review the diff of a pull request from its GitHub URL                       |
-| `gs`                   | Submit the review from the review diff                                      |
-| `gm`                   | Merge the pull request after confirming, also from the review diff          |
+| `gc`                   | Create a pull request                                                       |
 | Click, mouse wheel     | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 
-The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. Pasting works in every modal field and in the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.
+The modals save with `ctrl+s` and cancel with `esc`, like the comment editor. Pasting works in every modal field and in the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.
 
-The assignee and reviewer pickers list the users who can be assigned in the repository, with the current ones selected first. Typing searches them, `↓` `↑` or `ctrl+n` `ctrl+p` move, `space` selects or clears, and `ctrl+s` saves. The author is left out of the reviewers.
+The assignee and reviewer pickers list the users who can be assigned in the repository, and the label picker its labels, with the current ones selected first. Like the actions, they open in their search, and `esc` leaves it for the list where `j` `k` move. `space` selects or clears, and `ctrl+s` saves. The author is left out of the reviewers.
 
 ## CLI
 

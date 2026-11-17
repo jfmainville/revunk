@@ -146,6 +146,7 @@ type PullRequest struct {
 	State         string
 	Draft         bool
 	Author        string
+	CreatedAt     time.Time
 	Head          string
 	Base          string
 	UpdatedAt     time.Time
@@ -164,6 +165,7 @@ type PullRequest struct {
 	Detailed      bool
 	MergeState    string
 	MergeMethods  []MergeMethod
+	MergeMessages map[MergeMethod]MergeMessage
 }
 
 func ParsePullRequestURL(raw string) (string, int, error) {
@@ -243,19 +245,30 @@ const (
 	MergeRebase MergeMethod = "REBASE"
 )
 
+type MergeMessage struct {
+	Headline string
+	Body     string
+}
+
 type Host interface {
 	PullRequests(ctx context.Context, filter string) ([]PullRequest, error)
 	PullRequest(ctx context.Context, repo string, number int) (PullRequest, error)
 	BranchPullRequest(ctx context.Context) (PullRequest, error)
 	Assignable(ctx context.Context, repo string) ([]string, error)
-	EditPullRequest(ctx context.Context, pr PullRequest, title, body string) error
+	EditPullRequest(ctx context.Context, pr PullRequest, title, body, base string) error
 	SetPeople(ctx context.Context, pr PullRequest, assignees, reviewers []string) error
+	Labels(ctx context.Context, repo string) ([]string, error)
+	SetLabels(ctx context.Context, pr PullRequest, labels []string) error
+	RequestCopilotReview(ctx context.Context, pr PullRequest) error
+	Close(ctx context.Context, pr PullRequest, comment string) error
+	Branches(ctx context.Context, repo string) ([]string, string, error)
+	CreatePullRequest(ctx context.Context, head, base, title, body string) (PullRequest, error)
 	Comment(ctx context.Context, pr PullRequest, body string) error
 	Reply(ctx context.Context, threadID, body string) error
 	React(ctx context.Context, subjectID, content string, add bool) error
 	Resolve(ctx context.Context, threadID string, resolved bool) error
 	SubmitReview(ctx context.Context, pr PullRequest, event ReviewEvent, body string) error
-	Merge(ctx context.Context, pr PullRequest, method MergeMethod) error
+	Merge(ctx context.Context, pr PullRequest, method MergeMethod, message MergeMessage) error
 }
 
 type Agent interface {
@@ -529,4 +542,14 @@ func (s *Service) SendComments(ctx context.Context) (string, error) {
 		return name, err
 	}
 	return name, s.store.UpdateComments(ctx, s.branch, ids(sent), func(c *Comment) { c.Sent = true })
+}
+
+func (s *Service) SendGeneral(ctx context.Context, text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("comment is empty")
+	}
+	if s.agent == nil {
+		return "", errors.New("no coding agent is configured")
+	}
+	return s.agent.Prompt(ctx, fmt.Sprintf("General review comment on branch %s:\n\n%s", s.branch, text))
 }

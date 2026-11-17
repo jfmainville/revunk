@@ -643,3 +643,23 @@ func TestParsePullRequestURL(t *testing.T) {
 		t.Fatalf("empty err = %v", err)
 	}
 }
+
+func TestSendGeneralPromptsTheAgentDirectly(t *testing.T) {
+	ctx := context.Background()
+	agent := &fakeAgent{}
+	svc := review.NewService(nil, nil, agent, "feature")
+	if name, err := svc.SendGeneral(ctx, "Split the parser"); err != nil || name != "opencode" || agent.text != "General review comment on branch feature:\n\nSplit the parser" {
+		t.Fatalf("SendGeneral = %q, %v, sent %q", name, err, agent.text)
+	}
+	agent.text = ""
+	if _, err := svc.SendGeneral(ctx, " \n "); err == nil || err.Error() != "comment is empty" || agent.text != "" {
+		t.Fatalf("an empty comment should not reach the agent, err=%v", err)
+	}
+	if _, err := review.NewService(nil, nil, nil, "feature").SendGeneral(ctx, "hi"); err == nil || !strings.Contains(err.Error(), "no coding agent") {
+		t.Fatalf("no agent error = %v", err)
+	}
+	agentErr := errors.New("no session")
+	if _, err := review.NewService(nil, nil, &fakeAgent{err: agentErr}, "feature").SendGeneral(ctx, "hi"); !errors.Is(err, agentErr) {
+		t.Fatalf("agent error = %v", err)
+	}
+}

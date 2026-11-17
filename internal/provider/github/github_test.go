@@ -50,6 +50,7 @@ const detailJSON = `{"data":{"viewer":{"login":"me"},"repository":{"mergeCommitA
   "id":"PR_1","number":7,"title":"Add login","body":"Adds **login**","url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":true,"mergeStateStatus":"BLOCKED",
   "headRefName":"login","baseRefName":"main","updatedAt":"2026-11-16T10:00:00Z","additions":10,"deletions":2,"changedFiles":3,
   "author":{"login":"ana"},
+  "mergeHeadline":"Merge pull request #7 from o/login","mergeBody":"Add login","squashHeadline":"Add login (#7)","squashBody":"* add login",
   "assignees":{"nodes":[{"login":"me"}]},
   "reviewRequests":{"nodes":[{"requestedReviewer":{"login":"bob"}},{"requestedReviewer":{"slug":"core"}}]},
   "latestReviews":{"nodes":[{"author":{"login":"bob"},"state":"CHANGES_REQUESTED"},{"author":{"login":"cy"},"state":"APPROVED"}]},
@@ -87,6 +88,9 @@ func TestPullRequestMapsEveryDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := f.calls[0]
+	if !strings.Contains(arg(call, "query="), "... on Bot { login }") {
+		t.Fatal("bot reviewers such as Copilot should be requested by login")
+	}
 	if call[0] != "api" || call[1] != "graphql" || arg(call, "owner=") != "o" || arg(call, "name=") != "r" || arg(call, "number=") != "7" {
 		t.Fatalf("call = %q", call)
 	}
@@ -96,6 +100,13 @@ func TestPullRequestMapsEveryDetail(t *testing.T) {
 	}
 	if pr.MergeState != "BLOCKED" || !reflect.DeepEqual(pr.MergeMethods, []review.MergeMethod{review.MergeCommit, review.MergeRebase}) {
 		t.Fatalf("merge state %q methods %q should follow the repository settings", pr.MergeState, pr.MergeMethods)
+	}
+	wantMessages := map[review.MergeMethod]review.MergeMessage{
+		review.MergeCommit: {Headline: "Merge pull request #7 from o/login", Body: "Add login"},
+		review.MergeSquash: {Headline: "Add login (#7)", Body: "* add login"},
+	}
+	if !reflect.DeepEqual(pr.MergeMessages, wantMessages) {
+		t.Fatalf("merge messages = %+v", pr.MergeMessages)
 	}
 	if !reflect.DeepEqual(pr.Assignees, []string{"me"}) || !reflect.DeepEqual(pr.Labels, []string{"auth"}) {
 		t.Fatalf("assignees %q labels %q", pr.Assignees, pr.Labels)
@@ -170,23 +181,29 @@ func TestPullRequestErrors(t *testing.T) {
 }
 
 func TestPullRequestsSearchesWithTheFilter(t *testing.T) {
-	f := &fakeGH{replies: []string{`[{"number":3,"title":"Fix","url":"u","isDraft":true,"updatedAt":"2026-11-16T10:00:00Z","author":{"login":"ana"},"repository":{"nameWithOwner":"o/r"}}]`}}
+	f := &fakeGH{replies: []string{`{"data":{"search":{"nodes":[
+		{"number":3,"title":"Fix","url":"u","isDraft":true,"createdAt":"2026-11-10T10:00:00Z","updatedAt":"2026-11-16T10:00:00Z","additions":12,"deletions":4,
+		 "author":{"login":"ana"},"repository":{"nameWithOwner":"o/r"},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE"}}}]}},
+		{"number":4,"title":"Docs","url":"v","author":{"login":"bob"},"repository":{"nameWithOwner":"o/s"},"commits":{"nodes":[{"commit":{"statusCheckRollup":null}}]}}
+	]}}}`}}
 	prs, err := f.client().PullRequests(context.Background(), "assignee:@me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if call := f.calls[0]; call[0] != "search" || call[1] != "prs" || call[2] != "assignee:@me" || !slices.Contains(call, "--state=open") {
+	if call := f.calls[0]; call[0] != "api" || call[1] != "graphql" || arg(call, "q=") != "assignee:@me is:pr is:open archived:false sort:updated-desc" {
 		t.Fatalf("call = %q", call)
 	}
-	want := review.PullRequest{Repo: "o/r", Number: 3, Title: "Fix", URL: "u", State: "OPEN", Draft: true, Author: "ana", UpdatedAt: time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)}
-	if len(prs) != 1 || !reflect.DeepEqual(prs[0], want) {
+	want := review.PullRequest{Repo: "o/r", Number: 3, Title: "Fix", URL: "u", State: "OPEN", Draft: true, Author: "ana", Additions: 12, Deletions: 4,
+		CreatedAt: time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC),
+		Checks: []review.Check{{Name: "checks", State: "FAILURE"}}}
+	if len(prs) != 2 || !reflect.DeepEqual(prs[0], want) || prs[1].Checks != nil || prs[1].Repo != "o/s" {
 		t.Fatalf("prs = %+v", prs)
 	}
 	if _, err := (&fakeGH{replies: []string{"{"}}).client().PullRequests(context.Background(), "x"); err == nil {
 		t.Fatal("expected a parse error")
 	}
-	if _, err := (&fakeGH{err: errors.New("offline")}).client().PullRequests(context.Background(), "x"); err == nil {
-		t.Fatal("expected the run error")
+	if _, err := (&fakeGH{err: errors.New("offline")}).client().PullRequests(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "search pull requests") {
+		t.Fatalf("expected the run error, got %v", err)
 	}
 }
 
@@ -194,14 +211,22 @@ var pr = review.PullRequest{ID: "PR_1", Repo: "o/r", Number: 7, Assignees: []str
 
 func TestEditPullRequest(t *testing.T) {
 	f := &fakeGH{}
-	if err := f.client().EditPullRequest(context.Background(), pr, "  ", "b"); err == nil || len(f.calls) > 0 {
+	if err := f.client().EditPullRequest(context.Background(), pr, "  ", "b", ""); err == nil || len(f.calls) > 0 {
 		t.Fatal("an empty title should be refused before calling gh")
 	}
-	if err := f.client().EditPullRequest(context.Background(), pr, "New", "Body"); err != nil {
+	based := pr
+	based.Base = "main"
+	if err := f.client().EditPullRequest(context.Background(), based, "New", "Body", "main"); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"pr", "edit", "7", "--repo", "o/r", "--title", "New", "--body", "Body"}; !reflect.DeepEqual(f.calls[0], want) {
-		t.Fatalf("call = %q", f.calls[0])
+		t.Fatalf("an unchanged base should not be sent, call = %q", f.calls[0])
+	}
+	if err := f.client().EditPullRequest(context.Background(), based, "New", "Body", "release"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"pr", "edit", "7", "--repo", "o/r", "--title", "New", "--body", "Body", "--base", "release"}; !reflect.DeepEqual(f.calls[1], want) {
+		t.Fatalf("a new base should be sent, call = %q", f.calls[1])
 	}
 }
 
@@ -286,27 +311,124 @@ func TestMergePinsTheReviewedHeadCommit(t *testing.T) {
 	f := &fakeGH{}
 	reviewed := pr
 	reviewed.Commits = []review.Commit{{SHA: "old1"}, {SHA: "head2"}}
-	if err := f.client().Merge(ctx, reviewed, review.MergeSquash); err != nil {
+	message := review.MergeMessage{Headline: "Add login (#7)", Body: "Adds login"}
+	if err := f.client().Merge(ctx, reviewed, review.MergeSquash, message); err != nil {
 		t.Fatal(err)
 	}
 	call := strings.Join(f.calls[0], "\n")
 	if !strings.Contains(call, "mergePullRequest(") || !strings.Contains(call, "pr=PR_1") || !strings.Contains(call, "method=SQUASH") ||
-		!strings.Contains(call, "expectedHeadOid: $head") || !strings.Contains(call, "head=head2") {
+		!strings.Contains(call, "expectedHeadOid: $head") || !strings.Contains(call, "head=head2") ||
+		!strings.Contains(call, "commitHeadline: $headline, commitBody: $body") || !strings.Contains(call, "headline=Add login (#7)") || !strings.Contains(call, "body=Adds login") {
 		t.Fatalf("merge call = %s", call)
 	}
-	if err := f.client().Merge(ctx, pr, review.MergeCommit); err != nil {
+	if err := f.client().Merge(ctx, pr, review.MergeCommit, review.MergeMessage{Headline: "Merge"}); err != nil {
 		t.Fatal(err)
 	}
-	if call := strings.Join(f.calls[1], "\n"); strings.Contains(call, "expectedHeadOid") || !strings.Contains(call, "method=MERGE") {
+	if call := strings.Join(f.calls[1], "\n"); strings.Contains(call, "expectedHeadOid") || !strings.Contains(call, "method=MERGE") || !strings.Contains(call, "headline=Merge") {
 		t.Fatalf("a pull request without commits should merge without a pinned head: %s", call)
 	}
+	if err := f.client().Merge(ctx, reviewed, review.MergeRebase, message); err != nil {
+		t.Fatal(err)
+	}
+	if call := strings.Join(f.calls[2], "\n"); strings.Contains(call, "commitHeadline") || !strings.Contains(call, "method=REBASE") {
+		t.Fatalf("a rebase keeps each commit's message: %s", call)
+	}
+	if err := f.client().Merge(ctx, reviewed, review.MergeSquash, review.MergeMessage{Headline: " ", Body: "x"}); err == nil || err.Error() != "the commit title is empty" || len(f.calls) != 3 {
+		t.Fatalf("an empty commit title should fail before calling GitHub, err=%v calls=%d", err, len(f.calls))
+	}
 	f = &fakeGH{replies: []string{`{"errors":[{"message":"Pull request is not mergeable"}]}`}}
-	if err := f.client().Merge(ctx, reviewed, review.MergeRebase); err == nil || err.Error() != "Pull request is not mergeable" {
+	if err := f.client().Merge(ctx, reviewed, review.MergeRebase, review.MergeMessage{}); err == nil || err.Error() != "Pull request is not mergeable" {
 		t.Fatalf("GitHub's refusal should come back as the error, got %v", err)
 	}
 	f = &fakeGH{err: errors.New("gh api: HTTP 403")}
-	if err := f.client().Merge(ctx, reviewed, review.MergeRebase); err == nil || !strings.Contains(err.Error(), "403") {
+	if err := f.client().Merge(ctx, reviewed, review.MergeRebase, review.MergeMessage{}); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("permission errors should come back, got %v", err)
+	}
+}
+
+func TestLabelsCopilotAndClose(t *testing.T) {
+	ctx := context.Background()
+	f := &fakeGH{replies: []string{`[{"name":"auth"},{"name":"bug"}]`}}
+	if names, err := f.client().Labels(ctx, "o/r"); err != nil || !reflect.DeepEqual(names, []string{"auth", "bug"}) || !slices.Contains(f.calls[0], "repos/o/r/labels?per_page=100") {
+		t.Fatalf("Labels = %q, %v, call %q", names, err, f.calls[0])
+	}
+	f = &fakeGH{}
+	c := f.client()
+	labeled := pr
+	labeled.Labels = []string{"auth", "old"}
+	if err := c.SetLabels(ctx, labeled, []string{"auth", "bug"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"pr", "edit", "7", "--repo", "o/r", "--add-label", "bug", "--remove-label", "old"}; !reflect.DeepEqual(f.calls[0], want) {
+		t.Fatalf("set labels call = %q", f.calls[0])
+	}
+	if err := c.SetLabels(ctx, labeled, []string{"old", "auth"}); err != nil || len(f.calls) != 1 {
+		t.Fatal("unchanged labels should not call gh")
+	}
+	if err := c.RequestCopilotReview(ctx, pr); err != nil || !reflect.DeepEqual(f.calls[1], []string{"pr", "edit", "7", "--repo", "o/r", "--add-reviewer", "@copilot"}) {
+		t.Fatalf("copilot call = %q, %v", f.calls[1], err)
+	}
+	if err := c.Close(ctx, pr, " "); err != nil || !reflect.DeepEqual(f.calls[2], []string{"pr", "close", "7", "--repo", "o/r"}) {
+		t.Fatalf("close without a comment = %q, %v", f.calls[2], err)
+	}
+	if err := c.Close(ctx, pr, "Superseded"); err != nil || !reflect.DeepEqual(f.calls[3], []string{"pr", "close", "7", "--repo", "o/r", "--comment", "Superseded"}) {
+		t.Fatalf("close with a comment = %q, %v", f.calls[3], err)
+	}
+	failing := (&fakeGH{err: errors.New("gh: HTTP 403")}).client()
+	if _, err := failing.Labels(ctx, "o/r"); err == nil {
+		t.Fatal("expected the labels error")
+	}
+	for name, err := range map[string]error{"set labels": failing.SetLabels(ctx, labeled, nil), "copilot": failing.RequestCopilotReview(ctx, pr), "close": failing.Close(ctx, pr, "")} {
+		if err == nil || !strings.Contains(err.Error(), "403") {
+			t.Fatalf("%s error = %v", name, err)
+		}
+	}
+}
+
+func TestBranchesAndCreatePullRequest(t *testing.T) {
+	ctx := context.Background()
+	f := &fakeGH{replies: []string{"trunk\n", `[{"name":"trunk"},{"name":"login"}]`}}
+	names, def, err := f.client().Branches(ctx, "")
+	if err != nil || !reflect.DeepEqual(names, []string{"trunk", "login"}) || def != "trunk" {
+		t.Fatalf("Branches = %q, %q, %v", names, def, err)
+	}
+	if !slices.Contains(f.calls[0], "repos/{owner}/{repo}") || !slices.Contains(f.calls[1], "repos/{owner}/{repo}/branches?per_page=100") {
+		t.Fatalf("an empty repository should mean the current one, calls %q", f.calls)
+	}
+	f = &fakeGH{replies: []string{"main", `[]`}}
+	if _, _, err := f.client().Branches(ctx, "o/s"); err != nil || !slices.Contains(f.calls[0], "repos/o/s") || !slices.Contains(f.calls[1], "repos/o/s/branches?per_page=100") {
+		t.Fatalf("a named repository should be listed, calls %q, err %v", f.calls, err)
+	}
+	f = &fakeGH{replies: []string{"main", "{"}}
+	if _, _, err := f.client().Branches(ctx, "o/s"); err == nil {
+		t.Fatal("expected the branch list parse error")
+	}
+	f = &fakeGH{replies: []string{"Creating pull request\nhttps://github.com/o/r/pull/7\n", detailJSON}}
+	created, err := f.client().CreatePullRequest(ctx, "login", "", "Add login", "Adds login")
+	if err != nil || created.Number != 7 || created.Repo != "o/r" {
+		t.Fatalf("CreatePullRequest = %+v, %v", created, err)
+	}
+	if want := []string{"pr", "create", "--head", "login", "--title", "Add login", "--body", "Adds login"}; !reflect.DeepEqual(f.calls[0], want) {
+		t.Fatalf("without a base gh should pick the default branch, create call = %q", f.calls[0])
+	}
+	f = &fakeGH{replies: []string{"https://github.com/o/r/pull/7", detailJSON}}
+	if _, err := f.client().CreatePullRequest(ctx, "login", "release", "T", "B"); err != nil || !reflect.DeepEqual(f.calls[0][len(f.calls[0])-2:], []string{"--base", "release"}) {
+		t.Fatalf("a picked base should be sent, call = %q, err %v", f.calls[0], err)
+	}
+	f = &fakeGH{}
+	if _, err := f.client().CreatePullRequest(ctx, "login", "", " ", "x"); err == nil || len(f.calls) != 0 {
+		t.Fatalf("an empty title should fail before calling gh, err=%v", err)
+	}
+	f = &fakeGH{replies: []string{"done"}}
+	if _, err := f.client().CreatePullRequest(ctx, "login", "", "T", ""); err == nil || !strings.Contains(err.Error(), "read the created pull request") {
+		t.Fatalf("unreadable output error = %v", err)
+	}
+	failing := (&fakeGH{err: errors.New("gh: must push first")}).client()
+	if _, err := failing.CreatePullRequest(ctx, "login", "", "T", ""); err == nil || !strings.Contains(err.Error(), "must push") {
+		t.Fatalf("create error = %v", err)
+	}
+	if _, _, err := failing.Branches(ctx, ""); err == nil {
+		t.Fatal("expected the branches error")
 	}
 }
 
@@ -459,10 +581,10 @@ func TestChangeStatus(t *testing.T) {
 func TestGHRunsTheCLIAndReportsStderr(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
-	if _, err := (Client{}).PullRequests(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "gh search") {
+	if _, err := (Client{}).PullRequests(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "gh api") {
 		t.Fatalf("missing gh error = %v", err)
 	}
-	script := "#!/bin/sh\nif [ \"$1\" = search ]; then echo '[]'; exit 0; fi\necho 'HTTP 404: Not Found' >&2\nexit 1\n"
+	script := "#!/bin/sh\nif [ \"$1\" = api ]; then echo '{\"data\":{\"search\":{\"nodes\":[]}}}'; exit 0; fi\necho 'HTTP 404: Not Found' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

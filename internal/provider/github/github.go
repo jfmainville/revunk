@@ -102,28 +102,45 @@ func (c Client) Assignable(ctx context.Context, repo string) ([]string, error) {
 	return logins, nil
 }
 
+const searchQuery = `query($q: String!) {
+  search(query: $q, type: ISSUE, first: 50) { nodes { ... on PullRequest {
+    number title url isDraft createdAt updatedAt additions deletions
+    author { login }
+    repository { nameWithOwner }
+    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  } } }
+}`
+
 func (c Client) PullRequests(ctx context.Context, filter string) ([]review.PullRequest, error) {
-	data, err := c.run(ctx, "search", "prs", filter, "--state=open", "--limit=50", "--json=number,title,url,isDraft,updatedAt,author,repository")
-	if err != nil {
-		return nil, err
+	var data struct {
+		Search struct {
+			Nodes []struct {
+				Number               int
+				Title, URL           string
+				IsDraft              bool
+				CreatedAt, UpdatedAt time.Time
+				Additions, Deletions int
+				Author               login
+				Repository           struct{ NameWithOwner string }
+				Commits              struct {
+					Nodes []struct {
+						Commit struct{ StatusCheckRollup *struct{ State string } }
+					}
+				}
+			}
+		}
 	}
-	var found []struct {
-		Number     int
-		Title      string
-		URL        string
-		IsDraft    bool
-		UpdatedAt  time.Time
-		Author     struct{ Login string }
-		Repository struct{ NameWithOwner string }
+	if err := c.graphql(ctx, searchQuery, map[string]any{"q": filter + " is:pr is:open archived:false sort:updated-desc"}, &data); err != nil {
+		return nil, fmt.Errorf("search pull requests: %w", err)
 	}
-	if err := json.Unmarshal(data, &found); err != nil {
-		return nil, fmt.Errorf("read pull requests: %w", err)
-	}
-	prs := make([]review.PullRequest, len(found))
-	for i, f := range found {
+	prs := make([]review.PullRequest, len(data.Search.Nodes))
+	for i, f := range data.Search.Nodes {
 		prs[i] = review.PullRequest{
-			Repo: f.Repository.NameWithOwner, Number: f.Number, Title: f.Title, URL: f.URL,
-			State: "OPEN", Draft: f.IsDraft, Author: f.Author.Login, UpdatedAt: f.UpdatedAt,
+			Repo: f.Repository.NameWithOwner, Number: f.Number, Title: f.Title, URL: f.URL, State: "OPEN", Draft: f.IsDraft,
+			Author: f.Author.Login, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt, Additions: f.Additions, Deletions: f.Deletions,
+		}
+		if n := f.Commits.Nodes; len(n) > 0 && n[0].Commit.StatusCheckRollup != nil {
+			prs[i].Checks = []review.Check{{Name: "checks", State: n[0].Commit.StatusCheckRollup.State}}
 		}
 	}
 	return prs, nil
@@ -171,10 +188,12 @@ const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!) 
   repository(owner: $owner, name: $name) {
     mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed
     pullRequest(number: $number) {
-      id number title body url state isDraft mergeStateStatus headRefName baseRefName updatedAt additions deletions changedFiles
+      id number title body url state isDraft mergeStateStatus headRefName baseRefName createdAt updatedAt additions deletions changedFiles
       author { login }
+      mergeHeadline: viewerMergeHeadlineText(mergeType: MERGE) mergeBody: viewerMergeBodyText(mergeType: MERGE)
+      squashHeadline: viewerMergeHeadlineText(mergeType: SQUASH) squashBody: viewerMergeBodyText(mergeType: SQUASH)
       assignees(first: 50) { nodes { login } }
-      reviewRequests(first: 50) { nodes { requestedReviewer { ... on User { login } ... on Team { slug } } } }
+      reviewRequests(first: 50) { nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Team { slug } } } }
       latestReviews(first: 50) { nodes { author { login } state } }
       labels(first: 50) { nodes { name } }
       pending: reviews(states: PENDING, first: 1) { nodes { id } }
@@ -210,10 +229,12 @@ func (c Client) PullRequest(ctx context.Context, repo string, number int) (revie
 			PullRequest                                                *struct {
 				ID, Title, Body, URL, State string
 				MergeStateStatus            string
+				MergeHeadline, MergeBody    string
+				SquashHeadline, SquashBody  string
 				Number                      int
 				IsDraft                     bool
 				HeadRefName, BaseRefName    string
-				UpdatedAt                   time.Time
+				CreatedAt, UpdatedAt        time.Time
 				Additions, Deletions        int
 				ChangedFiles                int
 				Author                      login
@@ -278,9 +299,13 @@ func (c Client) PullRequest(ctx context.Context, repo string, number int) (revie
 	}
 	pr := review.PullRequest{
 		ID: p.ID, Repo: repo, Number: p.Number, Title: p.Title, Body: p.Body, URL: p.URL, State: p.State,
-		Draft: p.IsDraft, Author: p.Author.Login, Head: p.HeadRefName, Base: p.BaseRefName, UpdatedAt: p.UpdatedAt,
+		Draft: p.IsDraft, Author: p.Author.Login, Head: p.HeadRefName, Base: p.BaseRefName, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 		Additions: p.Additions, Deletions: p.Deletions, ChangedFiles: p.ChangedFiles, Viewer: data.Viewer.Login, Detailed: true,
 		MergeState: p.MergeStateStatus,
+		MergeMessages: map[review.MergeMethod]review.MergeMessage{
+			review.MergeCommit: {Headline: p.MergeHeadline, Body: p.MergeBody},
+			review.MergeSquash: {Headline: p.SquashHeadline, Body: p.SquashBody},
+		},
 	}
 	for _, m := range []struct {
 		allowed bool
@@ -382,11 +407,15 @@ func number(pr review.PullRequest) string {
 	return strconv.Itoa(pr.Number)
 }
 
-func (c Client) EditPullRequest(ctx context.Context, pr review.PullRequest, title, body string) error {
+func (c Client) EditPullRequest(ctx context.Context, pr review.PullRequest, title, body, base string) error {
 	if strings.TrimSpace(title) == "" {
 		return errors.New("title is empty")
 	}
-	_, err := c.run(ctx, "pr", "edit", number(pr), "--repo", pr.Repo, "--title", title, "--body", body)
+	args := []string{"pr", "edit", number(pr), "--repo", pr.Repo, "--title", title, "--body", body}
+	if base != "" && base != pr.Base {
+		args = append(args, "--base", base)
+	}
+	_, err := c.run(ctx, args...)
 	return err
 }
 
@@ -412,6 +441,86 @@ func (c Client) SetPeople(ctx context.Context, pr review.PullRequest, assignees,
 	}
 	_, err := c.run(ctx, args...)
 	return err
+}
+
+func (c Client) Labels(ctx context.Context, repo string) ([]string, error) {
+	labels, err := apiList[struct{ Name string }](ctx, c, "repos/"+repo+"/labels?per_page=100")
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(labels))
+	for i, l := range labels {
+		names[i] = l.Name
+	}
+	return names, nil
+}
+
+func (c Client) SetLabels(ctx context.Context, pr review.PullRequest, labels []string) error {
+	args := []string{"pr", "edit", number(pr), "--repo", pr.Repo}
+	if added := missing(labels, pr.Labels); len(added) > 0 {
+		args = append(args, "--add-label", strings.Join(added, ","))
+	}
+	if removed := missing(pr.Labels, labels); len(removed) > 0 {
+		args = append(args, "--remove-label", strings.Join(removed, ","))
+	}
+	if len(args) == 5 {
+		return nil
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+func (c Client) RequestCopilotReview(ctx context.Context, pr review.PullRequest) error {
+	_, err := c.run(ctx, "pr", "edit", number(pr), "--repo", pr.Repo, "--add-reviewer", "@copilot")
+	return err
+}
+
+func (c Client) Close(ctx context.Context, pr review.PullRequest, comment string) error {
+	args := []string{"pr", "close", number(pr), "--repo", pr.Repo}
+	if strings.TrimSpace(comment) != "" {
+		args = append(args, "--comment", comment)
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+func (c Client) Branches(ctx context.Context, repo string) ([]string, string, error) {
+	if repo == "" {
+		repo = "{owner}/{repo}"
+	}
+	out, err := c.run(ctx, "api", "repos/"+repo, "--jq", ".default_branch")
+	if err != nil {
+		return nil, "", err
+	}
+	branches, err := apiList[struct{ Name string }](ctx, c, "repos/"+repo+"/branches?per_page=100")
+	if err != nil {
+		return nil, "", err
+	}
+	names := make([]string, len(branches))
+	for i, b := range branches {
+		names[i] = b.Name
+	}
+	return names, strings.TrimSpace(string(out)), nil
+}
+
+func (c Client) CreatePullRequest(ctx context.Context, head, base, title, body string) (review.PullRequest, error) {
+	if strings.TrimSpace(title) == "" {
+		return review.PullRequest{}, errors.New("title is empty")
+	}
+	args := []string{"pr", "create", "--head", head, "--title", title, "--body", body}
+	if base != "" {
+		args = append(args, "--base", base)
+	}
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return review.PullRequest{}, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	repo, number, err := review.ParsePullRequestURL(lines[len(lines)-1])
+	if err != nil {
+		return review.PullRequest{}, fmt.Errorf("read the created pull request: %w", err)
+	}
+	return c.PullRequest(ctx, repo, number)
 }
 
 func missing(want, have []string) []string {
@@ -472,9 +581,17 @@ func (c Client) SubmitReview(ctx context.Context, pr review.PullRequest, event r
 }`, map[string]any{"pr": pr.ID, "event": string(event), "body": body}, nil)
 }
 
-func (c Client) Merge(ctx context.Context, pr review.PullRequest, method review.MergeMethod) error {
+func (c Client) Merge(ctx context.Context, pr review.PullRequest, method review.MergeMethod, message review.MergeMessage) error {
 	vars := map[string]any{"pr": pr.ID, "method": string(method)}
 	params, input := "$pr: ID!, $method: PullRequestMergeMethod!", "pullRequestId: $pr, mergeMethod: $method"
+	if method != review.MergeRebase {
+		if strings.TrimSpace(message.Headline) == "" {
+			return errors.New("the commit title is empty")
+		}
+		vars["headline"], vars["body"] = message.Headline, message.Body
+		params += ", $headline: String!, $body: String!"
+		input += ", commitHeadline: $headline, commitBody: $body"
+	}
 	if len(pr.Commits) > 0 {
 		vars["head"] = pr.Commits[len(pr.Commits)-1].SHA
 		params += ", $head: GitObjectID!"
