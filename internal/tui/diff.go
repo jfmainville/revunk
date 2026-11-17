@@ -72,27 +72,32 @@ func lexerFor(path string) chroma.Lexer {
 	return lexers.Fallback
 }
 
-func highlight(lexer chroma.Lexer, lines []review.Line) [][]token {
+func lineTexts(lines []review.Line) []string {
 	texts := make([]string, len(lines))
 	for i, l := range lines {
 		if l.Kind != review.LineHunk {
 			texts[i] = strings.ReplaceAll(l.Text, "\t", "    ")
 		}
 	}
-	plain := func() [][]token {
-		out := make([][]token, len(lines))
-		for i, t := range texts {
-			out[i] = []token{{text: t, style: lipgloss.NewStyle().Foreground(colorForeground)}}
-		}
-		return out
+	return texts
+}
+
+func plainTokens(lines []review.Line) [][]token {
+	out := make([][]token, len(lines))
+	for i, t := range lineTexts(lines) {
+		out[i] = []token{{text: t, style: lipgloss.NewStyle().Foreground(colorForeground)}}
 	}
-	it, err := chroma.Coalesce(lexer).Tokenise(nil, strings.Join(texts, "\n")+"\n")
+	return out
+}
+
+func highlight(lexer chroma.Lexer, lines []review.Line) [][]token {
+	it, err := chroma.Coalesce(lexer).Tokenise(nil, strings.Join(lineTexts(lines), "\n")+"\n")
 	if err != nil {
-		return plain()
+		return plainTokens(lines)
 	}
 	split := chroma.SplitTokensIntoLines(it.Tokens())
 	if len(split) < len(lines) {
-		return plain()
+		return plainTokens(lines)
 	}
 	out := make([][]token, len(lines))
 	for i := range lines {

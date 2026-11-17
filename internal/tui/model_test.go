@@ -2449,3 +2449,28 @@ func TestCommitsPaneStaysShortAndScrolls(t *testing.T) {
 		t.Fatal("a few commits should only take the rows they need")
 	}
 }
+
+func TestLoadShowsThePlainDiffThenColorsIt(t *testing.T) {
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "", "main")
+	m = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	loaded := m.Init()().(loadedMsg)
+	if toks := loaded.diff.tokens[1]; len(toks[1]) != 1 || toks[1][0].text != "package main" {
+		t.Fatalf("the first load should skip highlighting, got %+v", toks[1])
+	}
+	m = update(t, m, loaded)
+	colored := parsed{}.parse(m.files)
+	stale := parsed{}.parse(slices.Clone(m.files))
+	stale.files[0].Patch = "@@ -1 +1 @@\n+other"
+	m = update(t, m, colorMsg(stale))
+	if len(m.tokens[0][1]) != 1 {
+		t.Fatal("colors for a patch that changed since should be dropped")
+	}
+	m = update(t, m, colorMsg(colored))
+	if !reflect.DeepEqual(m.tokens, colored.tokens) || len(m.tokens[1][1]) < 2 {
+		t.Fatalf("the colors should replace the plain lines, got %+v", m.tokens[1][1])
+	}
+	m.refreshFiles(parsed{files: m.files, lines: m.lines, tokens: loaded.diff.tokens})
+	if !reflect.DeepEqual(m.tokens, colored.tokens) {
+		t.Fatal("a refresh carrying older plain lines for unchanged files should keep the colors")
+	}
+}

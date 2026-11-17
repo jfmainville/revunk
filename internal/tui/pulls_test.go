@@ -1871,3 +1871,27 @@ func TestVimTextBoxesScrollWithTheCursor(t *testing.T) {
 		t.Fatal("k should scroll up past the top of the box")
 	}
 }
+
+func TestPullRequestsLoadInTheBackgroundOnceTheBranchLoads(t *testing.T) {
+	host := newHost()
+	m := New(review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, "feature"), "", "main").
+		WithHost(host, func(pr review.PullRequest) *review.Service {
+			return review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, prKey(pr))
+		})
+	m = update(t, m, m.Init()())
+	if !m.pulls.started || !m.pulls.loading || m.tab == tabPulls {
+		t.Fatal("the pull request list should start loading without leaving the Agent tab")
+	}
+	if _, text := m.status(); text != "" {
+		t.Fatalf("the Agent tab should not show the pull request spinner, got %q", text)
+	}
+	if cmd := m.showPulls(); cmd != nil {
+		t.Fatal("opening the tab should not load the list a second time")
+	}
+	nested := m
+	nested.pr = review.PullRequest{Number: 7}
+	nested.pulls.started = false
+	if nested.startPulls(); nested.pulls.started {
+		t.Fatal("a pull request's review diff should not load the list")
+	}
+}

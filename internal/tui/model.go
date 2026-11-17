@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"charm.land/bubbles/v2/key"
 	"context"
 	"fmt"
 	"image/color"
@@ -11,10 +10,13 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -216,7 +218,11 @@ func (m Model) Init() tea.Cmd {
 		if msg.viewed, msg.err = svc.Viewed(ctx, files); msg.err != nil {
 			return msg
 		}
-		msg.diff = parsed{}.parse(files)
+		msg.diff = parsed{files: files, lines: make([][]review.Line, len(files)), tokens: make([][][]token, len(files))}
+		for i, f := range files {
+			msg.diff.lines[i] = review.ParseLines(f.Patch)
+			msg.diff.tokens[i] = plainTokens(msg.diff.lines[i])
+		}
 		if msg.pruned, msg.err = svc.PruneComments(ctx, files); msg.err != nil {
 			return msg
 		}
@@ -226,6 +232,8 @@ func (m Model) Init() tea.Cmd {
 }
 
 type statusTickMsg struct{}
+
+type colorMsg parsed
 
 var (
 	statusEvery   = time.Second
@@ -325,7 +333,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.comments = msg.comments
 		m.setFiles(msg.diff)
-		return m, m.tick()
+		files := m.files
+		return m, tea.Batch(m.tick(), func() tea.Msg { return colorMsg(parsed{}.parse(files)) }, m.startPulls())
+	case colorMsg:
+		m.takeTokens(parsed(msg))
+		m.rendered = map[int][]string{}
+		return m, nil
 	case tickMsg:
 		if m.blurred || (m.tab == tabPulls && m.pr.Number == 0) {
 			return m, m.tick()
@@ -483,14 +496,21 @@ func (p parsed) parse(files []review.File) parsed {
 		old[f.Path] = i
 	}
 	next := parsed{files: files, lines: make([][]review.Line, len(files)), tokens: make([][][]token, len(files))}
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, runtime.GOMAXPROCS(0))
 	for i, f := range files {
 		if j, ok := old[f.Path]; ok && p.files[j].Patch == f.Patch {
 			next.lines[i], next.tokens[i] = p.lines[j], p.tokens[j]
 			continue
 		}
-		next.lines[i] = review.ParseLines(f.Patch)
-		next.tokens[i] = highlight(lexerFor(f.Path), next.lines[i])
+		wg.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			next.lines[i] = review.ParseLines(f.Patch)
+			next.tokens[i] = highlight(lexerFor(f.Path), next.lines[i])
+		})
 	}
+	wg.Wait()
 	return next
 }
 
@@ -564,6 +584,19 @@ func (m *Model) applyPoll(msg polledMsg) {
 	}
 }
 
+func (m *Model) takeTokens(p parsed) {
+	at := map[string]int{}
+	for i, f := range p.files {
+		at[f.Path] = i
+	}
+	m.tokens = slices.Clone(m.tokens)
+	for i, f := range m.files {
+		if j, ok := at[f.Path]; ok && p.files[j].Patch == f.Patch {
+			m.tokens[i] = p.tokens[j]
+		}
+	}
+}
+
 func (m *Model) refreshFiles(p parsed) {
 	files := p.files
 	var path, selected string
@@ -575,8 +608,9 @@ func (m *Model) refreshFiles(p parsed) {
 	if len(m.files) > 0 {
 		selected = m.files[m.fileCursor].Path
 	}
-	screenRow := m.cursor - m.offset
+	screenRow, old := m.cursor-m.offset, m.parsed()
 	m.files, m.lines, m.tokens = p.files, p.lines, p.tokens
+	m.takeTokens(old)
 	m.anchor, m.rendered, m.fileCursor = -1, map[int][]string{}, 0
 	for i, f := range files {
 		if f.Path == selected {

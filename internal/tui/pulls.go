@@ -200,7 +200,11 @@ func (m *Model) showPulls() tea.Cmd {
 		m.pulls.err = errors.New("pull requests need the GitHub CLI, gh")
 		return nil
 	}
-	if m.pulls.started {
+	return m.startPulls()
+}
+
+func (m *Model) startPulls() tea.Cmd {
+	if m.host == nil || m.pulls.started || m.pr.Number > 0 {
 		return nil
 	}
 	m.pulls.started, m.pulls.loading = true, true
