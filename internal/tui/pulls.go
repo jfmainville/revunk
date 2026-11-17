@@ -850,7 +850,7 @@ func (d *modalState) mergeMethod() review.MergeMethod {
 
 func (d *modalState) fillMerge() {
 	message := d.pr.MergeMessages[d.mergeMethod()]
-	d.area.SetValue(message.Headline + "\n" + message.Body)
+	d.area.SetValue(message.Headline + "\n\n" + message.Body)
 	d.area.Placeholder = "the commit title on the first line, the description below it"
 	if d.mergeMethod() == review.MergeRebase {
 		d.area.SetValue("")

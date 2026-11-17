@@ -558,7 +558,7 @@ func TestMergeConfirmsThenMergesOnGitHub(t *testing.T) {
 		t.Fatal("enter should open the method dropdown, not merge")
 	}
 	m = pressRun(t, m, "j", "enter")
-	if got := m.modal.area.Value(); got != "Add login (#7)\n* add login" {
+	if got := m.modal.area.Value(); got != "Add login (#7)\n\n* add login" {
 		t.Fatalf("picking squash should fill its commit message, got %q", got)
 	}
 	m = pressRun(t, m, "j", "j", "enter")
@@ -1778,5 +1778,29 @@ func TestPullListShowsTwoLineRowsInColumns(t *testing.T) {
 	i := slices.Index(rows, first)
 	if !strings.Contains(rows[i+1], "o/r") || strings.Contains(rows[i+1], "#") {
 		t.Fatalf("the second line should show the repository: %q", rows[i+1])
+	}
+}
+
+func TestTitledModalsLeaveAnEmptyLineBeforeTheDescription(t *testing.T) {
+	for _, query := range []string{"edit", "merge", "create"} {
+		m, host := pullsModel(t)
+		host.branches = []string{"main"}
+		m = runAction(t, m, query)
+		lines := strings.Split(m.modal.area.Value(), "\n")
+		if len(lines) < 3 || lines[1] != "" {
+			t.Fatalf("%s should leave the second line empty, value=%q", query, m.modal.area.Value())
+		}
+		var title, description int
+		for i, row := range strings.Split(screen(m), "\n") {
+			if strings.Contains(row, "│ title ") {
+				title = i
+			}
+			if strings.Contains(row, "│ description ") {
+				description = i
+			}
+		}
+		if title == 0 || description != title+2 {
+			t.Fatalf("%s should show description two rows under title, title=%d description=%d:\n%s", query, title, description, screen(m))
+		}
 	}
 }
