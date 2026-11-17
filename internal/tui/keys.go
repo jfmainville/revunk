@@ -78,10 +78,6 @@ type keyMap struct {
 	LineStart   key.Binding
 	LineEnd     key.Binding
 	DeleteUnder key.Binding
-	WindowLeft  key.Binding
-	WindowDown  key.Binding
-	WindowUp    key.Binding
-	WindowRight key.Binding
 }
 
 func bind(keys ...string) key.Binding {
@@ -159,10 +155,6 @@ func defaultKeys() keyMap {
 		LineStart:   bind("0"),
 		LineEnd:     bind("$"),
 		DeleteUnder: bind("x"),
-		WindowLeft:  bind("ctrl+h"),
-		WindowDown:  bind("ctrl+j"),
-		WindowUp:    bind("ctrl+k"),
-		WindowRight: bind("ctrl+l"),
 	}
 }
 
@@ -237,7 +229,6 @@ type helpSection struct {
 func (k keyMap) helpSections() []helpSection {
 	return []helpSection{
 		{"move", []hint{
-			{desc: "pane to the left / below / above / right", keys: []key.Binding{k.WindowLeft, k.WindowDown, k.WindowUp, k.WindowRight}},
 			{desc: "down / up", keys: []key.Binding{k.Down, k.Up}},
 			{desc: "top / bottom", keys: []key.Binding{k.Top, k.Bottom}},
 			{desc: "half page", keys: []key.Binding{k.HalfDown, k.HalfUp}},

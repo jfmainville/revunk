@@ -112,25 +112,3 @@ func TestStartErrors(t *testing.T) {
 		}
 	}
 }
-
-func TestFocusPaneMovesHerdrFocusFromThisPane(t *testing.T) {
-	log := fakeHerdr(t, "")
-	if err := FocusPane(context.Background(), "left"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(log); !os.IsNotExist(err) {
-		t.Fatal("outside herdr nothing should run")
-	}
-	t.Setenv("HERDR_PANE_ID", "p7")
-	if err := FocusPane(context.Background(), "down"); err != nil {
-		t.Fatal(err)
-	}
-	if got := calls(t, log); len(got) != 1 || got[0] != "pane focus --direction down --pane p7" {
-		t.Fatalf("calls=%q", got)
-	}
-	fakeHerdr(t, "exit 1")
-	t.Setenv("HERDR_PANE_ID", "p7")
-	if err := FocusPane(context.Background(), "up"); err == nil {
-		t.Fatal("herdr errors should be returned")
-	}
-}

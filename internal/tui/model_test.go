@@ -128,10 +128,6 @@ var specialKeys = map[string]tea.KeyPressMsg{
 	"ctrl+c":    {Code: 'c', Mod: tea.ModCtrl},
 	"ctrl+d":    {Code: 'd', Mod: tea.ModCtrl},
 	"ctrl+u":    {Code: 'u', Mod: tea.ModCtrl},
-	"ctrl+h":    {Code: 'h', Mod: tea.ModCtrl},
-	"ctrl+j":    {Code: 'j', Mod: tea.ModCtrl},
-	"ctrl+k":    {Code: 'k', Mod: tea.ModCtrl},
-	"ctrl+l":    {Code: 'l', Mod: tea.ModCtrl},
 	"ctrl+s":    {Code: 's', Mod: tea.ModCtrl},
 	"ctrl+n":    {Code: 'n', Mod: tea.ModCtrl},
 	"ctrl+p":    {Code: 'p', Mod: tea.ModCtrl},
@@ -2115,41 +2111,6 @@ func TestCommentEditorUsesVimModes(t *testing.T) {
 	m = run(t, m, cmd)
 	if len(st.comments) != 1 || st.comments[0].Body != "hello worldx" {
 		t.Fatalf("normal mode edits should save, comments=%+v", st.comments)
-	}
-}
-
-func TestCtrlHJKLMovesBetweenPanes(t *testing.T) {
-	m, _ := loaded(t)
-	steps := []struct {
-		key  string
-		want focusArea
-	}{
-		{"ctrl+k", focusCommits},
-		{"ctrl+k", focusCommits},
-		{"ctrl+h", focusCommits},
-		{"ctrl+j", focusFiles},
-		{"ctrl+l", focusDiff},
-		{"ctrl+l", focusDiff},
-		{"ctrl+j", focusDiff},
-		{"ctrl+h", focusFiles},
-	}
-	for i, s := range steps {
-		if m, _ = press(t, m, s.key); m.focus != s.want {
-			t.Fatalf("step %d %s: focus=%d want %d", i, s.key, m.focus, s.want)
-		}
-	}
-	m, _ = press(t, m, "t")
-	for i, s := range []struct {
-		key  string
-		want focusArea
-	}{{"ctrl+k", focusDiff}, {"ctrl+j", focusComments}, {"ctrl+j", focusComments}, {"ctrl+k", focusDiff}, {"ctrl+h", focusFiles}, {"ctrl+k", focusCommits}, {"ctrl+j", focusFiles}, {"ctrl+j", focusComments}} {
-		if m, _ = press(t, m, s.key); m.focus != s.want {
-			t.Fatalf("with comments, step %d %s: focus=%d want %d", i, s.key, m.focus, s.want)
-		}
-	}
-	m, _ = press(t, m, "ctrl+k", "e")
-	if m, _ = press(t, m, "ctrl+h"); m.focus != focusDiff {
-		t.Fatal("ctrl+h should stay on the diff when the left panes are hidden")
 	}
 }
 

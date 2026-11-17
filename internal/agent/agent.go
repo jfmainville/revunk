@@ -80,15 +80,6 @@ func (a Agent) start(ctx context.Context) (string, error) {
 	return pane, err
 }
 
-func FocusPane(ctx context.Context, direction string) error {
-	pane := os.Getenv("HERDR_PANE_ID")
-	if pane == "" {
-		return nil
-	}
-	_, err := run(ctx, "pane", "focus", "--direction", direction, "--pane", pane)
-	return err
-}
-
 func run(ctx context.Context, args ...string) ([]byte, error) {
 	out, err := exec.CommandContext(ctx, "herdr", args...).CombinedOutput()
 	if err != nil {
