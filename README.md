@@ -74,6 +74,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `gf`                             | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
 | `ge`                             | Edit the title and description of the branch's pull request                  |
 | `gd`                             | Review the branch's pull request on the **Pull Request** tab                 |
+| `gu`                             | Review a pull request from its GitHub URL on the **Pull Request** tab        |
 | `1`, `2`                         | Show the **Agent** or **Pull Request** tab, also by clicking its name        |
 | `?`                              | Show every key                                                               |
 | `esc`                            | Stop selecting, clear the search, or close the help                          |
@@ -105,7 +106,9 @@ The sidebar on the right shows the selected pull request, and `enter` focuses it
 
 Every change is sent to GitHub through `gh`, then the pull request reloads. The list and the selected pull request also reload every 10 seconds while the tab is open, so new checks, comments, and reviews show up on their own.
 
-`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. `gs` submits the review, picking comment, approve, or request changes in a dropdown that `enter` opens, with an optional Markdown message. Like on GitHub, a comment or request for changes without a message needs inline comments in the review. The review diff reloads every 15 seconds, and `q` closes it. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
+`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. `gs` submits the review, picking comment, approve, or request changes in a dropdown that `enter` opens, with an optional Markdown message. Like on GitHub, a comment or request for changes without a message needs inline comments in the review. `ge` edits the title and description of the reviewed pull request without leaving the diff. The review diff reloads every 15 seconds, and `q` closes it. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
+
+`gu`, on either tab, opens a modal that takes a pull request URL such as `https://github.com/owner/repo/pull/123` and opens its review diff, so a pull request outside the list needs no searching. `enter` or `ctrl+s` opens it. A URL that is not a `github.com` pull request keeps the modal open with the reason, and a repository or pull request you can't reach, or a `gh` sign in problem, shows the `gh` error in the status line.
 
 | Key                    | Action                                                                      |
 | ---------------------- | --------------------------------------------------------------------------- |
@@ -116,13 +119,14 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `ctrl+w` then `l`, `h` | Focus the sidebar or the list                                               |
 | `tab`, `shift+tab`     | Next or previous sidebar tab                                                |
 | `s`                    | Next filter: assigned, review requested, authored, involved                 |
-| `ge`                   | Edit the title and the Markdown description                                 |
+| `ge`                   | Edit the title and the Markdown description, also from the review diff      |
 | `A`, `R`               | Pick the assignees or reviewers in a searchable list                        |
 | `c`                    | Comment on the pull request                                                 |
 | `r`                    | Reply to the selected comment, quoting it when it is not in a review thread |
 | `+`                    | React to the selected comment, picking a reaction you gave removes it       |
 | `x`                    | Resolve or reopen the selected review thread                                |
 | `gd`                   | Review the diff with GitHub review comments                                 |
+| `gu`                   | Review the diff of a pull request from its GitHub URL                       |
 | `gs`                   | Submit the review from the review diff                                      |
 | Click, mouse wheel     | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 

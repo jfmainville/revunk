@@ -315,8 +315,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = ""
 		}
 		return m, m.poll()
-	case branchPRMsg:
-		return m, m.openBranchPR(msg)
+	case openPRMsg:
+		return m, m.openPR(msg)
 	case actionMsg:
 		m.err, m.notice = msg.err, msg.notice
 		if msg.clipboard != "" {
@@ -528,7 +528,11 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.openModal(modalSubmit, m.pr)
 		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
 			m.focus = m.window(seq)
+		case is(seq, k.EditPR) && m.pr.Number > 0:
+			return m, m.openModal(modalEdit, m.pr)
 		case m.host == nil || m.pr.Number > 0:
+		case is(seq, k.OpenURL):
+			return m, m.openModal(modalURL, review.PullRequest{})
 		case is(seq, k.EditPR):
 			return m, m.fetchBranchPR(false)
 		case is(seq, k.OpenDiff):

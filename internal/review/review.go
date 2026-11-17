@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -161,6 +162,31 @@ type PullRequest struct {
 	Files         []File
 	Threads       []Thread
 	Detailed      bool
+}
+
+func ParsePullRequestURL(raw string) (string, int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", 0, errors.New("the pull request URL is empty")
+	}
+	invalid := fmt.Errorf("%q is not a GitHub pull request URL like https://github.com/owner/repo/pull/123", raw)
+	full := raw
+	if !strings.Contains(full, "://") {
+		full = "https://" + full
+	}
+	u, err := url.Parse(full)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || strings.TrimPrefix(u.Host, "www.") != "github.com" {
+		return "", 0, invalid
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 4 || parts[0] == "" || parts[1] == "" || parts[2] != "pull" {
+		return "", 0, invalid
+	}
+	number, err := strconv.Atoi(parts[3])
+	if err != nil || number <= 0 {
+		return "", 0, invalid
+	}
+	return parts[0] + "/" + parts[1], number, nil
 }
 
 type Reviewer struct {

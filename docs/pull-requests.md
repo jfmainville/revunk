@@ -15,6 +15,8 @@ sequenceDiagram
     Host->>GH: gh api graphql (one query for every detail)
     TUI->>Host: BranchPullRequest() for ge and gd on the Agent tab
     Host->>GH: gh pr view --json=url
+    TUI->>Host: PullRequest(repo, number) parsed from the URL given to gu
+    Host->>GH: gh api graphql
     TUI->>Host: Assignable(repo) for the assignee and reviewer pickers
     Host->>GH: gh api --paginate repos/owner/repo/assignees
     TUI->>Host: Comment, Reply, React, Resolve, EditPullRequest, SetPeople
@@ -33,4 +35,5 @@ sequenceDiagram
 | Review comments go to the viewer's pending review                                 | It matches GitHub, where comments stay private until the review is submitted with `gs`. Submitting reuses the pending review, or creates the review when there is none                                                                                                                                                                   |
 | Viewed files stay in `.git/revunk.json` under `owner/repo#number`                 | GitHub's viewed state needs its own mutations and resets differently, and the local store already handles it                                                                                                                                                                                                                             |
 | Refresh every 10 seconds for the list and sidebar, 15 seconds for the review diff | Checks and comments show up close to real time. Only the visible view polls, nothing polls while the terminal is unfocused, and each failed refresh doubles the interval up to 32 times, so the worst case stays near 500 REST calls, 360 GraphQL points, and 6 searches a minute out of GitHub's 5,000 an hour and 30 searches a minute |
+| `gu` accepts only `github.com` pull request URLs                                  | Every request goes through `gh` to its default host, so a URL on another host would fail later with a less clear error. `review.ParsePullRequestURL` also reads the URL `gh pr view` returns for `ge` and `gd`                                                                                                                           |
 | Outdated review threads show in the **Comments** tab only                         | Their lines no longer exist in the diff, like GitHub's files view                                                                                                                                                                                                                                                                        |
