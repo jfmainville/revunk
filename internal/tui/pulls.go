@@ -495,16 +495,20 @@ func commentItems(pr review.PullRequest) []commentItem {
 	return items
 }
 
+func (m *Model) reviewPullRequest(host review.Host, pr review.PullRequest) {
+	m.host, m.pr, m.tab, m.every = host, pr, tabPulls, reviewPollEvery
+	m.keys.Send.SetEnabled(false)
+	m.keys.Copy.SetEnabled(false)
+	m.keys.DeleteAll.SetEnabled(false)
+	m.keys.Submit.SetEnabled(true)
+}
+
 func (m *Model) openDiff(pr review.PullRequest) tea.Cmd {
 	if m.openReview == nil {
 		return nil
 	}
 	d := New(m.openReview(pr), m.root, pr.Base)
-	d.host, d.pr, d.tab = m.host, pr, tabPulls
-	d.keys.Send.SetEnabled(false)
-	d.keys.Copy.SetEnabled(false)
-	d.keys.DeleteAll.SetEnabled(false)
-	d.keys.Submit.SetEnabled(true)
+	d.reviewPullRequest(m.host, pr)
 	m.diffGen++
 	m.diff = &d
 	updated, _ := m.updateNested(tea.WindowSizeMsg{Width: m.width, Height: m.height})

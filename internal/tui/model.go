@@ -111,11 +111,7 @@ var (
 )
 
 func (m Model) tick() tea.Cmd {
-	every := pollEvery
-	if m.pr.Number > 0 {
-		every = reviewPollEvery
-	}
-	return tea.Tick(every, func(time.Time) tea.Msg { return tickMsg{} })
+	return tea.Tick(m.every, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 type Model struct {
@@ -161,6 +157,7 @@ type Model struct {
 	diffGen    int
 	pr         review.PullRequest
 	modal      modalState
+	every      time.Duration
 }
 
 func New(svc *review.Service, root, base string) Model {
@@ -176,6 +173,7 @@ func New(svc *review.Service, root, base string) Model {
 		keys:     keys,
 		focus:    focusFiles,
 		loading:  true,
+		every:    pollEvery,
 		pulls:    pullsState{details: map[string]review.PullRequest{}, markdown: map[string][]string{}},
 	}
 }
