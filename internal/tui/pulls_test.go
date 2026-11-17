@@ -976,6 +976,36 @@ func TestURLModalOpensTheReviewDiff(t *testing.T) {
 	}
 }
 
+func TestPastingFillsTheFocusedText(t *testing.T) {
+	m, host := pullsModel(t)
+	if m = update(t, m, tea.PasteMsg{Content: "q"}); m.modal.open || m.diff != nil {
+		t.Fatal("a paste with no text focused should do nothing")
+	}
+	m = pressRun(t, m, "g", "u")
+	m = update(t, m, tea.PasteMsg{Content: "https://github.com/o/s/pull/8"})
+	if got := m.modal.fields[0].Value(); got != "https://github.com/o/s/pull/8" {
+		t.Fatalf("pasted URL = %q", got)
+	}
+	if m = pressRun(t, m, "enter"); m.diff == nil || m.diff.pr.Number != 8 || !host.has("detail o/s#8") {
+		t.Fatal("a pasted URL should open its review diff")
+	}
+	m = pressRun(t, m, "g", "e", "tab")
+	m = update(t, m, tea.PasteMsg{Content: "pasted\nbody"})
+	if got := m.diff.modal.area.Value(); !strings.HasPrefix(got, "pasted\nbody") {
+		t.Fatalf("a paste in the review diff should reach its modal description, got %q", got)
+	}
+	m = pressRun(t, m, "esc", "esc", "q", "A")
+	m = update(t, m, tea.PasteMsg{Content: "bo"})
+	if m.modal.fields[0].Value() != "bo" || m.modal.cursor != 0 {
+		t.Fatal("a paste should fill the picker search")
+	}
+	m = pressRun(t, m, "esc", "c")
+	m = update(t, m, tea.PasteMsg{Content: "x"})
+	if m.modal.area.Value() != "x" {
+		t.Fatal("a paste should fill the comment modal")
+	}
+}
+
 func TestModalTextUsesVimModes(t *testing.T) {
 	m, _ := pullsModel(t)
 	m = pressRun(t, m, "g", "e", "tab")

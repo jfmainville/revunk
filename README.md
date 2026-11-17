@@ -130,7 +130,7 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `gs`                   | Submit the review from the review diff                                      |
 | Click, mouse wheel     | Select a pull request or sidebar tab, or focus and scroll the sidebar       |
 
-The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.
+The modals for editing, commenting, and reviewing save with `ctrl+s` and cancel with `esc`, like the comment editor. Pasting works in every modal field and in the comment editor. `tab` moves between their fields, and `j` and `k` pick in a list. Their Markdown text works like vim, the same as the comment editor.
 
 The assignee and reviewer pickers list the users who can be assigned in the repository, with the current ones selected first. Typing searches them, `↓` `↑` or `ctrl+n` `ctrl+p` move, `space` selects or clears, and `ctrl+s` saves. The author is left out of the reviewers.
 

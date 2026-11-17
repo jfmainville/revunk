@@ -812,6 +812,19 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) pasteModal(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+	d := &m.modal
+	var cmd tea.Cmd
+	switch f := d.field(); {
+	case f >= 0:
+		d.fields[f], cmd = d.fields[f].Update(msg)
+		d.cursor = 0
+	case d.onArea():
+		d.area, cmd = d.area.Update(msg)
+	}
+	return m, cmd
+}
+
 func (d *modalState) onArea() bool {
 	return d.hasArea && !d.onChoices() && d.field() < 0
 }

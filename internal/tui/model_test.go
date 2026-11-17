@@ -352,6 +352,20 @@ func TestSmallWindowScrollsDiffToKeepCursorVisible(t *testing.T) {
 	}
 }
 
+func TestPastingFillsTheCommentEditor(t *testing.T) {
+	m, _ := loaded(t)
+	if m = update(t, m, tea.PasteMsg{Content: "c"}); m.editing {
+		t.Fatal("a paste should not run keys")
+	}
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	m = update(t, m, tea.PasteMsg{Content: "one\ntwo\nthree\nfour"})
+	if m.editor.area.Value() != "one\ntwo\nthree\nfour" || m.editor.area.Height() != 4 {
+		t.Fatalf("pasted value = %q, height = %d", m.editor.area.Value(), m.editor.area.Height())
+	}
+}
+
 func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
 	m, st := loaded(t)
 	m, _ = press(t, m, "l")
