@@ -21,7 +21,9 @@ import (
 	"github.com/jfmainville/revunk/internal/tui"
 )
 
-const usage = `Usage: revunk [-base <branch>] [-cleanup] [command]
+var version = "dev"
+
+const usage = `Usage: revunk [-base <branch>] [-cleanup] [-version] [command]
 
 Reviews the commits on the current git branch against its base branch.
 
@@ -31,6 +33,7 @@ Commands:
 Flags:
   -base     Branch to compare against (default: origin's default branch, else main)
   -cleanup  Delete .git/revunk.json, every saved comment and viewed file, then exit
+  -version  Print the version, then exit
 `
 
 func main() {
@@ -45,11 +48,16 @@ func run(args []string) error {
 	flags.Usage = func() { fmt.Fprint(flags.Output(), usage) }
 	base := flags.String("base", "", "")
 	cleanup := flags.Bool("cleanup", false, "")
+	showVersion := flags.Bool("version", false, "")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	if *showVersion {
+		fmt.Println("revunk", version)
+		return nil
 	}
 	if *cleanup {
 		ctx := context.Background()

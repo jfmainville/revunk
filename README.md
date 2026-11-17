@@ -135,6 +135,7 @@ The assignee and reviewer pickers list the users who can be assigned in the repo
 ```
 revunk [-base <branch>] [tui]   Launch the terminal review interface (default)
 revunk -cleanup                 Delete .git/revunk.json and exit
+revunk -version                 Print the version and exit
 ```
 
 Coding agents answer comments with `revunk reply <id> <text>`, which the prompt sent by `S` explains, so it is left out of `--help`.
@@ -142,6 +143,8 @@ Coding agents answer comments with `revunk reply <id> <text>`, which the prompt 
 `-base` sets the branch to compare against. It defaults to the remote's default branch (`origin/HEAD`), or `main` when there is none.
 
 `-cleanup` deletes `.git/revunk.json`, removing every saved comment and viewed file for all branches and pull requests, then exits without opening the interface.
+
+`-version` prints the release version, such as `revunk 1.4.0`, or `revunk dev` for a binary built from source.
 
 ## Project layout
 
