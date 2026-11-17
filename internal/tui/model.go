@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -42,23 +43,31 @@ const (
 )
 
 type row struct {
-	kind rowKind
-	file int
-	line int
-	part int
-	text string
+	kind   rowKind
+	file   int
+	line   int
+	part   int
+	text   string
+	editor int
 }
 
 type editorState struct {
+	vimState
 	area   textarea.Model
 	target review.Comment
 	kind   int
 }
 
+type parsed struct {
+	files  []review.File
+	lines  [][]review.Line
+	tokens [][][]token
+}
+
 type loadedMsg struct {
 	pruned   int
 	commits  []review.Commit
-	files    []review.File
+	diff     parsed
 	viewed   map[string]bool
 	comments []review.Comment
 	err      error
@@ -66,7 +75,7 @@ type loadedMsg struct {
 
 type filesMsg struct {
 	commit int
-	files  []review.File
+	diff   parsed
 	err    error
 }
 
@@ -98,19 +107,26 @@ type polledMsg struct {
 	pruned   int
 	commits  []review.Commit
 	commit   string
-	files    []review.File
+	diff     parsed
 	viewed   map[string]bool
 	comments []review.Comment
 	err      error
 }
 
 var (
-	writeClipboard = clipboard.WriteAll
-	pollEvery      = 2 * time.Second
+	writeClipboard  = clipboard.WriteAll
+	pollEvery       = 2 * time.Second
+	reviewPollEvery = 15 * time.Second
 )
 
-func tick() tea.Cmd {
-	return tea.Tick(pollEvery, func(time.Time) tea.Msg { return tickMsg{} })
+const maxBackoff = 5
+
+func backoff(every time.Duration, failures int) time.Duration {
+	return every << min(failures, maxBackoff)
+}
+
+func (m Model) tick() tea.Cmd {
+	return tea.Tick(backoff(m.every, m.failures), func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 type Model struct {
@@ -148,9 +164,22 @@ type Model struct {
 	notice     string
 	width      int
 	height     int
+	tab        int
+	host       review.Host
+	openReview func(review.PullRequest) *review.Service
+	pulls      pullsState
+	diff       *Model
+	diffGen    int
+	pr         review.PullRequest
+	modal      modalState
+	every      time.Duration
+	failures   int
+	blurred    bool
 }
 
 func New(svc *review.Service, root, base string) Model {
+	keys := defaultKeys()
+	keys.Submit.SetEnabled(false)
 	return Model{
 		svc:      svc,
 		root:     root,
@@ -158,9 +187,11 @@ func New(svc *review.Service, root, base string) Model {
 		viewed:   map[string]bool{},
 		rendered: map[int][]string{},
 		anchor:   -1,
-		keys:     defaultKeys(),
+		keys:     keys,
 		focus:    focusFiles,
 		loading:  true,
+		every:    pollEvery,
+		pulls:    pullsState{details: map[string]review.PullRequest{}, markdown: map[string][]string{}},
 	}
 }
 
@@ -172,13 +203,15 @@ func (m Model) Init() tea.Cmd {
 		if msg.commits, msg.err = svc.Commits(ctx); msg.err != nil {
 			return msg
 		}
-		if msg.files, msg.err = svc.Files(ctx, ""); msg.err != nil {
+		files, err := svc.Files(ctx, "")
+		if msg.err = err; err != nil {
 			return msg
 		}
-		if msg.viewed, msg.err = svc.Viewed(ctx); msg.err != nil {
+		if msg.viewed, msg.err = svc.Viewed(ctx, files); msg.err != nil {
 			return msg
 		}
-		if msg.pruned, msg.err = svc.PruneComments(ctx); msg.err != nil {
+		msg.diff = parsed{}.parse(files)
+		if msg.pruned, msg.err = svc.PruneComments(ctx, files); msg.err != nil {
 			return msg
 		}
 		msg.comments, msg.err = svc.Comments(ctx)
@@ -195,6 +228,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editor.area.SetWidth(m.editorWidth())
 		}
 		m.relayout()
+		if m.diff != nil {
+			return m.updateNested(msg)
+		}
 	case loadedMsg:
 		m.loading, m.err = false, msg.err
 		if msg.pruned > 0 {
@@ -205,22 +241,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewed = msg.viewed
 		}
 		m.comments = msg.comments
-		m.setFiles(msg.files)
-		return m, tick()
+		m.setFiles(msg.diff)
+		return m, m.tick()
 	case tickMsg:
+		if m.blurred || (m.tab == tabPulls && m.pr.Number == 0) {
+			return m, m.tick()
+		}
 		return m, m.poll()
 	case polledMsg:
-		if msg.err == nil {
+		if msg.err != nil {
+			m.failures = min(m.failures+1, maxBackoff)
+		} else {
+			m.failures = 0
 			m.applyPoll(msg)
 		}
-		return m, tick()
+		return m, m.tick()
+	case tea.FocusMsg, tea.BlurMsg:
+		_, m.blurred = msg.(tea.BlurMsg)
+		if m.diff != nil {
+			return m.updateNested(msg)
+		}
+		return m, nil
 	case filesMsg:
 		if msg.commit != m.commit {
 			return m, nil
 		}
 		m.err = msg.err
 		if msg.err == nil {
-			m.setFiles(msg.files)
+			m.setFiles(msg.diff)
 		}
 		for _, c := range m.comments {
 			if m.pendingID != "" && c.ID == m.pendingID {
@@ -242,17 +290,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rendered = map[int][]string{}
 			m.relayout()
 		}
+	case assignableMsg:
+		m.modal.applyAssignable(msg)
+		return m, nil
+	case pullsMsg:
+		return m, m.applyPulls(msg)
+	case detailMsg:
+		return m, m.applyDetail(msg)
+	case pullsTickMsg:
+		return m, m.pullsTicked()
+	case nestedMsg:
+		if _, ok := msg.msg.(tickMsg); ok && m.diff != nil && msg.gen == m.diffGen && m.tab != tabPulls {
+			return m, nest(m.diff.tick(), m.diffGen)
+		}
+		if m.diff != nil && msg.gen == m.diffGen {
+			return m.updateNested(msg.msg)
+		}
 	case editedMsg:
+		if m.diff != nil && m.tab == tabPulls {
+			return m.updateNested(msg)
+		}
 		m.err, m.notice = msg.err, "edited "+msg.path
 		if msg.err != nil {
 			m.notice = ""
 		}
 		return m, m.poll()
+	case branchPRMsg:
+		return m, m.openBranchPR(msg)
 	case actionMsg:
 		m.err, m.notice = msg.err, msg.notice
 		if msg.clipboard != "" {
 			return m, tea.SetClipboard(msg.clipboard)
 		}
+	case tea.MouseClickMsg, tea.MouseWheelMsg:
+		if c, ok := msg.(tea.MouseClickMsg); ok && c.Button == tea.MouseLeft && c.Y == 0 && m.pr.Number == 0 && !m.help && !m.modal.open && !m.editing {
+			switch tabAt(c.X, tabNames, 1) {
+			case tabAgent:
+				m.tab = tabAgent
+				return m, nil
+			case tabPulls:
+				return m, m.showPulls()
+			}
+		}
+		if m.tab == tabPulls && m.pr.Number == 0 {
+			return m.pullsMouse(msg)
+		}
+	}
+	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
 		if msg.Button == tea.MouseLeft && !m.editing && !m.help {
 			m.notice, m.prefix = "", ""
@@ -265,55 +349,82 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		m.notice = ""
-		if m.editing {
+		switch {
+		case m.modal.open:
+			return m.updateModal(msg)
+		case m.editing:
 			return m.updateEditor(msg)
-		}
-		if m.searching {
+		case m.searching:
 			return m.updateSearch(msg)
+		}
+		key, d := msg.String(), m.diff
+		if m.pr.Number == 0 && !m.help && m.prefix == "" && (d == nil || m.tab != tabPulls || (!d.typing() && !d.help && d.prefix == "")) {
+			switch {
+			case is(key, m.keys.AgentTab):
+				m.tab = tabAgent
+				return m, nil
+			case is(key, m.keys.PullsTab):
+				return m, m.showPulls()
+			}
+		}
+		if m.tab == tabPulls && m.pr.Number == 0 {
+			return m.updatePullsKey(msg)
 		}
 		return m.updateKey(msg)
 	}
 	return m, nil
 }
 
-func (m *Model) parse(files []review.File) {
+func (p parsed) parse(files []review.File) parsed {
 	old := map[string]int{}
-	for i, f := range m.files {
+	for i, f := range p.files {
 		old[f.Path] = i
 	}
-	lines, tokens := make([][]review.Line, len(files)), make([][][]token, len(files))
+	next := parsed{files: files, lines: make([][]review.Line, len(files)), tokens: make([][][]token, len(files))}
 	for i, f := range files {
-		if j, ok := old[f.Path]; ok && m.files[j].Patch == f.Patch {
-			lines[i], tokens[i] = m.lines[j], m.tokens[j]
+		if j, ok := old[f.Path]; ok && p.files[j].Patch == f.Patch {
+			next.lines[i], next.tokens[i] = p.lines[j], p.tokens[j]
 			continue
 		}
-		lines[i] = review.ParseLines(f.Patch)
-		tokens[i] = highlight(f.Path, lines[i])
+		next.lines[i] = review.ParseLines(f.Patch)
+		next.tokens[i] = highlight(lexerFor(f.Path), next.lines[i])
 	}
-	m.files, m.lines, m.tokens = files, lines, tokens
+	return next
 }
 
-func (m *Model) setFiles(files []review.File) {
-	m.parse(files)
+func (m Model) parsed() parsed {
+	return parsed{files: m.files, lines: m.lines, tokens: m.tokens}
+}
+
+func (m *Model) setFiles(p parsed) {
+	m.files, m.lines, m.tokens = p.files, p.lines, p.tokens
 	m.cursor, m.offset, m.fileCursor, m.anchor = 0, 0, 0, -1
 	m.layout()
 }
 
 func (m Model) poll() tea.Cmd {
-	svc, sha := m.svc, m.commitSHA()
+	svc, sha, prev := m.svc, m.commitSHA(), m.parsed()
 	return func() tea.Msg {
 		ctx := context.Background()
 		msg := polledMsg{commit: sha}
 		if msg.commits, msg.err = svc.Commits(ctx); msg.err != nil {
 			return msg
 		}
-		if msg.files, msg.err = svc.Files(ctx, sha); msg.err != nil {
+		files, err := svc.Files(ctx, sha)
+		if msg.err = err; err != nil {
 			return msg
 		}
-		if msg.viewed, msg.err = svc.Viewed(ctx); msg.err != nil {
+		msg.diff = prev.parse(files)
+		all := files
+		if sha != "" {
+			if all, msg.err = svc.Files(ctx, ""); msg.err != nil {
+				return msg
+			}
+		}
+		if msg.viewed, msg.err = svc.Viewed(ctx, all); msg.err != nil {
 			return msg
 		}
-		if msg.pruned, msg.err = svc.PruneComments(ctx); msg.err != nil {
+		if msg.pruned, msg.err = svc.PruneComments(ctx, all); msg.err != nil {
 			return msg
 		}
 		msg.comments, msg.err = svc.Comments(ctx)
@@ -341,8 +452,8 @@ func (m *Model) applyPoll(msg polledMsg) {
 	if m.commitSHA() != msg.commit {
 		return
 	}
-	if !reflect.DeepEqual(msg.files, m.files) {
-		m.refreshFiles(msg.files)
+	if !reflect.DeepEqual(msg.diff.files, m.files) {
+		m.refreshFiles(msg.diff)
 		return
 	}
 	if changed {
@@ -351,7 +462,8 @@ func (m *Model) applyPoll(msg polledMsg) {
 	}
 }
 
-func (m *Model) refreshFiles(files []review.File) {
+func (m *Model) refreshFiles(p parsed) {
+	files := p.files
 	var path, selected string
 	cur := row{line: -1}
 	if len(m.rows) > 0 {
@@ -362,7 +474,7 @@ func (m *Model) refreshFiles(files []review.File) {
 		selected = m.files[m.fileCursor].Path
 	}
 	screenRow := m.cursor - m.offset
-	m.parse(files)
+	m.files, m.lines, m.tokens = p.files, p.lines, p.tokens
 	m.anchor, m.rendered, m.fileCursor = -1, map[int][]string{}, 0
 	for i, f := range files {
 		if f.Path == selected {
@@ -412,6 +524,15 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.deleteAllComments()
 		case is(seq, k.OpenFile):
 			return m, m.openFile()
+		case is(seq, k.Submit):
+			return m, m.openModal(modalSubmit, m.pr)
+		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
+			m.focus = m.window(seq)
+		case m.host == nil || m.pr.Number > 0:
+		case is(seq, k.EditPR):
+			return m, m.fetchBranchPR(false)
+		case is(seq, k.OpenDiff):
+			return m, m.fetchBranchPR(true)
 		}
 		return m, nil
 	}
@@ -437,7 +558,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cycleFocus(-1)
 	case is(key, k.Explorer):
 		m.hideTree = !m.hideTree
-		if m.hideTree && m.focus < focusDiff {
+		m.focus = focusFiles
+		if m.hideTree {
 			m.focus = focusDiff
 		}
 		m.rendered = map[int][]string{}
@@ -688,7 +810,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case is(key, k.ForceQuit):
 		return m, tea.Quit
-	case is(key, k.Cancel):
+	case (is(key, k.Cancel) || is(key, k.Quit)) && m.editor.normal:
 		m.editing = false
 		m.relayout()
 		return m, nil
@@ -716,10 +838,12 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.injectSuggestion()
 		}
 	default:
-		m.editor.area, cmd = m.editor.area.Update(msg)
+		cmd = m.editor.update(&m.editor.area, msg, k)
 	}
-	m.editor.area.SetHeight(min(max(m.editor.area.LineCount(), 3), 12))
-	m.relayout()
+	if h := min(max(m.editor.area.LineCount(), 3), 12); h != m.editor.area.Height() {
+		m.editor.area.SetHeight(h)
+		m.relayout()
+	}
 	m.revealEditor()
 	return m, cmd
 }
@@ -759,10 +883,10 @@ func (m Model) areaAt(x, y int) (focusArea, int) {
 		return focusComments, y - top - m.panesHeight() - 1
 	case x >= m.leftWidth():
 		return focusDiff, y - top - 1
-	case y < top+m.commitsHeight():
-		return focusCommits, y - top - 1
+	case y >= top+m.panesHeight()-m.commitsHeight():
+		return focusCommits, y - top - m.panesHeight() + m.commitsHeight() - 1
 	}
-	return focusFiles, y - top - m.commitsHeight() - 1
+	return focusFiles, y - top - 1
 }
 
 func (m *Model) click(x, y int) tea.Cmd {
@@ -822,6 +946,25 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
 	}
 	return nil
+}
+
+func (m Model) window(seq string) focusArea {
+	k, f := m.keys, m.focus
+	switch {
+	case is(seq, k.WindowLeft) && f >= focusDiff && !m.hideTree:
+		return focusFiles
+	case is(seq, k.WindowRight) && f < focusDiff:
+		return focusDiff
+	case is(seq, k.WindowUp) && f == focusCommits:
+		return focusFiles
+	case is(seq, k.WindowUp) && f == focusComments:
+		return focusDiff
+	case is(seq, k.WindowDown) && f == focusFiles:
+		return focusCommits
+	case is(seq, k.WindowDown) && m.showList:
+		return focusComments
+	}
+	return f
 }
 
 func (m *Model) cycleFocus(step focusArea) {
@@ -964,10 +1107,13 @@ func (m *Model) selectCommit(delta int) tea.Cmd {
 		return nil
 	}
 	m.commit = next
-	svc, sha := m.svc, m.commitSHA()
+	svc, sha, prev := m.svc, m.commitSHA(), m.parsed()
 	return func() tea.Msg {
 		files, err := svc.Files(context.Background(), sha)
-		return filesMsg{commit: next, files: files, err: err}
+		if err != nil {
+			return filesMsg{commit: next, err: err}
+		}
+		return filesMsg{commit: next, diff: prev.parse(files)}
 	}
 }
 
@@ -1052,8 +1198,8 @@ func (m *Model) syncFile() {
 func (m *Model) revealEditor() {
 	last := -1
 	for i, r := range m.rows {
-		if r.kind == rowText && r.text == "" && r.part == 0 {
-			last = i
+		if r.editor > 0 {
+			last = i + 1
 		}
 	}
 	if h := max(m.diffHeight(), 1); last >= m.offset+h {
@@ -1106,7 +1252,7 @@ func (m *Model) openEditor(target review.Comment) tea.Cmd {
 	area.ShowLineNumbers = false
 	area.Prompt = ""
 	area.KeyMap.InsertNewline = m.keys.Newline
-	area.Placeholder = "write it like you'd say it… markdown and ```suggestion blocks work"
+	area.Placeholder = "write it like you'd say it… markdown works"
 	area.SetWidth(m.editorWidth())
 	area.SetHeight(3)
 	cmd := area.Focus()
@@ -1249,14 +1395,17 @@ func (m Model) toggleViewed() tea.Cmd {
 	if p == "" {
 		return nil
 	}
-	svc := m.svc
+	svc, viewed := m.svc, maps.Clone(m.viewed)
+	if viewed == nil {
+		viewed = map[string]bool{}
+	}
 	return func() tea.Msg {
-		ctx := context.Background()
-		if _, err := svc.ToggleViewed(ctx, p); err != nil {
+		on, err := svc.ToggleViewed(context.Background(), p)
+		if err != nil {
 			return viewedMsg{err: err}
 		}
-		viewed, err := svc.Viewed(ctx)
-		return viewedMsg{viewed: viewed, err: err}
+		viewed[p] = on
+		return viewedMsg{viewed: viewed}
 	}
 }
 
@@ -1362,6 +1511,13 @@ func (m *Model) addComment(index, file int) {
 }
 
 func (m *Model) addEditor(file int) {
+	for i := range m.editorLines() {
+		m.rows = append(m.rows, row{kind: rowText, file: file, editor: i + 1})
+	}
+	m.rows = append(m.rows, row{kind: rowText, file: file})
+}
+
+func (m Model) editorLines() []string {
 	chips := make([]string, len(commentKinds))
 	for i, k := range commentKinds {
 		chips[i] = dimStyle.Render(k)
@@ -1369,18 +1525,17 @@ func (m *Model) addEditor(file int) {
 			chips[i] = lipgloss.NewStyle().Background(kindColor(k)).Foreground(colorOnPrimary).Render(k)
 		}
 	}
-	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(m.editor.area.View(), "\n")...)
-	lines = append(lines, hints(m.keys.editorHints()))
-	for _, l := range commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth()) {
-		m.rows = append(m.rows, row{kind: rowText, file: file, text: l})
-	}
-	m.rows = append(m.rows, row{kind: rowText, file: file})
+	lines := append([]string{strings.Join(chips, "  ")}, strings.Split(markdownView(m.editor.area), "\n")...)
+	lines = append(lines, hints(m.keys.editorHints(m.editor.mode())))
+	return commentBox(commentKinds[m.editor.kind], lineLabel(m.editor.target), lines, m.diffWidth())
 }
 
 func hints(list []hint) string {
-	parts := make([]string, len(list))
-	for i, h := range list {
-		parts[i] = primaryStyle.Render(h.text(false)) + " " + dimStyle.Render(h.desc)
+	var parts []string
+	for _, h := range list {
+		if text := h.text(false); text != "" {
+			parts = append(parts, primaryStyle.Render(text)+" "+dimStyle.Render(h.desc))
+		}
 	}
 	return strings.Join(parts, "  ")
 }
@@ -1441,12 +1596,19 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
 	return v
 }
 
 func (m Model) render() string {
 	if m.width == 0 {
 		return ""
+	}
+	if m.tab == tabPulls && m.pr.Number == 0 {
+		if m.diff != nil {
+			return m.diff.render()
+		}
+		return m.renderPulls()
 	}
 	var panes string
 	if m.help {
@@ -1456,10 +1618,13 @@ func (m Model) render() string {
 		if !m.hideTree {
 			files, _ := m.fileLines()
 			left := lipgloss.JoinVertical(lipgloss.Left,
-				box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), focusColor(m.focus == focusCommits)),
 				box("files", m.filesCounter(), files, m.leftWidth(), m.panesHeight()-m.commitsHeight(), focusColor(m.focus == focusFiles)),
+				box("commits", fmt.Sprintf("%d", len(m.commits)), m.commitLines(), m.leftWidth(), m.commitsHeight(), focusColor(m.focus == focusCommits)),
 			)
 			panes = lipgloss.JoinHorizontal(lipgloss.Top, left, panes)
+		}
+		if m.modal.open {
+			panes = m.renderModal(panes)
 		}
 	}
 	parts := []string{m.tabBar(), panes}
@@ -1510,9 +1675,28 @@ func box(title, right string, lines []string, width, height int, accent color.Co
 	return strings.Join(out, "\n")
 }
 
+var tabNames = []string{"Agent", "Pull Request"}
+
+func tabAt(x int, names []string, gap int) int {
+	for i, name := range names {
+		w := len(name) + 2
+		if x >= 0 && x < w {
+			return i
+		}
+		x -= w + gap
+	}
+	return -1
+}
+
 func (m Model) tabBar() string {
-	tab := lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render(" Agent ")
-	left := tab
+	var left string
+	for i, name := range tabNames {
+		style := dimStyle
+		if i == m.tab {
+			style = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary)
+		}
+		left += style.Render(" "+name+" ") + " "
+	}
 	right := dimStyle.Render("▌ ") + "revunk"
 	if gap := m.width - lipgloss.Width(left) - lipgloss.Width(right); gap > 0 {
 		return left + strings.Repeat(" ", gap) + right
@@ -1672,6 +1856,7 @@ func (m Model) diffLines() []string {
 	if m.anchor >= 0 {
 		from, to = min(m.anchor, m.cursor), max(m.anchor, m.cursor)
 	}
+	var editor []string
 	for i := m.offset; i < end; i++ {
 		r := m.rows[i]
 		cursor := i == m.cursor && m.focus == focusDiff
@@ -1689,23 +1874,35 @@ func (m Model) diffLines() []string {
 		case rowLine:
 			selected := i >= from && i <= to && r.file == m.rows[m.cursor].file
 			lines = append(lines, renderLine(m.lines[r.file][r.line], markMatches(m.tokens[r.file][r.line], m.query), width, 0, cursor, selected))
-		default:
-			lines = append(lines, r.text)
+		case rowText:
+			if r.editor == 0 {
+				lines = append(lines, r.text)
+				continue
+			}
+			if editor == nil {
+				editor = m.editorLines()
+			}
+			lines = append(lines, editor[min(r.editor, len(editor))-1])
 		}
 	}
 	return lines
 }
 
-func (m Model) statusLine() string {
-	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" NORMAL ")
+func (m Model) modeChip() string {
+	name, c := "NORMAL", colorPrimary
 	switch {
-	case m.editing:
-		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorAdd).Render(" INSERT ")
+	case m.editing && !m.editor.normal, m.modal.open && !m.modal.normal:
+		name, c = "INSERT", colorAdd
 	case m.searching:
-		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorNote).Render(" SEARCH ")
+		name, c = "SEARCH", colorNote
 	case m.anchor >= 0:
-		chip = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorThread).Render(" VISUAL ")
+		name, c = "VISUAL", colorThread
 	}
+	return lipgloss.NewStyle().Foreground(colorOnPrimary).Background(c).Render(" " + name + " ")
+}
+
+func (m Model) statusLine() string {
+	chip := m.modeChip()
 	message := dimStyle.Render(label(m.keys.Help) + " shows every key")
 	if m.searching || m.query != "" {
 		count := dimStyle.Render(fmt.Sprintf("  %d/%d", m.matchPosition(), len(m.matches)))
@@ -1740,8 +1937,10 @@ func (m Model) statusLine() string {
 
 func (m Model) footer() string {
 	switch {
+	case m.modal.open:
+		return hints(m.modalHints())
 	case m.editing:
-		return hints(m.keys.editorHints())
+		return hints(m.keys.editorHints(m.editor.mode()))
 	case m.searching:
 		return hints(m.keys.searchHints())
 	case m.anchor >= 0:
@@ -1754,15 +1953,42 @@ func (m Model) footer() string {
 
 func (m Model) helpLines() []string {
 	var lines []string
+	var breaks []int
 	for i, sec := range m.keys.helpSections() {
 		if i > 0 {
+			breaks = append(breaks, len(lines))
 			lines = append(lines, "")
 		}
 		lines = append(lines, "  "+dimStyle.Render(sec.title))
 		for _, h := range sec.hints {
 			keys := h.text(true)
+			if keys == "" {
+				continue
+			}
 			lines = append(lines, "  "+primaryStyle.Render(keys)+strings.Repeat(" ", max(12-lipgloss.Width(keys), 1))+h.desc)
 		}
 	}
-	return lines
+	if len(lines) <= m.panesHeight()-2 || len(breaks) == 0 {
+		return lines
+	}
+	split := breaks[0]
+	for _, b := range breaks {
+		if max(b, len(lines)-b-1) < max(split, len(lines)-split-1) {
+			split = b
+		}
+	}
+	left, right := lines[:split], lines[split+1:]
+	half := (m.width - 2) / 2
+	out := make([]string, max(len(left), len(right)))
+	for i := range out {
+		if i < len(left) {
+			out[i] = fit(left[i], half, lipgloss.NewStyle())
+		} else {
+			out[i] = strings.Repeat(" ", half)
+		}
+		if i < len(right) {
+			out[i] += right[i]
+		}
+	}
+	return out
 }

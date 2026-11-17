@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -120,6 +121,7 @@ var specialKeys = map[string]tea.KeyPressMsg{
 	"esc":       {Code: tea.KeyEscape},
 	"tab":       {Code: tea.KeyTab},
 	"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},
+	"ctrl+w":    {Code: 'w', Mod: tea.ModCtrl},
 	"down":      {Code: tea.KeyDown},
 	"up":        {Code: tea.KeyUp},
 	"pgdown":    {Code: tea.KeyPgDown},
@@ -131,6 +133,7 @@ var specialKeys = map[string]tea.KeyPressMsg{
 	"ctrl+n":    {Code: 'n', Mod: tea.ModCtrl},
 	"ctrl+p":    {Code: 'p', Mod: tea.ModCtrl},
 	"backspace": {Code: tea.KeyBackspace},
+	"space":     {Code: tea.KeySpace, Text: " "},
 }
 
 func press(t *testing.T, m Model, keys ...string) (Model, tea.Cmd) {
@@ -454,7 +457,7 @@ func TestFileCommentFromFilesPaneAndHeader(t *testing.T) {
 	if !m.editing || !m.editor.target.FileLevel() {
 		t.Fatal("c in the diff on a file header should open a file comment")
 	}
-	m, _ = press(t, m, "esc")
+	m, _ = press(t, m, "esc", "esc")
 	m.cursor = rowOf(t, m, rowHunk, 0, 0)
 	m, cmd = press(t, m, "c")
 	if m.editing || cmd != nil || !strings.Contains(screen(m), "move to a line") {
@@ -470,6 +473,9 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	m, _ = press(t, m, "l")
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 	m, _ = press(t, m, "V", "j", "c")
+	if strings.Contains(screen(m), "```suggestion") {
+		t.Fatal("an empty comment should not show a suggestion block")
+	}
 
 	m, _ = press(t, m, "ctrl+s")
 	if !m.editing || !strings.Contains(screen(m), "write something") {
@@ -499,9 +505,12 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	if m.editor.area.Value() != "first\nsecond" {
 		t.Fatalf("leaving suggestion should remove the block: %q", m.editor.area.Value())
 	}
+	if m, _ = press(t, m, "esc"); !m.editing || !m.editor.normal || !strings.Contains(screen(m), "NORMAL") || !strings.Contains(screen(m), "i insert") {
+		t.Fatal("esc while typing should only switch to normal mode")
+	}
 	m, _ = press(t, m, "esc")
 	if m.editing || len(st.comments) != 0 {
-		t.Fatal("esc should close the editor without saving")
+		t.Fatal("esc in normal mode should close the editor without saving")
 	}
 
 	m.cursor = rowOf(t, m, rowLine, 1, 2)
@@ -677,7 +686,7 @@ func TestHelpOverlayAndQuit(t *testing.T) {
 
 func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	lines := review.ParseLines("@@ -1 +1 @@\n+func a() { return \"x\" } // note")
-	tokens := highlight("main.go", lines)
+	tokens := highlight(lexerFor("main.go"), lines)
 	if len(tokens[0]) != 0 {
 		t.Fatalf("hunk line got tokens: %+v", tokens[0])
 	}
@@ -691,7 +700,7 @@ func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	if !strings.Contains(colors[`"x"`], "174;199;108") {
 		t.Fatalf("string not green: %q", colors[`"x"`])
 	}
-	plain := highlight("notes.unknownext", review.ParseLines("@@ -1 +1 @@\n+just\ttext"))
+	plain := highlight(lexerFor("notes.unknownext"), review.ParseLines("@@ -1 +1 @@\n+just\ttext"))
 	if got := plain[1][0].text; got != "just    text" {
 		t.Fatalf("fallback token = %q, want tabs expanded", got)
 	}
@@ -1147,6 +1156,9 @@ func wheel(t *testing.T, m Model, x, y int, button tea.MouseButton) (Model, tea.
 
 func TestViewEnablesMouse(t *testing.T) {
 	m, _ := loaded(t)
+	if !m.View().ReportFocus {
+		t.Fatal("the view should report focus changes")
+	}
 	if m.View().MouseMode != tea.MouseModeCellMotion {
 		t.Fatal("mouse should be enabled")
 	}
@@ -1154,7 +1166,7 @@ func TestViewEnablesMouse(t *testing.T) {
 
 func TestClickSelectsCommitsAndFiles(t *testing.T) {
 	m, _ := loaded(t)
-	m, cmd := click(t, m, 5, 4)
+	m, cmd := click(t, m, 5, m.panesHeight()-m.commitsHeight()+4)
 	if m.focus != focusCommits || m.commit != 2 {
 		t.Fatalf("focus=%d commit=%d", m.focus, m.commit)
 	}
@@ -1162,20 +1174,20 @@ func TestClickSelectsCommitsAndFiles(t *testing.T) {
 	if len(m.files) != 1 || m.files[0].Path != "a/main.go" {
 		t.Fatalf("files not loaded for clicked commit: %+v", m.files)
 	}
-	if _, cmd := click(t, m, 5, 3); cmd == nil {
+	if _, cmd := click(t, m, 5, m.panesHeight()-m.commitsHeight()+3); cmd == nil {
 		t.Fatal("clicking another commit should load it")
 	}
 
 	m, _ = loaded(t)
-	m, _ = click(t, m, 5, 9)
+	m, _ = click(t, m, 5, 4)
 	if m.focus != focusFiles || m.fileCursor != 1 || m.rows[m.cursor].kind != rowFile || m.rows[m.cursor].file != 1 {
 		t.Fatalf("focus=%d fileCursor=%d cursor=%d", m.focus, m.fileCursor, m.cursor)
 	}
-	m, _ = click(t, m, 5, 8)
+	m, _ = click(t, m, 5, 3)
 	if m.fileCursor != 1 {
 		t.Fatalf("clicking a directory should keep the file, got %d", m.fileCursor)
 	}
-	m, _ = click(t, m, 5, 10)
+	m, _ = click(t, m, 5, 5)
 	if m.fileCursor != 2 {
 		t.Fatalf("fileCursor=%d", m.fileCursor)
 	}
@@ -1212,7 +1224,7 @@ func TestClickOnBordersOnlyFocuses(t *testing.T) {
 	if m.focus != focusDiff || m.cursor != before || cmd != nil {
 		t.Fatalf("title click should only focus: focus=%d cursor=%d", m.focus, m.cursor)
 	}
-	m, _ = click(t, m, 5, 5)
+	m, _ = click(t, m, 5, m.panesHeight())
 	if m.focus != focusCommits || m.commit != 0 {
 		t.Fatalf("bottom border click should only focus: focus=%d commit=%d", m.focus, m.commit)
 	}
@@ -1225,7 +1237,7 @@ func TestClickOnBordersOnlyFocuses(t *testing.T) {
 	if m.focus != focusDiff || m.cursor != before {
 		t.Fatalf("diff bottom border click should only focus: cursor=%d", m.cursor)
 	}
-	right, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 9, Button: tea.MouseRight})
+	right, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 4, Button: tea.MouseRight})
 	if right.(Model).fileCursor != m.fileCursor {
 		t.Fatal("right click should be ignored")
 	}
@@ -1269,15 +1281,15 @@ func TestWheelScrollsPaneUnderPointer(t *testing.T) {
 	if m.cursor != 0 {
 		t.Fatalf("wheel up should move back, cursor=%d", m.cursor)
 	}
-	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, 5, tea.MouseWheelDown)
 	if m.fileCursor != 1 {
 		t.Fatalf("wheel over files should select the next file, got %d", m.fileCursor)
 	}
-	m, cmd := wheel(t, m, 5, 3, tea.MouseWheelDown)
+	m, cmd := wheel(t, m, 5, m.panesHeight()-m.commitsHeight()+3, tea.MouseWheelDown)
 	if m.commit != 1 || cmd == nil {
 		t.Fatalf("wheel over commits should select the next commit, got %d", m.commit)
 	}
-	if m, _ = wheel(t, m, 5, 3, tea.MouseWheelLeft); m.commit != 1 {
+	if m, _ = wheel(t, m, 5, m.panesHeight()-m.commitsHeight()+3, tea.MouseWheelLeft); m.commit != 1 {
 		t.Fatal("horizontal wheel should be ignored")
 	}
 
@@ -1299,7 +1311,7 @@ func TestWheelScrollsPaneUnderPointer(t *testing.T) {
 func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
 	m, _ := loaded(t)
 	m, _ = press(t, m, "?")
-	if m, _ = click(t, m, 5, 9); m.fileCursor != 0 {
+	if m, _ = click(t, m, 5, 4); m.fileCursor != 0 {
 		t.Fatal("clicks should be ignored on the help screen")
 	}
 	if m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown); m.cursor != 0 {
@@ -1310,7 +1322,7 @@ func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
 		t.Fatal("editor should open")
 	}
 	cursor := m.cursor
-	if m, _ = click(t, m, 5, 9); !m.editing || m.fileCursor != 0 {
+	if m, _ = click(t, m, 5, 4); !m.editing || m.fileCursor != 0 {
 		t.Fatal("clicks should be ignored while editing")
 	}
 	if m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown); m.cursor != cursor {
@@ -1348,10 +1360,13 @@ func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 	}
 
 	m, _ = press(t, m, "e")
-	if !strings.Contains(screen(m), "╭─ files") || m.focus != focusDiff {
-		t.Fatal("e again should bring the panes back and keep focus on the diff")
+	if !strings.Contains(screen(m), "╭─ files") || m.focus != focusFiles {
+		t.Fatal("e again should bring the panes back and focus the files")
 	}
-	if m, _ = press(t, m, "tab"); m.focus != focusCommits {
+	if out := screen(m); strings.Index(out, "╭─ files") > strings.Index(out, "╭─ commits") {
+		t.Fatalf("the commits pane should sit below the files:\n%s", out)
+	}
+	if m, _ = press(t, m, "shift+tab"); m.focus != focusCommits {
 		t.Fatalf("tab should reach commits again, got %d", m.focus)
 	}
 
@@ -1599,7 +1614,7 @@ func TestRefreshReusesHighlightingForUnchangedFiles(t *testing.T) {
 	}
 	files := slices.Clone(m.files)
 	files[1].Patch = "@@ -1 +1 @@\n-x\n+changed"
-	m.refreshFiles(files)
+	m.refreshFiles(m.parsed().parse(files))
 	if m.tokens[0][1][0].text != "cached" {
 		t.Fatal("unchanged file should keep its highlighting")
 	}
@@ -1612,7 +1627,7 @@ func TestRefreshReusesHighlightingForUnchangedFiles(t *testing.T) {
 
 	renamed := slices.Clone(files)
 	renamed[0].Path = "OTHER.md"
-	m.setFiles(renamed)
+	m.setFiles(m.parsed().parse(renamed))
 	if m.tokens[0][1][0].text == "cached" {
 		t.Fatal("a file with a different path should be highlighted again")
 	}
@@ -1662,19 +1677,19 @@ func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	if m.fileCursor != 2 {
 		t.Fatalf("k should go back up the explorer, got %d", m.fileCursor)
 	}
-	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, 5, tea.MouseWheelDown)
 	if m.fileCursor != 1 {
 		t.Fatalf("wheel should follow the explorer order, got %d", m.fileCursor)
 	}
-	m, _ = click(t, m, 5, 7)
+	m, _ = click(t, m, 5, 2)
 	if m.fileCursor != 0 {
 		t.Fatalf("click on the first row = %d", m.fileCursor)
 	}
-	m, _ = click(t, m, 5, 10)
+	m, _ = click(t, m, 5, 5)
 	if m.fileCursor != 0 {
 		t.Fatal("clicking the review header should not select a file")
 	}
-	m, _ = click(t, m, 5, 11)
+	m, _ = click(t, m, 5, 6)
 	if m.fileCursor != 1 {
 		t.Fatalf("clicking a reviewed file should select it, got %d", m.fileCursor)
 	}
@@ -1727,11 +1742,11 @@ func TestScrollingTheDiffFocusesIt(t *testing.T) {
 	if !strings.Contains(strings.Join(m.diffLines(), "\n"), "▌") {
 		t.Fatal("the cursor should be visible once the diff has focus")
 	}
-	m, _ = wheel(t, m, 5, 10, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, 5, tea.MouseWheelDown)
 	if m.focus != focusFiles {
 		t.Fatalf("wheel over the files should focus them, got %d", m.focus)
 	}
-	m, _ = wheel(t, m, 5, 3, tea.MouseWheelDown)
+	m, _ = wheel(t, m, 5, m.panesHeight()-m.commitsHeight()+3, tea.MouseWheelDown)
 	if m.focus != focusCommits {
 		t.Fatalf("wheel over the commits should focus them, got %d", m.focus)
 	}
@@ -2074,5 +2089,136 @@ func TestChangeKeysVisitEachBlockOfChanges(t *testing.T) {
 	m.cursor = rowOf(t, m, rowLine, 0, 3)
 	if m, _ = press(t, m, "H"); m.cursor != want[0] {
 		t.Fatalf("H inside a block should go to its start, got %d", m.cursor)
+	}
+}
+
+func TestCommentEditorUsesVimModes(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	if m.editor.normal || !strings.Contains(screen(m), "INSERT") || !strings.Contains(screen(m), "esc jj normal") {
+		t.Fatal("the comment editor should start in insert mode")
+	}
+	m = typeText(t, m, "helo world")
+	m = typeText(t, m, "jj")
+	if !m.editor.normal || m.editor.area.Value() != "helo world" {
+		t.Fatalf("jj should switch to normal mode without typing, value=%q", m.editor.area.Value())
+	}
+	m = typeText(t, m, "0llil")
+	m, _ = press(t, m, "esc")
+	m = typeText(t, m, "Ax")
+	if m.editor.area.Value() != "hello worldx" {
+		t.Fatalf("i, l, 0, A, and esc should edit like vim, value=%q", m.editor.area.Value())
+	}
+	m, cmd := press(t, m, "esc", "ctrl+s")
+	m = run(t, m, cmd)
+	if len(st.comments) != 1 || st.comments[0].Body != "hello worldx" {
+		t.Fatalf("normal mode edits should save, comments=%+v", st.comments)
+	}
+}
+
+func TestMarkdownViewHighlightsAndDrawsTheCursor(t *testing.T) {
+	a := textarea.New()
+	a.Prompt, a.ShowLineNumbers = "", false
+	a.SetWidth(30)
+	a.Placeholder = "write here"
+	if got := markdownView(a); !strings.Contains(ansi.Strip(got), "write here") {
+		t.Fatalf("an empty box should show its placeholder: %q", got)
+	}
+	a.Focus()
+	a.SetValue("# Title\n- **item**")
+	got := markdownView(a)
+	if plain := ansi.Strip(got); !strings.Contains(plain, "# Title") || !strings.Contains(plain, "- **item**") {
+		t.Fatalf("the text should stay the same: %q", plain)
+	}
+	lines := strings.Split(got, "\n")
+	if want := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Render("# Title"); !strings.HasPrefix(lines[0], strings.TrimSuffix(want, "\x1b[m")) {
+		t.Fatalf("the heading should be bold and primary: %q", lines[0])
+	}
+	if i := strings.Index(lines[1], "\x1b[7"); i < 0 || !strings.HasSuffix(ansi.Strip(lines[1][:i]), "**item**") {
+		t.Fatalf("the cursor should show after the last character: %q", lines[1])
+	}
+	a.MoveToBegin()
+	if got := strings.Split(markdownView(a), "\n")[0]; !strings.HasPrefix(got, lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Reverse(true).Render("#")) {
+		t.Fatalf("the cursor should reverse the character under it: %q", got)
+	}
+	a.Blur()
+	if got := markdownView(a); strings.Contains(got, "\x1b[7m") {
+		t.Fatal("a blurred box should not draw a cursor")
+	}
+}
+
+func TestQClosesTheCommentEditorFromNormalMode(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "q")
+	if !m.editing || m.editor.area.Value() != "q" {
+		t.Fatal("q in insert mode should type")
+	}
+	if m, _ = press(t, m, "esc", "q"); m.editing || len(st.comments) != 0 {
+		t.Fatal("q in normal mode should close the editor without saving")
+	}
+	if _, cmd := press(t, m, "q"); cmd == nil {
+		t.Fatal("q outside the editor should still quit")
+	} else if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("q outside the editor should still quit")
+	}
+}
+
+func TestCtrlWMovesBetweenPanes(t *testing.T) {
+	m, _ := loaded(t)
+	steps := []struct {
+		key  string
+		want focusArea
+	}{
+		{"k", focusFiles},
+		{"h", focusFiles},
+		{"j", focusCommits},
+		{"j", focusCommits},
+		{"k", focusFiles},
+		{"l", focusDiff},
+		{"l", focusDiff},
+		{"j", focusDiff},
+		{"h", focusFiles},
+	}
+	for i, s := range steps {
+		if m, _ = press(t, m, "ctrl+w", s.key); m.focus != s.want {
+			t.Fatalf("step %d ctrl+w %s: focus=%d want %d", i, s.key, m.focus, s.want)
+		}
+	}
+	m, _ = press(t, m, "t")
+	for i, s := range []struct {
+		key  string
+		want focusArea
+	}{{"k", focusDiff}, {"j", focusComments}, {"h", focusFiles}, {"j", focusCommits}, {"j", focusComments}, {"k", focusDiff}} {
+		if m, _ = press(t, m, "ctrl+w", s.key); m.focus != s.want {
+			t.Fatalf("with comments, step %d ctrl+w %s: focus=%d want %d", i, s.key, m.focus, s.want)
+		}
+	}
+	m, _ = press(t, m, "e")
+	if m, _ = press(t, m, "ctrl+w", "h"); m.focus != focusDiff {
+		t.Fatal("ctrl+w h should stay on the diff when the left panes are hidden")
+	}
+	before := m.cursor
+	if m, _ = press(t, m, "ctrl+w", "j"); m.focus != focusComments || m.cursor != before {
+		t.Fatal("the key after ctrl+w should only move focus, not the cursor")
+	}
+	m, _ = press(t, m, "ctrl+w", "k")
+	if m, _ = press(t, m, "j"); m.cursor == before {
+		t.Fatal("j alone should still move the cursor")
+	}
+}
+
+func TestCtrlWDeletesAWordWhileTyping(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "two words")
+	if m, _ = press(t, m, "ctrl+w"); !m.editing || m.editor.area.Value() != "two " {
+		t.Fatalf("ctrl+w should delete a word in the editor, value=%q", m.editor.area.Value())
 	}
 }

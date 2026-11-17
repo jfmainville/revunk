@@ -37,16 +37,19 @@ var (
 	errorStyle   = lipgloss.NewStyle().Foreground(colorError)
 
 	syntax = chroma.MustNewStyle("revunk", chroma.StyleEntries{
-		chroma.Text:           "#e7e0d7",
-		chroma.Keyword:        "#ebaf39",
-		chroma.KeywordType:    "#ebaf39",
-		chroma.NameBuiltin:    "#ebaf39",
-		chroma.NameTag:        "#ebaf39",
-		chroma.NameDecorator:  "#7dc9b6",
-		chroma.Comment:        "italic #c0ad9f",
-		chroma.LiteralString:  "#aec76c",
-		chroma.LiteralNumber:  "#c5a3cd",
-		chroma.GenericHeading: "bold #ebaf39",
+		chroma.Text:              "#e7e0d7",
+		chroma.Keyword:           "#ebaf39",
+		chroma.KeywordType:       "#ebaf39",
+		chroma.NameBuiltin:       "#ebaf39",
+		chroma.NameTag:           "#ebaf39",
+		chroma.NameDecorator:     "#7dc9b6",
+		chroma.Comment:           "italic #c0ad9f",
+		chroma.LiteralString:     "#aec76c",
+		chroma.LiteralNumber:     "#c5a3cd",
+		chroma.GenericHeading:    "bold #ebaf39",
+		chroma.GenericSubheading: "bold #ebaf39",
+		chroma.GenericStrong:     "bold #e7e0d7",
+		chroma.GenericEmph:       "italic #e7e0d7",
 	})
 )
 
@@ -60,11 +63,16 @@ type token struct {
 	style lipgloss.Style
 }
 
-func highlight(path string, lines []review.Line) [][]token {
-	lexer := lexers.Match(path)
-	if lexer == nil {
-		lexer = lexers.Fallback
+var markdownLexer = lexers.Get("markdown")
+
+func lexerFor(path string) chroma.Lexer {
+	if lexer := lexers.Match(path); lexer != nil {
+		return lexer
 	}
+	return lexers.Fallback
+}
+
+func highlight(lexer chroma.Lexer, lines []review.Line) [][]token {
 	texts := make([]string, len(lines))
 	for i, l := range lines {
 		if l.Kind != review.LineHunk {
@@ -331,8 +339,12 @@ func commentBox(kind, right string, lines []string, width int) []string {
 func renderComment(c review.Comment, original []string, width int) []string {
 	wrap := max(commentWidth(width)-4, 10)
 	lines := renderMarkdown(expandSuggestions(c.Body, original), wrap)
+	reply := "↳ agent reply"
+	if c.Author != "" {
+		reply = "↳ reply"
+	}
 	for _, r := range c.Replies {
-		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render("↳ agent reply"))
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render(reply))
 		lines = append(lines, renderMarkdown(r, wrap)...)
 	}
 	return commentBox(c.Kind, lineLabel(c)+" · "+commentState(c), lines, width)
@@ -340,6 +352,12 @@ func renderComment(c review.Comment, original []string, width int) []string {
 
 func commentState(c review.Comment) string {
 	switch {
+	case c.Resolved:
+		return "resolved"
+	case c.Author != "" && !c.Sent:
+		return "pending"
+	case c.Author != "":
+		return "@" + c.Author
 	case len(c.Replies) > 0:
 		return "replied"
 	case c.Sent:

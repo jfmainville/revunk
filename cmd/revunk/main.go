@@ -13,6 +13,7 @@ import (
 
 	"github.com/jfmainville/revunk/internal/agent"
 	"github.com/jfmainville/revunk/internal/provider/git"
+	"github.com/jfmainville/revunk/internal/provider/github"
 	"github.com/jfmainville/revunk/internal/review"
 	"github.com/jfmainville/revunk/internal/store"
 	"github.com/jfmainville/revunk/internal/tui"
@@ -63,7 +64,7 @@ func run(args []string) error {
 			return errors.New("usage: revunk reply <id> <text>")
 		}
 		ctx := context.Background()
-		svc, _, _, err := service(ctx, ".", *base)
+		svc, _, _, _, err := service(ctx, ".", *base)
 		if err != nil {
 			return err
 		}
@@ -82,32 +83,40 @@ func run(args []string) error {
 }
 
 func setup(ctx context.Context, dir, base string) (tui.Model, error) {
-	svc, root, base, err := service(ctx, dir, base)
+	svc, st, root, base, err := service(ctx, dir, base)
 	if err != nil {
 		return tui.Model{}, err
 	}
-	return tui.New(svc, root, base), nil
+	return tui.New(svc, root, base).WithHost(github.Client{}, pullRequestReview(github.Client{}, st)), nil
 }
 
-func service(ctx context.Context, dir, base string) (*review.Service, string, string, error) {
+func pullRequestReview(client github.Client, st review.Store) func(review.PullRequest) *review.Service {
+	return func(pr review.PullRequest) *review.Service {
+		source := github.Source{Client: client, Repo: pr.Repo, Number: pr.Number}
+		comments := github.Review{Store: st, Client: client, Repo: pr.Repo, Number: pr.Number}
+		return review.NewService(source, comments, nil, fmt.Sprintf("%s#%d", pr.Repo, pr.Number))
+	}
+}
+
+func service(ctx context.Context, dir, base string) (*review.Service, *store.JSON, string, string, error) {
 	root, err := git.Root(ctx, dir)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("run revunk inside a git repository: %w", err)
+		return nil, nil, "", "", fmt.Errorf("run revunk inside a git repository: %w", err)
 	}
 	branch, err := git.Branch(ctx, root)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	if base == "" {
 		base = git.DefaultBase(ctx, root)
 	}
 	statePath, err := git.StatePath(ctx, root)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	st, err := store.Open(statePath)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	svc := review.NewService(git.Source{Dir: root, Base: base}, st, agent.Agent{Dir: root}, branch)
 	svc.ReplyCommand, _ = os.Executable()
@@ -115,5 +124,5 @@ func service(ctx context.Context, dir, base string) (*review.Service, string, st
 		_, err := os.Lstat(filepath.Join(root, path))
 		return err == nil
 	}
-	return svc, root, base, nil
+	return svc, st, root, base, nil
 }

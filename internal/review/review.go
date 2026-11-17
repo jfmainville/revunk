@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type FileStatus string
@@ -96,16 +97,18 @@ const (
 )
 
 type Comment struct {
-	ID      string
-	Commit  string
-	Kind    string
-	Path    string
-	Side    Side
-	Start   int
-	End     int
-	Body    string
-	Sent    bool
-	Replies []string
+	ID       string
+	Commit   string
+	Kind     string
+	Path     string
+	Side     Side
+	Start    int
+	End      int
+	Body     string
+	Sent     bool
+	Replies  []string
+	Author   string
+	Resolved bool
 }
 
 func (c Comment) FileLevel() bool {
@@ -124,6 +127,92 @@ type Store interface {
 	Comments(ctx context.Context, branch string) ([]Comment, error)
 	UpdateComments(ctx context.Context, branch string, ids []string, update func(*Comment)) error
 	DeleteComments(ctx context.Context, branch string, ids []string) error
+}
+
+type PullRequest struct {
+	ID            string
+	Repo          string
+	Number        int
+	Title         string
+	Body          string
+	URL           string
+	State         string
+	Draft         bool
+	Author        string
+	Head          string
+	Base          string
+	UpdatedAt     time.Time
+	Additions     int
+	Deletions     int
+	ChangedFiles  int
+	Viewer        string
+	PendingReview string
+	Assignees     []string
+	Reviewers     []Reviewer
+	Labels        []string
+	Checks        []Check
+	Commits       []Commit
+	Files         []File
+	Threads       []Thread
+	Detailed      bool
+}
+
+type Reviewer struct {
+	Login string
+	State string
+}
+
+type Check struct {
+	Name  string
+	State string
+}
+
+type Thread struct {
+	ID       string
+	Path     string
+	Side     Side
+	Start    int
+	End      int
+	Outdated bool
+	Resolved bool
+	Notes    []Note
+}
+
+type Note struct {
+	ID        string
+	Author    string
+	Body      string
+	State     string
+	CreatedAt time.Time
+	Reactions []Reaction
+}
+
+type Reaction struct {
+	Content string
+	Count   int
+	Mine    bool
+}
+
+type ReviewEvent string
+
+const (
+	EventComment        ReviewEvent = "COMMENT"
+	EventApprove        ReviewEvent = "APPROVE"
+	EventRequestChanges ReviewEvent = "REQUEST_CHANGES"
+)
+
+type Host interface {
+	PullRequests(ctx context.Context, filter string) ([]PullRequest, error)
+	PullRequest(ctx context.Context, repo string, number int) (PullRequest, error)
+	BranchPullRequest(ctx context.Context) (PullRequest, error)
+	Assignable(ctx context.Context, repo string) ([]string, error)
+	EditPullRequest(ctx context.Context, pr PullRequest, title, body string) error
+	SetPeople(ctx context.Context, pr PullRequest, assignees, reviewers []string) error
+	Comment(ctx context.Context, pr PullRequest, body string) error
+	Reply(ctx context.Context, threadID, body string) error
+	React(ctx context.Context, subjectID, content string, add bool) error
+	Resolve(ctx context.Context, threadID string, resolved bool) error
+	SubmitReview(ctx context.Context, pr PullRequest, event ReviewEvent, body string) error
 }
 
 type Agent interface {
@@ -163,11 +252,7 @@ func (s *Service) Files(ctx context.Context, commit string) ([]File, error) {
 	return files, nil
 }
 
-func (s *Service) Viewed(ctx context.Context) (map[string]bool, error) {
-	files, err := s.Files(ctx, "")
-	if err != nil {
-		return nil, err
-	}
+func (s *Service) Viewed(ctx context.Context, files []File) (map[string]bool, error) {
 	stored, err := s.store.Viewed(ctx, s.branch)
 	if err != nil {
 		return nil, err
@@ -231,16 +316,12 @@ func (s *Service) DeleteAllComments(ctx context.Context) error {
 	return s.store.DeleteComments(ctx, s.branch, ids(comments))
 }
 
-func (s *Service) PruneComments(ctx context.Context) (int, error) {
+func (s *Service) PruneComments(ctx context.Context, files []File) (int, error) {
 	if s.Exists == nil {
 		return 0, nil
 	}
 	comments, err := s.Comments(ctx)
 	if err != nil || len(comments) == 0 {
-		return 0, err
-	}
-	files, err := s.Files(ctx, "")
-	if err != nil {
 		return 0, err
 	}
 	removed := map[string]bool{}

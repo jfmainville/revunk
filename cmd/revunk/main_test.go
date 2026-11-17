@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/jfmainville/revunk/internal/provider/github"
 	"github.com/jfmainville/revunk/internal/review"
 )
 
@@ -75,7 +76,7 @@ func TestRunReplyAddsReplyToComment(t *testing.T) {
 	ctx := context.Background()
 	dir := gitRepo(t)
 	t.Chdir(dir)
-	svc, _, _, err := service(ctx, ".", "")
+	svc, _, _, _, err := service(ctx, ".", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,5 +111,21 @@ func TestRunReplyAddsReplyToComment(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := run([]string{"reply", "id", "x"}); err == nil || !strings.Contains(err.Error(), "git repository") {
 		t.Fatalf("outside repository error = %v", err)
+	}
+}
+
+func TestPullRequestReviewReadsThePullRequestFromGitHub(t *testing.T) {
+	var calls [][]string
+	client := github.Client{Run: func(_ context.Context, args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		return []byte(`[{"sha":"abc","commit":{"message":"fix"}}]`), nil
+	}}
+	svc := pullRequestReview(client, nil)(review.PullRequest{Repo: "o/r", Number: 7})
+	if svc.Branch() != "o/r#7" {
+		t.Fatalf("branch = %q", svc.Branch())
+	}
+	commits, err := svc.Commits(context.Background())
+	if err != nil || len(commits) != 1 || commits[0].Subject != "fix" || calls[0][len(calls[0])-1] != "repos/o/r/pulls/7/commits?per_page=100" {
+		t.Fatalf("commits = %+v, %v, calls = %q", commits, err, calls)
 	}
 }
