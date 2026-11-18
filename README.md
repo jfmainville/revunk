@@ -105,7 +105,7 @@ Press `2` to open the **Pull Request** tab, and `1` to go back to the **Agent** 
 
 The sidebar on the right shows the selected pull request, and `enter` focuses it. `tab` and `shift+tab` move between its tabs:
 
-- **Overview** shows the title, the state in a chip colored like the list's state icon, line counts, then assignees, reviewers with their review state, labels, the checks of the latest commit, and the description rendered as Markdown, each separated by a blank line.
+- **Overview** shows the title, the state in a chip with the list's state icon and color, `DRAFT` in gray for a draft instead of `OPEN`, line counts, then assignees, reviewers with their review state, labels, the checks of the latest commit, and the description rendered as Markdown, each separated by a blank line.
 - **Activity** lists the comments, replies, and reviews in the order they happened.
 - **Comments** shows the conversation, the reviews with a message, and the review threads on code, with their replies and reactions. `j` and `k` or a click select a comment, marked with its author in the accent color while the sidebar has focus, for `r` to reply or `+` to react. New comments are added from the actions modal.
 - **Commits** and **Files** list the pull request's commits and changed files.
@@ -126,6 +126,8 @@ Every change is sent to GitHub through `gh`, then the pull request reloads. The 
 | `code-review` Submit a review                        | Comment, approve, or request changes, picked in a dropdown that `enter` opens. Like on GitHub, a comment or request for changes without a message needs inline comments in the review                      |
 | `git-merge` Merge                                    | Merge after confirming the method and the commit message                                                                                                                                                   |
 | `git-pull-request-closed` Close without merging      | Close after confirming, with an optional comment                                                                                                                                                           |
+| `git-pull-request` Mark as ready for review          | Take the pull request out of draft, like `gh pr ready`                                                                                                                                                     |
+| `git-pull-request-draft` Convert to draft            | Turn the open pull request back into a draft, like `gh pr ready --undo`                                                                                                                                    |
 | `person` Assignees, `people` Reviewers, `tag` Labels | Pick in a searchable list of the repository's users or labels                                                                                                                                              |
 | `copilot` Request a review from Copilot              | Ask Copilot for a review, like `gh pr edit --add-reviewer @copilot`                                                                                                                                        |
 

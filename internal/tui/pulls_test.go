@@ -102,6 +102,16 @@ func (h *fakeHost) RequestCopilotReview(_ context.Context, pr review.PullRequest
 	return h.record("copilot " + prKey(pr))
 }
 
+func (h *fakeHost) SetDraft(_ context.Context, pr review.PullRequest, draft bool) error {
+	if err := h.record(fmt.Sprintf("draft %s %t", prKey(pr), draft)); err != nil {
+		return err
+	}
+	d := h.details[prKey(pr)]
+	d.Draft = draft
+	h.details[prKey(pr)] = d
+	return nil
+}
+
 func (h *fakeHost) Close(_ context.Context, pr review.PullRequest, comment string) error {
 	return h.record("close " + prKey(pr) + " " + comment)
 }
@@ -177,7 +187,7 @@ func samplePulls() (review.PullRequest, review.PullRequest) {
 
 func newHost() *fakeHost {
 	short, detail := samplePulls()
-	other := review.PullRequest{Repo: "o/s", Number: 8, Title: "Fix logout", Author: "bob", Draft: true, UpdatedAt: clock.Add(-49 * time.Hour)}
+	other := review.PullRequest{Repo: "o/s", Number: 8, Title: "Fix logout", Author: "bob", State: "OPEN", Draft: true, UpdatedAt: clock.Add(-49 * time.Hour)}
 	otherDetail := other
 	otherDetail.Detailed, otherDetail.State = true, "OPEN"
 	return &fakeHost{
@@ -479,7 +489,7 @@ func TestActionsListEveryPullRequestAction(t *testing.T) {
 	m = pressRun(t, m, "A")
 	out := screen(m)
 	for _, want := range []string{"actions for #7", "  Edit the title and description", "ge", "  Review the diff", "gd", "  Review a pull request from its URL", "gu",
-		"  Comment", "  Submit a review", "  Merge", "  Close without merging", "  Assignees", "  Reviewers", "  Labels", "  Request a review from Copilot", "⏎ run  esc list"} {
+		"  Comment", "  Submit a review", "  Merge", "  Close without merging", "  Mark as ready for review", "  Convert to draft", "  Assignees", "  Reviewers", "  Labels", "  Request a review from Copilot", "⏎ run  esc list"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the actions should list %q:\n%s", want, out)
 		}
@@ -494,7 +504,7 @@ func TestActionsListEveryPullRequestAction(t *testing.T) {
 		}
 	}
 	m = typeText(t, m, "REVIEW")
-	if got := len(m.matchingActions()); got != 5 || m.modal.cursor != 0 {
+	if got := len(m.matchingActions()); got != 6 || m.modal.cursor != 0 {
 		t.Fatalf("the search should filter without case, got %d matches", got)
 	}
 	m = pressRun(t, m, "down", "down", "down", "down", "up")
@@ -647,7 +657,7 @@ func TestMergeFollowsRepositorySettingsAndState(t *testing.T) {
 	}{
 		{review.PullRequest{Repo: "o/r", Number: 9}, "wait for #9 to load before merging"},
 		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "CLOSED"}, "#9 is closed, only open pull requests merge"},
-		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN", Draft: true, MergeMethods: detail.MergeMethods}, "#9 is a draft, mark it ready for review on GitHub before merging"},
+		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN", Draft: true, MergeMethods: detail.MergeMethods}, "#9 is a draft, mark it ready for review before merging"},
 		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN"}, "o/r allows no merge method, check its settings on GitHub"},
 	} {
 		if cmd := m.openMerge(c.pr); cmd != nil || m.modal.kind == modalMerge && m.modal.pr.Number == 9 || m.warning != c.notice {
@@ -2139,7 +2149,7 @@ func TestClosedPullRequestTurnsRedAndLeavesWithoutMovingTheSelection(t *testing.
 }
 
 func TestStateOf(t *testing.T) {
-	for state, want := range map[string]prState{"OPEN": {"\uf407", colorAdd}, "MERGED": {"\uf419", colorMerged}, "CLOSED": {"\uf4dc", colorIssue}, "": {"\uf407", colorDim}} {
+	for state, want := range map[string]prState{"OPEN": {"\uf407", colorAdd}, "DRAFT": {iconDraft, colorDim}, "MERGED": {"\uf419", colorMerged}, "CLOSED": {"\uf4dc", colorIssue}, "": {"\uf407", colorDim}} {
 		if got := stateOf(state); got != want {
 			t.Errorf("stateOf(%q) = %v, want %v", state, got, want)
 		}
@@ -2155,5 +2165,59 @@ func TestDraftPullRequestKeepsItsPassingChecksMark(t *testing.T) {
 	passed := lipgloss.NewStyle().Foreground(colorAdd).Render("✓")
 	if !strings.Contains(raw, draft+" "+passed) {
 		t.Fatalf("a draft should show the gray draft icon then the green check:\n%q", raw)
+	}
+}
+
+func TestDraftActionsToggleTheDraftState(t *testing.T) {
+	m, host := pullsModel(t)
+	if m = runAction(t, m, "ready for review"); !strings.Contains(statusText(m), "#7 is already ready for review") || host.has("draft o/r#7 false") {
+		t.Fatalf("an open pull request should not be marked ready again, calls=%q", host.calls)
+	}
+
+	m = runAction(t, m, "convert to draft")
+	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorDim).Render(" " + iconDraft + " DRAFT ")
+	if pr, _ := m.selectedPR(); !host.has("draft o/r#7 true") || host.last() != "detail o/r#7" || m.notice != "converted #7 to a draft" || !pr.Draft {
+		t.Fatalf("convert to draft should call GitHub and reload, calls=%q notice=%q", host.calls, m.notice)
+	}
+	detail, _ := m.detailLines(host.details["o/r#7"], 80)
+	if !strings.Contains(detail[1], chip) || strings.Contains(ansi.Strip(detail[1]), "OPEN") || strings.Contains(ansi.Strip(detail[1]), "· draft") {
+		t.Fatalf("a draft should show a gray DRAFT chip instead of OPEN: %q", detail[1])
+	}
+	if raw := m.View().Content; !strings.Contains(raw, lipgloss.NewStyle().Background(colorCursorline).Foreground(colorDim).Render(iconDraft)) {
+		t.Fatalf("the list should switch to the gray draft icon:\n%s", raw)
+	}
+	if m = runAction(t, m, "convert to draft"); !strings.Contains(statusText(m), "#7 is already a draft") {
+		t.Fatal("a draft should not be converted again")
+	}
+
+	m = runAction(t, m, "ready for review")
+	if pr, _ := m.selectedPR(); !host.has("draft o/r#7 false") || m.notice != "marked #7 ready for review" || pr.Draft || stateName(pr) != "OPEN" {
+		t.Fatalf("ready for review should call GitHub and reload, calls=%q notice=%q", host.calls, m.notice)
+	}
+
+	host.err = errors.New("HTTP 403")
+	if m = runAction(t, m, "convert to draft"); !strings.Contains(statusText(m), "HTTP 403") || m.notice == "converted #7 to a draft" {
+		t.Fatalf("a refused change should show GitHub's error:\n%s", statusText(m))
+	}
+}
+
+func TestDraftActionsRefuseClosedPullRequests(t *testing.T) {
+	m, host := pullsModel(t)
+	d := host.details["o/r#7"]
+	d.State = "MERGED"
+	m.pulls.details["o/r#7"] = d
+	if m = runAction(t, m, "ready for review"); !strings.Contains(statusText(m), "#7 is merged, only open pull requests change") || host.has("draft o/r#7 false") {
+		t.Fatalf("a merged pull request should not change, calls=%q", host.calls)
+	}
+}
+
+func TestStateName(t *testing.T) {
+	for _, c := range []struct {
+		pr   review.PullRequest
+		want string
+	}{{review.PullRequest{State: "OPEN"}, "OPEN"}, {review.PullRequest{State: "OPEN", Draft: true}, "DRAFT"}, {review.PullRequest{State: "CLOSED", Draft: true}, "CLOSED"}, {review.PullRequest{State: "MERGED"}, "MERGED"}} {
+		if got := stateName(c.pr); got != c.want {
+			t.Errorf("stateName(%+v) = %q, want %q", c.pr, got, c.want)
+		}
 	}
 }

@@ -780,6 +780,8 @@ func (m Model) actions() []action {
 				}
 				return m.openModal(modalClose, pr)
 			}},
+			action{iconPullRequest, "Mark as ready for review", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd { return m.setDraft(pr, false) }},
+			action{iconDraft, "Convert to draft", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd { return m.setDraft(pr, true) }},
 			action{iconPerson, "Assignees", key.Binding{}, modal(modalAssignees)},
 			action{iconPeople, "Reviewers", key.Binding{}, modal(modalReviewers)},
 			action{iconTag, "Labels", key.Binding{}, modal(modalLabels)},
@@ -802,6 +804,25 @@ type branchesMsg struct {
 	repo, def string
 	list      []string
 	err       error
+}
+
+func (m *Model) setDraft(pr review.PullRequest, draft bool) tea.Cmd {
+	switch {
+	case pr.State != "OPEN":
+		m.warning = fmt.Sprintf("#%d is %s, only open pull requests change", pr.Number, strings.ToLower(pr.State))
+		return nil
+	case pr.Draft == draft && draft:
+		m.warning = fmt.Sprintf("#%d is already a draft", pr.Number)
+		return nil
+	case pr.Draft == draft:
+		m.warning = fmt.Sprintf("#%d is already ready for review", pr.Number)
+		return nil
+	}
+	host, notice := m.host, fmt.Sprintf("marked #%d ready for review", pr.Number)
+	if draft {
+		notice = fmt.Sprintf("converted #%d to a draft", pr.Number)
+	}
+	return m.hostAction(pr, notice, func(ctx context.Context) error { return host.SetDraft(ctx, pr, draft) })
 }
 
 func first(value string, list []string) []string {
@@ -915,7 +936,7 @@ func (m *Model) openMerge(pr review.PullRequest) tea.Cmd {
 	case pr.State != "OPEN":
 		m.warning = fmt.Sprintf("#%d is %s, only open pull requests merge", pr.Number, strings.ToLower(pr.State))
 	case pr.Draft:
-		m.warning = fmt.Sprintf("#%d is a draft, mark it ready for review on GitHub before merging", pr.Number)
+		m.warning = fmt.Sprintf("#%d is a draft, mark it ready for review before merging", pr.Number)
 	case len(pr.MergeMethods) == 0:
 		m.warning = pr.Repo + " allows no merge method, check its settings on GitHub"
 	default:
@@ -1423,7 +1444,14 @@ type prState struct {
 	color color.Color
 }
 
-var prStates = map[string]prState{"OPEN": {iconPullRequest, colorAdd}, "MERGED": {iconMerge, colorMerged}, "CLOSED": {iconClosed, colorIssue}}
+var prStates = map[string]prState{"OPEN": {iconPullRequest, colorAdd}, "DRAFT": {iconDraft, colorDim}, "MERGED": {iconMerge, colorMerged}, "CLOSED": {iconClosed, colorIssue}}
+
+func stateName(pr review.PullRequest) string {
+	if pr.Draft && pr.State == "OPEN" {
+		return "DRAFT"
+	}
+	return pr.State
+}
 
 func stateOf(state string) prState {
 	if s, ok := prStates[state]; ok {
@@ -1513,15 +1541,13 @@ func (m Model) pullLines() []string {
 			base = base.Background(colorCursorline)
 			bar, titleColor = base.Foreground(colorPrimary).Render("▌"), colorPrimary
 		}
-		checks, s := pr.Checks, stateOf(pr.State)
+		shown := pr
 		if d, ok := m.pulls.details[prKey(pr)]; ok {
-			checks, s = d.Checks, stateOf(d.State)
+			shown = d
 		}
-		if pr.Draft && s.icon == iconPullRequest {
-			s = prState{iconDraft, colorDim}
-		}
+		s := stateOf(stateName(shown))
 		lines = append(lines,
-			columns(base, bar+base.Foreground(s.color).Render(s.icon)+base.Render(" ")+base.Render(checksIcon(checks))+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
+			columns(base, bar+base.Foreground(s.color).Render(s.icon)+base.Render(" ")+base.Render(checksIcon(shown.Checks))+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
 				fmt.Sprint("+", pr.Additions), fmt.Sprint("-", pr.Deletions), "@"+pr.Author, age(pr.CreatedAt), age(pr.UpdatedAt), base.Foreground(titleColor)),
 			bar+base.Render("    "+strings.Repeat(" ", idW+2))+fit(base.Foreground(colorDim).Render(pr.Repo), m.pullsWidth()-2-5-idW-2, base),
 		)
@@ -1589,11 +1615,8 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 	var starts []int
 	switch m.pulls.section {
 	case 0:
-		s := stateOf(pr.State)
-		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(s.color).Render(" "+s.icon+" "+pr.State+" ")
-		if pr.Draft {
-			state += dimStyle.Render(" · draft")
-		}
+		s := stateOf(stateName(pr))
+		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(s.color).Render(" "+s.icon+" "+stateName(pr)+" ")
 		lines = append(lines,
 			" "+lipgloss.NewStyle().Bold(true).Foreground(colorForeground).Render(pr.Title),
 			state,

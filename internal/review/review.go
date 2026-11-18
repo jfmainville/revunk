@@ -260,6 +260,7 @@ type Host interface {
 	Labels(ctx context.Context, repo string) ([]string, error)
 	SetLabels(ctx context.Context, pr PullRequest, labels []string) error
 	RequestCopilotReview(ctx context.Context, pr PullRequest) error
+	SetDraft(ctx context.Context, pr PullRequest, draft bool) error
 	Close(ctx context.Context, pr PullRequest, comment string) error
 	Branches(ctx context.Context, repo string) ([]string, string, error)
 	CreatePullRequest(ctx context.Context, head, base, title, body string) (PullRequest, error)
