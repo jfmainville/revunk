@@ -150,6 +150,7 @@ type Model struct {
 	cursor     int
 	offset     int
 	anchor     int
+	dragFrom   int
 	fileCursor int
 	focus      focusArea
 	editing    bool
@@ -196,6 +197,7 @@ func New(svc *review.Service, root, base string) Model {
 		viewed:   map[string]bool{},
 		rendered: map[int][]string{},
 		anchor:   -1,
+		dragFrom: -1,
 		keys:     keys,
 		focus:    focusFiles,
 		loading:  true,
@@ -439,7 +441,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.clipboard != "" {
 			return m, tea.SetClipboard(msg.clipboard)
 		}
-	case tea.MouseClickMsg, tea.MouseWheelMsg:
+	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		if c, ok := msg.(tea.MouseClickMsg); ok && c.Button == tea.MouseLeft && c.Y == 0 && m.pr.Number == 0 && !m.help && !m.modal.open && !m.editing {
 			switch tabAt(c.X, tabNames, 1) {
 			case tabAgent:
@@ -459,6 +461,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice, m.warning, m.prefix = "", "", ""
 			return m, m.click(msg.X, msg.Y)
 		}
+	case tea.MouseMotionMsg:
+		if msg.Button == tea.MouseLeft && m.dragFrom >= 0 {
+			m.drag(msg.Y - 2)
+		}
+	case tea.MouseReleaseMsg:
+		m.dragFrom = -1
 	case tea.MouseWheelMsg:
 		if !m.editing && !m.help {
 			step := map[tea.MouseButton]int{tea.MouseWheelDown: 1, tea.MouseWheelUp: -1}[msg.Button]
@@ -1058,7 +1066,10 @@ func (m *Model) click(x, y int) tea.Cmd {
 			r -= m.rows[r].part
 		}
 		if r < len(m.rows) && m.rows[r].kind != rowText {
-			m.cursor = r
+			m.cursor, m.anchor, m.dragFrom = r, -1, -1
+			if m.rows[r].kind == rowLine {
+				m.dragFrom = r
+			}
 			m.syncFile()
 		}
 	case focusComments:
@@ -1082,11 +1093,32 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 	case focusFiles:
 		m.stepFile(step)
 	case focusDiff:
-		m.move(3 * step)
+		m.offset = min(max(m.offset+3*step, 0), max(len(m.rows)-m.diffHeight(), 0))
 	case focusComments:
 		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
 	}
 	return nil
+}
+
+func (m *Model) drag(i int) {
+	target := m.offset + i
+	switch {
+	case i < 0:
+		target = m.cursor - 1
+	case i >= m.diffHeight():
+		target = m.cursor + 1
+	}
+	for target >= 0 && target < len(m.rows) && m.rows[target].part > 0 {
+		target -= m.rows[target].part
+	}
+	if target < 0 || target >= len(m.rows) || m.rows[target].kind != rowLine || m.rows[target].file != m.rows[m.dragFrom].file {
+		return
+	}
+	m.cursor = target
+	if m.anchor < 0 && target != m.dragFrom {
+		m.anchor = m.dragFrom
+	}
+	m.syncFile()
 }
 
 func (m Model) window(seq string) focusArea {

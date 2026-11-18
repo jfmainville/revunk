@@ -2221,3 +2221,17 @@ func TestStateName(t *testing.T) {
 		}
 	}
 }
+
+func TestDraggingSelectsLinesInTheReviewDiff(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "g", "d")
+	first, second := rowOf(t, *m.diff, rowLine, 1, 1), rowOf(t, *m.diff, rowLine, 1, 2)
+	m = update(t, m, tea.MouseClickMsg{X: 60, Y: first + 2, Button: tea.MouseLeft})
+	m = update(t, m, tea.MouseMotionMsg{X: 60, Y: second + 2, Button: tea.MouseLeft})
+	if m.diff.anchor != first || m.diff.cursor != second {
+		t.Fatalf("dragging in the review diff should select lines, anchor=%d cursor=%d", m.diff.anchor, m.diff.cursor)
+	}
+	if m = update(t, m, tea.MouseReleaseMsg{X: 60, Y: second + 2, Button: tea.MouseLeft}); m.diff.dragFrom != -1 {
+		t.Fatal("releasing should end the drag in the review diff")
+	}
+}

@@ -296,7 +296,7 @@ func renderLine(l review.Line, tokens []token, width, part int, cursor, selected
 	if selected {
 		bg = colorVisual
 	}
-	if cursor {
+	if cursor && !selected {
 		bg = colorCursorline
 	}
 	base := lipgloss.NewStyle()
