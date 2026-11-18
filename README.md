@@ -106,7 +106,7 @@ The sidebar on the right shows the selected pull request, and `enter` focuses it
 
 - **Overview** shows the title, the state in an accent chip, line counts, then assignees, reviewers with their review state, labels, the checks of the latest commit, and the description rendered as Markdown, each separated by a blank line.
 - **Activity** lists the comments, replies, and reviews in the order they happened.
-- **Comments** shows the conversation, the reviews with a message, and the review threads on code, with their replies and reactions. `j` and `k` select a comment.
+- **Comments** shows the conversation, the reviews with a message, and the review threads on code, with their replies and reactions. `j` and `k` or a click select a comment, marked with its author in the accent color while the sidebar has focus, for `r` to reply or `+` to react. New comments are added from the actions modal.
 - **Commits** and **Files** list the pull request's commits and changed files.
 
 Every change is sent to GitHub through `gh`, then the pull request reloads. The list and the selected pull request also reload every 10 seconds while the tab is open, so new checks, comments, and reviews show up on their own.

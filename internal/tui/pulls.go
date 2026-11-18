@@ -1591,7 +1591,7 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 	case tabComments:
 		items := commentItems(pr)
 		if len(items) == 0 {
-			lines = append(lines, dimStyle.Render(" no comments yet, press "+label(m.keys.Comment)+" to add one"))
+			lines = append(lines, dimStyle.Render(" no comments yet"))
 		}
 		for i, it := range items {
 			starts = append(starts, len(lines))
@@ -1602,11 +1602,11 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 				}
 				lines = append(lines, " "+lipgloss.NewStyle().Foreground(colorThread).Render(threadTitle(it)))
 			}
-			bar := " "
-			if i == m.pulls.item {
-				bar = primaryStyle.Render("▌")
+			bar, author := " ", primaryStyle.Render("@"+it.note.Author)
+			if i == m.pulls.item && m.pulls.sidebar {
+				bar, author = primaryStyle.Render("▌"), lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render("@"+it.note.Author)
 			}
-			meta := primaryStyle.Render("@"+it.note.Author) + dimStyle.Render(" · "+age(it.note.CreatedAt))
+			meta := author + dimStyle.Render(" · "+age(it.note.CreatedAt))
 			if it.note.State == "PENDING" {
 				meta += dimStyle.Render(" · pending")
 			}
@@ -1812,6 +1812,16 @@ func (m Model) pullsMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pulls.sidebar = msg.X >= m.pullsWidth()
 		if i := tabAt(msg.X-m.pullsWidth()-1, detailTabs, 0); m.pulls.sidebar && msg.Y == 2 && i >= 0 {
 			m.pulls.section, m.pulls.scroll, m.pulls.item = i, 0, 0
+			return m, nil
+		}
+		if m.pulls.sidebar && m.pulls.section == tabComments && msg.Y >= 4 {
+			_, starts := m.detailLines(pr, m.sidebarWidth()-2)
+			line := m.pulls.scroll + msg.Y - 4
+			for i, start := range starts {
+				if start <= line {
+					m.pulls.item = i
+				}
+			}
 			return m, nil
 		}
 		row := msg.Y - 3

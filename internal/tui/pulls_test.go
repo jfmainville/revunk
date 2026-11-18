@@ -728,6 +728,9 @@ func TestReplyReactResolveTargetTheSelectedComment(t *testing.T) {
 	if m = pressRun(t, m, "r"); m.modal.open || !strings.Contains(m.warning, "no comments yet") || m.pulls.item != 0 {
 		t.Fatal("with no comments there is nothing to reply to")
 	}
+	if out := screen(m); !strings.Contains(out, "no comments yet") || strings.Contains(out, "to add one") {
+		t.Fatalf("the empty Comments tab should not point to c:\n%s", out)
+	}
 }
 
 func TestEditModalUpdatesTitleAndDescription(t *testing.T) {
@@ -1179,6 +1182,45 @@ func TestClickingTabsSwitchesThem(t *testing.T) {
 	m = pressRun(t, m, "?")
 	if m, _ = click(t, m, 3, 0); m.tab != tabPulls {
 		t.Fatal("tab clicks are ignored while the help is open")
+	}
+}
+
+func TestCommentsTabSelectsCommentsByKeyAndClick(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "enter", "tab", "tab")
+	pr, _ := m.selectedPR()
+	chip := func(author string) string {
+		return lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render("@" + author)
+	}
+	marked := func(m Model) string {
+		lines, _ := m.detailLines(pr, m.sidebarWidth()-2)
+		return strings.Join(lines, "\n")
+	}
+	if out := marked(m); !strings.Contains(out, chip("ana")) || strings.Contains(out, chip("bob")) {
+		t.Fatalf("only the selected comment should be marked:\n%s", out)
+	}
+	m = pressRun(t, m, "j")
+	if out := marked(m); m.pulls.item != 1 || !strings.Contains(out, chip("bob")) || strings.Contains(out, chip("ana")) {
+		t.Fatalf("j should move the mark to the next comment, item=%d", m.pulls.item)
+	}
+	_, starts := m.detailLines(pr, m.sidebarWidth()-2)
+	if m, _ = click(t, m, m.pullsWidth()+4, 4+starts[0]-m.pulls.scroll+1); m.pulls.item != 0 {
+		t.Fatalf("clicking the first comment should select it, item=%d", m.pulls.item)
+	}
+	m = pressRun(t, m, "r")
+	if !strings.Contains(screen(m), "reply to @ana") {
+		t.Fatalf("r should reply to the clicked comment:\n%s", screen(m))
+	}
+	m = pressRun(t, m, "esc", "esc")
+	if m, _ = click(t, m, m.pullsWidth()+4, 4+starts[1]-m.pulls.scroll); m.pulls.item != 1 {
+		t.Fatalf("clicking the second comment should select it, item=%d", m.pulls.item)
+	}
+	if m = pressRun(t, m, "+"); !strings.Contains(screen(m), "react to @bob") {
+		t.Fatalf("+ should react to the clicked comment:\n%s", screen(m))
+	}
+	m = pressRun(t, m, "esc", "esc")
+	if m, _ = click(t, m, 3, 4); m.pulls.sidebar || strings.Contains(marked(m), chip("bob")) {
+		t.Fatal("the mark should only show while the sidebar has focus")
 	}
 }
 
