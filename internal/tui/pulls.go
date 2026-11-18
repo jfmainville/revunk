@@ -1513,16 +1513,15 @@ func (m Model) pullLines() []string {
 			base = base.Background(colorCursorline)
 			bar, titleColor = base.Foreground(colorPrimary).Render("▌"), colorPrimary
 		}
-		checks, state := pr.Checks, pr.State
+		checks, s := pr.Checks, stateOf(pr.State)
 		if d, ok := m.pulls.details[prKey(pr)]; ok {
-			checks, state = d.Checks, d.State
+			checks, s = d.Checks, stateOf(d.State)
 		}
-		icon := checksIcon(checks)
-		if pr.Draft {
-			icon = dimStyle.Render(iconDraft)
+		if pr.Draft && s.icon == iconPullRequest {
+			s = prState{iconDraft, colorDim}
 		}
 		lines = append(lines,
-			columns(base, bar+base.Foreground(stateOf(state).color).Render(stateOf(state).icon)+base.Render(" ")+base.Render(icon)+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
+			columns(base, bar+base.Foreground(s.color).Render(s.icon)+base.Render(" ")+base.Render(checksIcon(checks))+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
 				fmt.Sprint("+", pr.Additions), fmt.Sprint("-", pr.Deletions), "@"+pr.Author, age(pr.CreatedAt), age(pr.UpdatedAt), base.Foreground(titleColor)),
 			bar+base.Render("    "+strings.Repeat(" ", idW+2))+fit(base.Foreground(colorDim).Render(pr.Repo), m.pullsWidth()-2-5-idW-2, base),
 		)

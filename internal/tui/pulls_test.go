@@ -279,8 +279,8 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 			t.Errorf("%s should follow a blank line: %q", name, plain)
 		}
 	}
-	if !strings.Contains(out, "▌\uf407 ✗ #7") || !strings.Contains(out, "\uf407  #8") {
-		t.Fatalf("the list should show the failing checks and the draft:\n%s", out)
+	if !strings.Contains(out, "▌\uf407 ✗ #7") || !strings.Contains(out, "   #8") {
+		t.Fatalf("the list should show the failing checks, and the draft icon in place of the state icon:\n%s", out)
 	}
 	m = pressRun(t, m, "1")
 	if m.tab != tabAgent || !strings.Contains(screen(m), "continuous diff") {
@@ -2143,5 +2143,17 @@ func TestStateOf(t *testing.T) {
 		if got := stateOf(state); got != want {
 			t.Errorf("stateOf(%q) = %v, want %v", state, got, want)
 		}
+	}
+}
+
+func TestDraftPullRequestKeepsItsPassingChecksMark(t *testing.T) {
+	m, _ := pullsModel(t)
+	m.pulls.list[1].Draft, m.pulls.list[1].State = true, "OPEN"
+	m.pulls.list[1].Checks = []review.Check{{Name: "checks", State: "SUCCESS"}}
+	raw := m.View().Content
+	draft := lipgloss.NewStyle().Foreground(colorDim).Render(iconDraft)
+	passed := lipgloss.NewStyle().Foreground(colorAdd).Render("✓")
+	if !strings.Contains(raw, draft+" "+passed) {
+		t.Fatalf("a draft should show the gray draft icon then the green check:\n%q", raw)
 	}
 }
