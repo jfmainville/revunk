@@ -186,7 +186,7 @@ func TestLoadedScreenMatchesDesignLayout(t *testing.T) {
 	m, _ := loaded(t)
 	out := screen(m)
 
-	for _, want := range []string{"Agent", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "vs main", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
+	for _, want := range []string{"Agent", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "vs main", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", " feature", "0 comments · 0/3 viewed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
 		}
@@ -386,7 +386,7 @@ func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
 	}
 	out := screen(m)
 	lineAt := strings.Index(out, "func a() {}")
-	commentAt := strings.Index(out, "◆ note")
+	commentAt := strings.Index(out, " note")
 	if m.editing || commentAt < lineAt || !strings.Contains(out, "L2 · draft") || !strings.Contains(out, "Rename") || !strings.Contains(out, "1 comments") {
 		t.Fatalf("comment not rendered under its line:\n%s", out)
 	}
@@ -463,7 +463,7 @@ func TestFileCommentFromFilesPaneAndHeader(t *testing.T) {
 	m = run(t, m, cmd)
 
 	out := screen(m)
-	if !strings.Contains(out, "◆ comment") || !strings.Contains(out, "file · draft") || strings.Index(out, "Whole file") > strings.Index(out, "package main") {
+	if !strings.Contains(out, " comment") || !strings.Contains(out, "file · draft") || strings.Index(out, "Whole file") > strings.Index(out, "package main") {
 		t.Fatalf("file comment not shown below its header:\n%s", out)
 	}
 
@@ -603,13 +603,13 @@ func TestResolveHidesCommentFromDiffButKeepsItInThePane(t *testing.T) {
 	}
 
 	m, _ = press(t, m, "t")
-	if out := screen(m); !strings.Contains(out, "✓ nit") || !strings.Contains(out, "resolved  rename this") {
+	if out := screen(m); !strings.Contains(out, " nit") || !strings.Contains(out, "resolved  rename this") {
 		t.Fatalf("comments pane should keep the resolved comment:\n%s", out)
 	}
 
 	m, cmd = press(t, m, "x")
 	m = run(t, m, cmd)
-	if out := screen(m); st.comments[0].Resolved || !strings.Contains(out, "reopened the comment") || !strings.Contains(out, "◆ nit") || !strings.Contains(out, "L2 · draft") {
+	if out := screen(m); st.comments[0].Resolved || !strings.Contains(out, "reopened the comment") || !strings.Contains(out, " nit") || !strings.Contains(out, "L2 · draft") {
 		t.Fatalf("x in the pane should reopen the comment in the diff:\n%s", out)
 	}
 
@@ -651,7 +651,7 @@ func TestReplyAnswersTheAgentUnderTheComment(t *testing.T) {
 	if c := st.comments[0]; c.Sent || !reflect.DeepEqual(c.Replies, []string{"renamed to b", review.YourReply + "why b?"}) || len(st.comments) != 1 {
 		t.Fatalf("reply not saved as a follow-up: %+v", st.comments)
 	}
-	if out := screen(m); !strings.Contains(out, "↳ your reply") || !strings.Contains(out, "why b?") || !strings.Contains(out, "L2 · draft") || strings.Contains(out, "**you**") {
+	if out := screen(m); !strings.Contains(out, " your reply") || !strings.Contains(out, "why b?") || !strings.Contains(out, "L2 · draft") || strings.Contains(out, "**you**") {
 		t.Fatalf("follow-up should show under the comment as a draft:\n%s", out)
 	}
 	if m, _ = press(t, m, "r"); m.editing {
@@ -684,7 +684,7 @@ func TestMarkViewedCollapsesFileUntilItChanges(t *testing.T) {
 	m = run(t, m, cmd)
 
 	out := screen(m)
-	if !strings.Contains(out, "✓") || !strings.Contains(out, "viewed") || strings.Contains(out, "func a() {}") || !strings.Contains(out, "1/3 viewed") {
+	if !strings.Contains(out, "") || !strings.Contains(out, "viewed") || strings.Contains(out, "func a() {}") || !strings.Contains(out, "1/3 viewed") {
 		t.Fatalf("viewed file not collapsed and marked:\n%s", out)
 	}
 	if st.viewed["a/main.go"] == "" {
@@ -1010,11 +1010,11 @@ func TestCopyCommentsWritesClipboard(t *testing.T) {
 
 func TestCommentsAndEditorAreDrawnInBorderedBoxes(t *testing.T) {
 	m := withComment(t, nil)
-	if out := screen(m); !strings.Contains(out, "╭─ ◆ nit") || !strings.Contains(out, "rename") {
+	if out := screen(m); !strings.Contains(out, "╭─  nit") || !strings.Contains(out, "rename") {
 		t.Fatalf("comment box missing:\n%s", out)
 	}
 	m, _ = press(t, m, "C")
-	if out := screen(m); !strings.Contains(out, "╭─ ◆ comment") || !strings.Contains(out, "C-s save") {
+	if out := screen(m); !strings.Contains(out, "╭─  comment") || !strings.Contains(out, "C-s save") {
 		t.Fatalf("editor box missing:\n%s", out)
 	}
 }
@@ -1028,7 +1028,7 @@ func TestDeleteAllCommentsNeedsSecondPress(t *testing.T) {
 	}
 	m, cmd = press(t, m, "D")
 	m = run(t, m, cmd)
-	if out := screen(m); len(m.comments) != 0 || strings.Contains(out, "◆ nit") || !strings.Contains(out, "deleted 1 comments") {
+	if out := screen(m); len(m.comments) != 0 || strings.Contains(out, " nit") || !strings.Contains(out, "deleted 1 comments") {
 		t.Fatalf("comments not deleted:\n%s", out)
 	}
 
@@ -1073,7 +1073,7 @@ func TestPollingShowsAgentRepliesUnderComments(t *testing.T) {
 	got := updated.(Model)
 
 	out := screen(got)
-	if !strings.Contains(out, "L2 · replied") || !strings.Contains(out, "↳ agent reply") || !strings.Contains(out, "Renamed to") || !strings.Contains(out, "start") {
+	if !strings.Contains(out, "L2 · replied") || !strings.Contains(out, " agent reply") || !strings.Contains(out, "Renamed to") || !strings.Contains(out, "start") {
 		t.Fatalf("reply not shown:\n%s", out)
 	}
 	if next == nil {
@@ -1235,7 +1235,7 @@ func TestCommentsPaneIsHiddenUntilToggled(t *testing.T) {
 	m, _ = press(t, m, "t")
 
 	out := screen(m)
-	for _, want := range []string{"╭─ comments", "◆ note", "a/main.go L3  draft  second func", "README.md file", "a/main.go L2 @2222222  sent  rename only"} {
+	for _, want := range []string{"╭─ comments", " note", "a/main.go L3  draft  second func", "README.md file", "a/main.go L2 @2222222  sent  rename only"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("comments pane missing %q:\n%s", want, out)
 		}
@@ -1692,7 +1692,7 @@ func TestExplorerShowsLineCounts(t *testing.T) {
 	}
 	m, cmd := press(t, m, "-")
 	m = run(t, m, cmd)
-	if !strings.Contains(screen(m), "A README.md              +2 -0 ✓") {
+	if !strings.Contains(screen(m), "A README.md              +2 -0 ") {
 		t.Fatalf("viewed mark should follow the counts:\n%s", screen(m))
 	}
 
@@ -1737,7 +1737,7 @@ func TestIssueCommentKeepsItsType(t *testing.T) {
 	if len(st.comments) != 1 || st.comments[0].Kind != "issue" {
 		t.Fatalf("stored %+v, want an issue comment", st.comments)
 	}
-	if !strings.Contains(screen(m), "◆ issue") {
+	if !strings.Contains(screen(m), " issue") {
 		t.Fatalf("issue comment should show its type label:\n%s", screen(m))
 	}
 }
@@ -1754,10 +1754,10 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 		p, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(c).Render("x"), "x")
 		return p
 	}
-	if out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorNote)+"╭") || !strings.Contains(out[0], prefix(colorNote)+"◆ note") {
+	if out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorNote)+"╭") || !strings.Contains(out[0], prefix(colorNote)+" note") {
 		t.Fatalf("note box should use the note color: %q", out[0])
 	}
-	if out := renderComment(review.Comment{Kind: "issue", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorIssue)+"◆ issue") {
+	if out := renderComment(review.Comment{Kind: "issue", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorIssue)+" issue") {
 		t.Fatalf("issue box should use the red issue color and label: %q", out[0])
 	}
 
@@ -1767,7 +1767,7 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 	m, _ = press(t, m, "c")
 	for _, k := range []string{"comment", "note", "issue", "suggestion"} {
 		box := strings.Join(m.diffLines(), "\n")
-		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, "◆ "+k) {
+		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, " "+k) {
 			t.Fatalf("editor border should follow the %s type", k)
 		}
 		m, _ = press(t, m, "tab")
@@ -1858,7 +1858,7 @@ func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	for _, l := range lines {
 		text = append(text, strings.TrimRight(ansi.Strip(l), " "))
 	}
-	want := []string{"▌A README.md              +2 -0", " M img.png                +0 -0", "", " Reviewed", " M a/main.go              +2 -1 ✓"}
+	want := []string{"▌A README.md              +2 -0", " M img.png                +0 -0", "", " Reviewed", " M a/main.go              +2 -1 "}
 	if !reflect.DeepEqual(text, want) {
 		t.Fatalf("explorer = %q", text)
 	}
@@ -2584,7 +2584,7 @@ func TestPollFollowsACheckedOutBranch(t *testing.T) {
 	current = "other"
 	m = update(t, m, m.poll()())
 	out := screen(m)
-	if m.svc.Branch() != "other" || !strings.Contains(out, "⎇ other") || !strings.Contains(out, "switched to branch other") {
+	if m.svc.Branch() != "other" || !strings.Contains(out, " other") || !strings.Contains(out, "switched to branch other") {
 		t.Fatalf("branch = %q, view:\n%s", m.svc.Branch(), out)
 	}
 

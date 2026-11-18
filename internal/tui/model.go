@@ -303,9 +303,9 @@ func (m Model) statusMessage(room int) string {
 		return ""
 	}
 	marks := map[string]string{
-		"error":   errorStyle.Render("✗"),
-		"warning": primaryStyle.Render("⚠"),
-		"info":    lipgloss.NewStyle().Foreground(colorAdd).Render("✓"),
+		"error":   errorStyle.Render(iconError),
+		"warning": primaryStyle.Render(iconAlert),
+		"info":    lipgloss.NewStyle().Foreground(colorAdd).Render(iconCheck),
 		"sync":    primaryStyle.Render(spinnerFrames[m.spin%len(spinnerFrames)]),
 	}
 	return marks[icon] + " " + lipgloss.NewStyle().Foreground(colorForeground).Render(ansi.Truncate(text, room-2, "…"))
@@ -1771,9 +1771,9 @@ func (m Model) listLines() []string {
 		if i == cursor {
 			base = base.Background(colorCursorline)
 		}
-		marker, text := "◆", colorForeground
+		marker, text := iconComment, colorForeground
 		if c.Resolved {
-			marker, text = "✓", colorDim
+			marker, text = iconCheck, colorDim
 		}
 		line := base.Foreground(kindColor(c.Kind)).Render(fmt.Sprintf(" %s %-10s ", marker, c.Kind)) + base.Foreground(text).Render(where) + base.Foreground(colorDim).Render("  "+commentState(c)+"  "+first)
 		lines[i] = fit(line, m.width-2, base)
@@ -2025,7 +2025,7 @@ func (m Model) fileLines() ([]string, []int) {
 		}
 		mark := " "
 		if m.viewed[f.Path] {
-			mark = "✓"
+			mark = iconCheck
 		}
 		bar, nameColor := base.Render(indent), colorForeground
 		if i == m.fileCursor {
@@ -2103,7 +2103,7 @@ func (m Model) modeChip() string {
 }
 
 func (m Model) statusLine() string {
-	left := m.modeChip() + " " + primaryStyle.Render("⎇ ") + m.svc.Branch()
+	left := m.modeChip() + " " + primaryStyle.Render(iconBranch+" ") + m.svc.Branch()
 	if m.searching || m.query != "" {
 		count := dimStyle.Render(fmt.Sprintf("  %d/%d", m.matchPosition(), len(m.matches)))
 		if len(m.matches) == 0 && m.query != "" {

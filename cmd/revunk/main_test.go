@@ -68,7 +68,7 @@ func TestSetupWiresBranchAndBase(t *testing.T) {
 		}
 		updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 		out := ansi.Strip(updated.View().Content)
-		if !strings.Contains(out, want) || !strings.Contains(out, "⎇ feature") || strings.Contains(out, "…feature") || strings.Contains(out, filepath.Base(dir)+" ·") {
+		if !strings.Contains(out, want) || !strings.Contains(out, " feature") || strings.Contains(out, "…feature") || strings.Contains(out, filepath.Base(dir)+" ·") {
 			t.Fatalf("base %q: view missing %q, the branch in the status bar, or shows the branch in the diff title or the repo name:\n%s", base, want, out)
 		}
 	}

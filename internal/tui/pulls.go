@@ -765,25 +765,25 @@ func (m Model) actions() []action {
 	k := m.keys
 	var list []action
 	if m.modal.pr.Number > 0 {
-		list = append(list, action{"✎", "Edit the title and description", k.EditPR, modal(modalEdit)})
+		list = append(list, action{iconPencil, "Edit the title and description", k.EditPR, modal(modalEdit)})
 		if m.pr.Number == 0 {
-			list = append(list, action{"±", "Review the diff", k.OpenDiff, func(m *Model, pr review.PullRequest) tea.Cmd { return m.openDiff(pr) }})
+			list = append(list, action{iconDiff, "Review the diff", k.OpenDiff, func(m *Model, pr review.PullRequest) tea.Cmd { return m.openDiff(pr) }})
 		}
 		list = append(list,
-			action{"❝", "Comment", key.Binding{}, modal(modalComment)},
-			action{"✓", "Submit a review", key.Binding{}, modal(modalSubmit)},
-			action{"⎇", "Merge", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd { return m.openMerge(pr) }},
-			action{"✗", "Close without merging", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd {
+			action{iconComment, "Comment", key.Binding{}, modal(modalComment)},
+			action{iconReview, "Submit a review", key.Binding{}, modal(modalSubmit)},
+			action{iconMerge, "Merge", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd { return m.openMerge(pr) }},
+			action{iconClosed, "Close without merging", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd {
 				if pr.State != "OPEN" {
 					m.warning = fmt.Sprintf("#%d is already %s", pr.Number, strings.ToLower(pr.State))
 					return nil
 				}
 				return m.openModal(modalClose, pr)
 			}},
-			action{"◉", "Assignees", key.Binding{}, modal(modalAssignees)},
-			action{"◎", "Reviewers", key.Binding{}, modal(modalReviewers)},
-			action{"◆", "Labels", key.Binding{}, modal(modalLabels)},
-			action{"✦", "Request a review from Copilot", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd {
+			action{iconPerson, "Assignees", key.Binding{}, modal(modalAssignees)},
+			action{iconPeople, "Reviewers", key.Binding{}, modal(modalReviewers)},
+			action{iconTag, "Labels", key.Binding{}, modal(modalLabels)},
+			action{iconCopilot, "Request a review from Copilot", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd {
 				host := m.host
 				return m.hostAction(pr, fmt.Sprintf("requested a review of #%d from Copilot", pr.Number), func(ctx context.Context) error { return host.RequestCopilotReview(ctx, pr) })
 			}},
@@ -791,8 +791,8 @@ func (m Model) actions() []action {
 	}
 	if m.pr.Number == 0 {
 		list = append(list,
-			action{"↗", "Review a pull request from its URL", k.OpenURL, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalURL, review.PullRequest{}) }},
-			action{"+", "Create a pull request", k.CreatePR, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalCreate, review.PullRequest{}) }},
+			action{iconLink, "Review a pull request from its URL", k.OpenURL, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalURL, review.PullRequest{}) }},
+			action{iconPlus, "Create a pull request", k.CreatePR, func(m *Model, _ review.PullRequest) tea.Cmd { return m.openModal(modalCreate, review.PullRequest{}) }},
 		)
 	}
 	return list
@@ -981,9 +981,9 @@ func (m Model) dropdownLines() []string {
 		if d.focus == n {
 			labelStyle, value = primaryStyle, lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary)
 		}
-		arrow := "▾"
+		arrow := iconDropdown
 		if d.expanded && d.focus == n {
-			arrow = "▴"
+			arrow = iconDropdownOpen
 		}
 		shown := cmp.Or(dr.value(), "default branch")
 		if n > 0 {
@@ -1005,7 +1005,7 @@ func (m Model) dropdownList() string {
 	for i, c := range dr.choices[top:min(top+dropdownRows, len(dr.choices))] {
 		style, mark := lipgloss.NewStyle().Foreground(colorDim).Background(colorPanel), "  "
 		if i+top == dr.choice {
-			style, mark = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary), "▸ "
+			style, mark = lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary), iconCollapsed+" "
 		}
 		items = append(items, style.Render(fmt.Sprintf("%-*s", dr.width(), mark+c)))
 	}
@@ -1412,19 +1412,24 @@ var checkIcons = []struct {
 	icon  string
 	color lipgloss.Style
 }{
-	{"✓", lipgloss.NewStyle().Foreground(colorAdd)},
-	{"●", lipgloss.NewStyle().Foreground(colorPrimary)},
-	{"✗", lipgloss.NewStyle().Foreground(colorDel)},
-	{"○", dimStyle},
+	{iconCheck, lipgloss.NewStyle().Foreground(colorAdd)},
+	{iconDot, lipgloss.NewStyle().Foreground(colorPrimary)},
+	{iconX, lipgloss.NewStyle().Foreground(colorDel)},
+	{iconSkip, dimStyle},
 }
 
-var stateColors = map[string]color.Color{"OPEN": colorAdd, "MERGED": colorMerged, "CLOSED": colorIssue}
+type prState struct {
+	icon  string
+	color color.Color
+}
 
-func stateColor(state string) color.Color {
-	if c, ok := stateColors[state]; ok {
-		return c
+var prStates = map[string]prState{"OPEN": {iconPullRequest, colorAdd}, "MERGED": {iconMerge, colorMerged}, "CLOSED": {iconClosed, colorIssue}}
+
+func stateOf(state string) prState {
+	if s, ok := prStates[state]; ok {
+		return s
 	}
-	return colorDim
+	return prState{iconPullRequest, colorDim}
 }
 
 func checksIcon(checks []review.Check) string {
@@ -1514,10 +1519,10 @@ func (m Model) pullLines() []string {
 		}
 		icon := checksIcon(checks)
 		if pr.Draft {
-			icon = dimStyle.Render("◌")
+			icon = dimStyle.Render(iconDraft)
 		}
 		lines = append(lines,
-			columns(base, bar+base.Foreground(stateColor(state)).Render("⎇")+base.Render(" ")+base.Render(icon)+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
+			columns(base, bar+base.Foreground(stateOf(state).color).Render(stateOf(state).icon)+base.Render(" ")+base.Render(icon)+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
 				fmt.Sprint("+", pr.Additions), fmt.Sprint("-", pr.Deletions), "@"+pr.Author, age(pr.CreatedAt), age(pr.UpdatedAt), base.Foreground(titleColor)),
 			bar+base.Render("    "+strings.Repeat(" ", idW+2))+fit(base.Foreground(colorDim).Render(pr.Repo), m.pullsWidth()-2-5-idW-2, base),
 		)
@@ -1558,7 +1563,7 @@ func (p pullsState) render(body string, width int) []string {
 func people(pr review.PullRequest) string {
 	var out []string
 	for _, r := range pr.Reviewers {
-		icon := map[string]string{"APPROVED": "✓", "CHANGES_REQUESTED": "✗", "PENDING": "●", "COMMENTED": "💬"}[r.State]
+		icon := map[string]string{"APPROVED": iconCheck, "CHANGES_REQUESTED": iconX, "PENDING": iconDot, "COMMENTED": iconComment}[r.State]
 		out = append(out, strings.TrimSpace(icon+" @"+r.Login))
 	}
 	return strings.Join(out, "  ")
@@ -1585,7 +1590,8 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 	var starts []int
 	switch m.pulls.section {
 	case 0:
-		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(stateColor(pr.State)).Render(" ⎇ "+pr.State+" ")
+		s := stateOf(pr.State)
+		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(s.color).Render(" "+s.icon+" "+pr.State+" ")
 		if pr.Draft {
 			state += dimStyle.Render(" · draft")
 		}
@@ -1746,7 +1752,7 @@ func (m Model) renderModal(background string) string {
 		for i, c := range d.drops[0].choices {
 			style, mark := dimStyle, "  "
 			if i == d.drops[0].choice {
-				style, mark = primaryStyle, "▸ "
+				style, mark = primaryStyle, iconCollapsed+" "
 				if d.onChoices() {
 					style = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary)
 				}
