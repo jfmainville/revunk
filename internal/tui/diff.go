@@ -34,6 +34,7 @@ var (
 	colorError      = lipgloss.Color("#fdae95")
 	colorNote       = lipgloss.Color("#8fb8de")
 	colorIssue      = lipgloss.Color("#e5534b")
+	colorMerged     = lipgloss.Color("#b98ee0")
 
 	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle = lipgloss.NewStyle().Foreground(colorPrimary)

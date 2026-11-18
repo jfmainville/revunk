@@ -397,6 +397,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyDetail(msg)
 	case pullsTickMsg:
 		return m, m.pullsTicked()
+	case leftMsg:
+		return m, m.dropLeft(msg.key)
 	case nestedMsg:
 		if _, ok := msg.msg.(tickMsg); ok && m.diff != nil && msg.gen == m.diffGen && m.tab != tabPulls {
 			return m, nest(m.diff.tick(), m.diffGen)

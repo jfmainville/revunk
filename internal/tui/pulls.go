@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"reflect"
 	"slices"
 	"strings"
@@ -61,6 +62,7 @@ var mergeMethods = []struct {
 
 var (
 	pullsPollEvery = 10 * time.Second
+	leaveAfter     = 5 * time.Second
 	now            = time.Now
 )
 
@@ -72,6 +74,7 @@ type pullsState struct {
 	loading  bool
 	started  bool
 	details  map[string]review.PullRequest
+	leaving  map[string]bool
 	markdown map[string][]string
 	sidebar  bool
 	section  int
@@ -158,6 +161,8 @@ type detailMsg struct {
 }
 
 type pullsTickMsg struct{}
+
+type leftMsg struct{ key string }
 
 type nestedMsg struct {
 	gen int
@@ -307,8 +312,14 @@ func (m *Model) applyPulls(msg pullsMsg) tea.Cmd {
 	if pr, ok := m.selectedPR(); ok {
 		selected = prKey(pr)
 	}
-	m.pulls.list, m.pulls.cursor = msg.list, 0
-	for i, pr := range msg.list {
+	list := slices.Clone(msg.list)
+	for i, pr := range m.pulls.list {
+		if m.pulls.leaving[prKey(pr)] && !slices.ContainsFunc(list, func(p review.PullRequest) bool { return prKey(p) == prKey(pr) }) {
+			list = slices.Insert(list, min(i, len(list)), pr)
+		}
+	}
+	m.pulls.list, m.pulls.cursor = list, 0
+	for i, pr := range list {
 		if prKey(pr) == selected {
 			m.pulls.cursor = i
 		}
@@ -346,6 +357,35 @@ func (m *Model) applyDetail(msg detailMsg) tea.Cmd {
 	}
 	if pr, ok := m.selectedPR(); ok && prKey(pr) == msg.key {
 		m.pulls.item = min(m.pulls.item, max(len(commentItems(pr))-1, 0))
+	}
+	listed := slices.ContainsFunc(m.pulls.list, func(pr review.PullRequest) bool { return prKey(pr) == msg.key })
+	if (msg.pr.State != "MERGED" && msg.pr.State != "CLOSED") || !listed || m.pulls.leaving[msg.key] {
+		return nil
+	}
+	if m.pulls.leaving == nil {
+		m.pulls.leaving = map[string]bool{}
+	}
+	m.pulls.leaving[msg.key] = true
+	return tea.Tick(leaveAfter, func(time.Time) tea.Msg { return leftMsg{key: msg.key} })
+}
+
+func (m *Model) dropLeft(key string) tea.Cmd {
+	delete(m.pulls.leaving, key)
+	i := slices.IndexFunc(m.pulls.list, func(pr review.PullRequest) bool { return prKey(pr) == key })
+	if i < 0 {
+		return nil
+	}
+	m.pulls.list = slices.Delete(slices.Clone(m.pulls.list), i, i+1)
+	switch {
+	case m.pulls.cursor > i:
+		m.pulls.cursor--
+		return nil
+	case m.pulls.cursor < i:
+		return nil
+	}
+	m.pulls.cursor, m.pulls.scroll, m.pulls.item = min(m.pulls.cursor, max(len(m.pulls.list)-1, 0)), 0, 0
+	if pr, ok := m.selectedPR(); ok && !pr.Detailed {
+		return m.fetchDetail(pr)
 	}
 	return nil
 }
@@ -1378,6 +1418,15 @@ var checkIcons = []struct {
 	{"○", dimStyle},
 }
 
+var stateColors = map[string]color.Color{"OPEN": colorAdd, "MERGED": colorMerged, "CLOSED": colorIssue}
+
+func stateColor(state string) color.Color {
+	if c, ok := stateColors[state]; ok {
+		return c
+	}
+	return colorDim
+}
+
 func checksIcon(checks []review.Check) string {
 	if len(checks) == 0 {
 		return " "
@@ -1443,7 +1492,7 @@ func (m Model) pullLines() []string {
 		openedW = max(openedW, len(age(pr.CreatedAt)))
 		updatedW = max(updatedW, len(age(pr.UpdatedAt)))
 	}
-	titleW := max(m.pullsWidth()-2-(3+idW+2+2+addW+1+delW+2+authorW+2+openedW+2+updatedW+1), 8)
+	titleW := max(m.pullsWidth()-2-(5+idW+2+2+addW+1+delW+2+authorW+2+openedW+2+updatedW+1), 8)
 	columns := func(base lipgloss.Style, lead, id, title, add, del, author, opened, updated string, title2 lipgloss.Style) string {
 		dim, gap := base.Foreground(colorDim), base.Render("  ")
 		return lead + cell(id, idW, false, dim) + gap + cell(title, titleW, false, title2) + gap +
@@ -1451,7 +1500,7 @@ func (m Model) pullLines() []string {
 			cell(author, authorW, false, dim) + gap + cell(opened, openedW, true, dim) + gap + cell(updated, updatedW, true, dim) + base.Render(" ")
 	}
 	header := lipgloss.NewStyle()
-	lines := []string{columns(header, dimStyle.Render("   "), "#", "title", "+", "-", "author", "opened", "updated", dimStyle)}
+	lines := []string{columns(header, dimStyle.Render("     "), "#", "title", "+", "-", "author", "opened", "updated", dimStyle)}
 	for i, pr := range visible {
 		base := lipgloss.NewStyle()
 		bar, titleColor := base.Render(" "), colorForeground
@@ -1459,18 +1508,18 @@ func (m Model) pullLines() []string {
 			base = base.Background(colorCursorline)
 			bar, titleColor = base.Foreground(colorPrimary).Render("▌"), colorPrimary
 		}
-		checks := pr.Checks
+		checks, state := pr.Checks, pr.State
 		if d, ok := m.pulls.details[prKey(pr)]; ok {
-			checks = d.Checks
+			checks, state = d.Checks, d.State
 		}
 		icon := checksIcon(checks)
 		if pr.Draft {
 			icon = dimStyle.Render("◌")
 		}
 		lines = append(lines,
-			columns(base, bar+base.Render(icon)+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
+			columns(base, bar+base.Foreground(stateColor(state)).Render("⎇")+base.Render(" ")+base.Render(icon)+base.Render(" "), fmt.Sprint("#", pr.Number), pr.Title,
 				fmt.Sprint("+", pr.Additions), fmt.Sprint("-", pr.Deletions), "@"+pr.Author, age(pr.CreatedAt), age(pr.UpdatedAt), base.Foreground(titleColor)),
-			bar+base.Render("  "+strings.Repeat(" ", idW+2))+fit(base.Foreground(colorDim).Render(pr.Repo), m.pullsWidth()-2-3-idW-2, base),
+			bar+base.Render("    "+strings.Repeat(" ", idW+2))+fit(base.Foreground(colorDim).Render(pr.Repo), m.pullsWidth()-2-5-idW-2, base),
 		)
 	}
 	return lines
@@ -1536,7 +1585,7 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 	var starts []int
 	switch m.pulls.section {
 	case 0:
-		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" "+pr.State+" ")
+		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(stateColor(pr.State)).Render(" ⎇ "+pr.State+" ")
 		if pr.Draft {
 			state += dimStyle.Render(" · draft")
 		}

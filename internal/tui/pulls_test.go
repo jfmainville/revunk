@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"slices"
 	"strings"
 	"testing"
@@ -269,9 +270,9 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 	for _, l := range detail {
 		plain = append(plain, strings.TrimSpace(ansi.Strip(l)))
 	}
-	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" OPEN ")
+	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorAdd).Render(" ⎇ OPEN ")
 	if !strings.Contains(detail[1], chip) {
-		t.Fatalf("the state should be an accent chip: %q", detail[1])
+		t.Fatalf("an open state should be a green chip: %q", detail[1])
 	}
 	for _, name := range []string{"assignees", "reviewers", "labels", "checks", "description"} {
 		i := slices.IndexFunc(plain, func(l string) bool { return strings.HasPrefix(l, name) })
@@ -279,7 +280,7 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 			t.Errorf("%s should follow a blank line: %q", name, plain)
 		}
 	}
-	if !strings.Contains(out, "▌✗ #7") || !strings.Contains(out, "◌ #8") {
+	if !strings.Contains(out, "▌⎇ ✗ #7") || !strings.Contains(out, "⎇ ◌ #8") {
 		t.Fatalf("the list should show the failing checks and the draft:\n%s", out)
 	}
 	m = pressRun(t, m, "1")
@@ -1662,7 +1663,7 @@ func TestCreatePullRequestFromTheActions(t *testing.T) {
 	}
 	rows := strings.Split(out, "\n")
 	at := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, "branch      feature") })
-	if !strings.Contains(rows[at+2], "into        main") || strings.Trim(rows[at+1][strings.Index(rows[at+1], "│ "):], "│ ◌▌") != "" {
+	if !strings.Contains(rows[at+2], "into        main") || strings.Trim(rows[at+1][strings.Index(rows[at+1], "│ "):], "│ ◌▌⎇") != "" {
 		t.Fatalf("an empty line should separate the source and target branches:\n%s", strings.Join(rows[at:at+3], "\n"))
 	}
 	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title can't be empty" {
@@ -2086,5 +2087,62 @@ func TestTitleBoxIsOneVimLine(t *testing.T) {
 	}
 	if m.modal.area.Value() != "Adds **login** support" {
 		t.Fatal("editing the title should leave the description alone")
+	}
+}
+
+func TestMergedPullRequestTurnsPurpleThenLeavesTheList(t *testing.T) {
+	m, host := pullsModel(t)
+	if raw := m.View().Content; !strings.Contains(raw, lipgloss.NewStyle().Background(colorCursorline).Foreground(colorAdd).Render("⎇")) {
+		t.Fatalf("open pull requests should show a green icon:\n%s", raw)
+	}
+	m = runAction(t, m, "merge")
+	m = pressRun(t, m, "ctrl+s")
+	merged := lipgloss.NewStyle().Background(colorCursorline).Foreground(colorMerged).Render("⎇")
+	if raw := m.View().Content; !host.has("merge o/r#7 MERGE Merge pull request #7 from o/login|Add login") || !strings.Contains(raw, merged) {
+		t.Fatalf("the merged pull request should turn purple right after the merge, calls=%q:\n%s", host.calls, raw)
+	}
+	if _, cmd := m.Update(detailMsg{key: "o/r#7", pr: host.details["o/r#7"]}); cmd != nil {
+		t.Fatal("a second reload of the merged pull request should not start another timer")
+	}
+
+	other := m.pulls.list[1]
+	m = update(t, m, pullsMsg{list: []review.PullRequest{other}})
+	if len(m.pulls.list) != 2 || prKey(m.pulls.list[0]) != "o/r#7" || m.pulls.cursor != 0 {
+		t.Fatalf("the merged pull request should stay in the list until its time is up, list=%v cursor=%d", m.pulls.list, m.pulls.cursor)
+	}
+
+	updated, cmd := m.Update(leftMsg{key: "o/r#7"})
+	m = updated.(Model)
+	if len(m.pulls.list) != 1 || prKey(m.pulls.list[0]) != "o/s#8" || m.pulls.cursor != 0 || cmd == nil || strings.Contains(screen(m), "Add login") {
+		t.Fatalf("the merged pull request should leave the list and select the next one, list=%v cursor=%d:\n%s", m.pulls.list, m.pulls.cursor, screen(m))
+	}
+	if m = update(t, m, pullsMsg{list: []review.PullRequest{other}}); len(m.pulls.list) != 1 {
+		t.Fatal("a removed pull request should not come back on the next reload")
+	}
+}
+
+func TestClosedPullRequestTurnsRedAndLeavesWithoutMovingTheSelection(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "j")
+	closed := host.details["o/r#7"]
+	closed.State = "CLOSED"
+	updated, cmd := m.Update(detailMsg{key: "o/r#7", pr: closed})
+	m = updated.(Model)
+	if raw := m.View().Content; cmd == nil || !strings.Contains(raw, lipgloss.NewStyle().Foreground(colorIssue).Render("⎇")) {
+		t.Fatalf("a closed pull request should show a red icon and start its timer:\n%s", raw)
+	}
+	if m = update(t, m, leftMsg{key: "o/r#7"}); len(m.pulls.list) != 1 || prKey(m.pulls.list[m.pulls.cursor]) != "o/s#8" {
+		t.Fatalf("the selection should stay on #8, list=%v cursor=%d", m.pulls.list, m.pulls.cursor)
+	}
+	if m = update(t, m, leftMsg{key: "o/r#7"}); len(m.pulls.list) != 1 {
+		t.Fatal("a second removal of the same pull request should change nothing")
+	}
+}
+
+func TestStateColor(t *testing.T) {
+	for state, want := range map[string]color.Color{"OPEN": colorAdd, "MERGED": colorMerged, "CLOSED": colorIssue, "": colorDim} {
+		if got := stateColor(state); got != want {
+			t.Errorf("stateColor(%q) = %v, want %v", state, got, want)
+		}
 	}
 }
