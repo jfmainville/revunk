@@ -867,7 +867,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 		t.Fatal("gd should open the review diff")
 	}
 	out := screen(m)
-	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "main…o/r#7") || !strings.Contains(footer, "A actions") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") || strings.Contains(footer, "x resolve") || strings.Contains(footer, "r reply") {
+	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "vs main") || !strings.Contains(footer, "A actions") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") || strings.Contains(footer, "x resolve") || strings.Contains(footer, "r reply") {
 		t.Fatalf("review diff screen:\n%s", out)
 	}
 	if m = pressRun(t, m, "S"); m.diff.notice != "" {
@@ -928,7 +928,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 	if m.tab != tabAgent || m.diff == nil {
 		t.Fatal("1 should show the Agent tab and keep the review diff")
 	}
-	if m = pressRun(t, m, "2"); !strings.Contains(screen(m), "main…o/r#7") {
+	if m = pressRun(t, m, "2"); !strings.Contains(screen(m), "vs main") {
 		t.Fatal("2 should come back to the review diff")
 	}
 	m = update(t, m, tea.WindowSizeMsg{Width: 90, Height: 30})

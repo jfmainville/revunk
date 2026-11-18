@@ -1907,7 +1907,7 @@ func (m Model) tabBar() string {
 
 func (m Model) rangeLabel() string {
 	if m.commit == 0 {
-		return m.base + "…" + m.svc.Branch()
+		return "vs " + m.base
 	}
 	return m.commits[m.commit-1].Short()
 }

@@ -61,15 +61,15 @@ func gitRepo(t *testing.T) string {
 
 func TestSetupWiresBranchAndBase(t *testing.T) {
 	dir := gitRepo(t)
-	for base, want := range map[string]string{"": "main…feature", "develop": "develop…feature"} {
+	for base, want := range map[string]string{"": "vs main", "develop": "vs develop"} {
 		model, err := setup(context.Background(), dir, base)
 		if err != nil {
 			t.Fatal(err)
 		}
 		updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 		out := ansi.Strip(updated.View().Content)
-		if !strings.Contains(out, want) || strings.Contains(out, filepath.Base(dir)+" ·") {
-			t.Fatalf("base %q: view missing %q or repo name:\n%s", base, want, out)
+		if !strings.Contains(out, want) || !strings.Contains(out, "⎇ feature") || strings.Contains(out, "…feature") || strings.Contains(out, filepath.Base(dir)+" ·") {
+			t.Fatalf("base %q: view missing %q, the branch in the status bar, or shows the branch in the diff title or the repo name:\n%s", base, want, out)
 		}
 	}
 }
