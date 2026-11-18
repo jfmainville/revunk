@@ -255,7 +255,7 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 	out := screen(m)
 	for _, want := range []string{"Agent", "Pull Request", "pull requests", "assigned · 2", "#7", "Add login", "o/r", "2h", "#8", "Fix logout", "o/s", "2d", "author", "updated",
 		"#7 o/r", "Overview", "Activity", "Comments", "Commits", "Files", " OPEN ", "+10 -2 · 1 files · 1 commits",
-		"assignees  @me", "reviewers   @bob   @cy", "labels     auth", "checks      1   1   1", " build success", " test failure", "description", "Adds login support"} {
+		"assignees  @me", "reviewers   @bob   @cy", "labels     auth", "checks     ✓ 1  ● 1  ✗ 1", "✓ build success", "✗ test failure", "description", "Adds login support"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
 		}
@@ -279,7 +279,7 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 			t.Errorf("%s should follow a blank line: %q", name, plain)
 		}
 	}
-	if !strings.Contains(out, "▌\uf407  #7") || !strings.Contains(out, "\uf407  #8") {
+	if !strings.Contains(out, "▌\uf407 ✗ #7") || !strings.Contains(out, "\uf407  #8") {
 		t.Fatalf("the list should show the failing checks and the draft:\n%s", out)
 	}
 	m = pressRun(t, m, "1")
@@ -1093,7 +1093,7 @@ func TestPullsHelpers(t *testing.T) {
 	for _, c := range []struct {
 		checks []string
 		want   string
-	}{{nil, " "}, {[]string{"SUCCESS", "SKIPPED"}, ""}, {[]string{"SUCCESS", "QUEUED"}, ""}, {[]string{"FAILURE", "IN_PROGRESS"}, ""}, {[]string{"PENDING", "TIMED_OUT"}, ""}, {[]string{"NEUTRAL"}, ""}} {
+	}{{nil, " "}, {[]string{"SUCCESS", "SKIPPED"}, "✓"}, {[]string{"SUCCESS", "QUEUED"}, "●"}, {[]string{"FAILURE", "IN_PROGRESS"}, "✗"}, {[]string{"PENDING", "TIMED_OUT"}, "✗"}, {[]string{"NEUTRAL"}, "✓"}} {
 		var checks []review.Check
 		for _, s := range c.checks {
 			checks = append(checks, review.Check{State: s})

@@ -5,7 +5,7 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 ## Requirements
 
 - Go 1.26 or later
-- A [Nerd Font](https://www.nerdfonts.com) version 3 or later set as the terminal font, since every icon is a Nerd Font glyph from GitHub's Octicons
+- A [Nerd Font](https://www.nerdfonts.com) version 3 or later set as the terminal font, since the icons are Nerd Font glyphs from GitHub's Octicons
 - `git`
 - [herdr](https://herdr.dev) with Claude Code or opencode, only to send comments with `S`
 - The [GitHub CLI](https://cli.github.com), `gh`, signed in with `gh auth login`, only for the **Pull Request** tab
@@ -101,7 +101,7 @@ Every modal and editor saves with `ctrl+s` only and cancels or closes with `esc`
 
 ## Pull Request tab
 
-Press `2` to open the **Pull Request** tab, and `1` to go back to the **Agent** tab. It lists the open pull requests assigned to you on GitHub, across every repository, loaded in the background once the branch loads so the tab opens with them, and `s` switches the filter to the ones where your review is requested, the ones you authored, and the ones that involve you. Each pull request takes two lines. The first shows GitHub's state icon, a green `git-pull-request` when open, a purple `git-merge` when merged, and a red `git-pull-request-closed` when closed, then a mark for its latest checks, `check` passed, `dot-fill` running, `x` failed, or `git-pull-request-draft` for a draft, then its number, its title, cut with `…` when it doesn't fit, its added and removed lines, its author, and how long ago it was opened and last updated, each in a column under a header so the rows line up. The second line shows the repository. The list takes 60% of the width and the details sidebar the rest.
+Press `2` to open the **Pull Request** tab, and `1` to go back to the **Agent** tab. It lists the open pull requests assigned to you on GitHub, across every repository, loaded in the background once the branch loads so the tab opens with them, and `s` switches the filter to the ones where your review is requested, the ones you authored, and the ones that involve you. Each pull request takes two lines. The first shows GitHub's state icon, a green `git-pull-request` when open, a purple `git-merge` when merged, and a red `git-pull-request-closed` when closed, then a mark for its latest checks, a green `✓` passed, `●` running, `✗` failed, or the `git-pull-request-draft` icon for a draft, then its number, its title, cut with `…` when it doesn't fit, its added and removed lines, its author, and how long ago it was opened and last updated, each in a column under a header so the rows line up. The second line shows the repository. The list takes 60% of the width and the details sidebar the rest.
 
 The sidebar on the right shows the selected pull request, and `enter` focuses it. `tab` and `shift+tab` move between its tabs:
 

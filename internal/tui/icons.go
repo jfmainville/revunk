@@ -4,7 +4,6 @@ const (
 	iconCheck        = ""
 	iconX            = ""
 	iconDot          = ""
-	iconSkip         = ""
 	iconError        = ""
 	iconAlert        = ""
 	iconComment      = ""

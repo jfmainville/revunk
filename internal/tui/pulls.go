@@ -1412,10 +1412,10 @@ var checkIcons = []struct {
 	icon  string
 	color lipgloss.Style
 }{
-	{iconCheck, lipgloss.NewStyle().Foreground(colorAdd)},
-	{iconDot, lipgloss.NewStyle().Foreground(colorPrimary)},
-	{iconX, lipgloss.NewStyle().Foreground(colorDel)},
-	{iconSkip, dimStyle},
+	{"✓", lipgloss.NewStyle().Foreground(colorAdd)},
+	{"●", lipgloss.NewStyle().Foreground(colorPrimary)},
+	{"✗", lipgloss.NewStyle().Foreground(colorDel)},
+	{"○", dimStyle},
 }
 
 type prState struct {
