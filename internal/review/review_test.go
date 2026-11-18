@@ -643,3 +643,39 @@ func TestParsePullRequestURL(t *testing.T) {
 		t.Fatalf("empty err = %v", err)
 	}
 }
+
+func TestSyncBranchFollowsTheCheckedOutBranch(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	if err := st.AddComment(ctx, "two", review.Comment{Path: "a.go", Body: "on two"}); err != nil {
+		t.Fatal(err)
+	}
+	svc := review.NewService(&fakeSource{}, st, nil, "one")
+	if got, err := svc.SyncBranch(ctx); err != nil || got != svc {
+		t.Fatalf("without CurrentBranch got %p, %v, want the same service", got, err)
+	}
+
+	current := "one"
+	svc.CurrentBranch = func(context.Context) (string, error) { return current, nil }
+	if got, err := svc.SyncBranch(ctx); err != nil || got != svc {
+		t.Fatalf("unchanged branch got %p, %v, want the same service", got, err)
+	}
+
+	current = "two"
+	got, err := svc.SyncBranch(ctx)
+	if err != nil || got.Branch() != "two" || svc.Branch() != "one" {
+		t.Fatalf("got %v, %v, original %q", got, err, svc.Branch())
+	}
+	if comments, err := got.Comments(ctx); err != nil || len(comments) != 1 || comments[0].Body != "on two" {
+		t.Fatalf("comments after switch = %+v, %v", comments, err)
+	}
+}
+
+func TestSyncBranchWrapsErrors(t *testing.T) {
+	gitErr := errors.New("not a repository")
+	svc := review.NewService(&fakeSource{}, newStore(t), nil, "one")
+	svc.CurrentBranch = func(context.Context) (string, error) { return "", gitErr }
+	if got, err := svc.SyncBranch(context.Background()); !errors.Is(err, gitErr) || got != nil {
+		t.Fatalf("got %v, %v", got, err)
+	}
+}

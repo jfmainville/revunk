@@ -108,6 +108,7 @@ type editedMsg struct {
 }
 
 type polledMsg struct {
+	svc      *review.Service
 	pruned   int
 	commits  []review.Commit
 	commit   string
@@ -528,6 +529,10 @@ func (m Model) poll() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		msg := polledMsg{commit: sha}
+		if svc, msg.err = svc.SyncBranch(ctx); msg.err != nil {
+			return msg
+		}
+		msg.svc = svc
 		if msg.commits, msg.err = svc.Commits(ctx); msg.err != nil {
 			return msg
 		}
@@ -561,6 +566,10 @@ func (m *Model) applyPoll(msg polledMsg) {
 	if msg.pruned > 0 {
 		m.notice = prunedNotice(msg.pruned)
 	}
+	if msg.svc.Branch() != m.svc.Branch() {
+		m.notice = "switched to branch " + msg.svc.Branch()
+	}
+	m.svc = msg.svc
 	sha := m.commitSHA()
 	m.commits, m.commit = msg.commits, 0
 	for i, c := range msg.commits {

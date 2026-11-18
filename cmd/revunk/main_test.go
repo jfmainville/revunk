@@ -74,6 +74,21 @@ func TestSetupWiresBranchAndBase(t *testing.T) {
 	}
 }
 
+func TestServiceFollowsBranchCheckout(t *testing.T) {
+	ctx := context.Background()
+	dir := gitRepo(t)
+	svc, _, _, _, err := service(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "checkout", "-q", "-b", "other").CombinedOutput(); err != nil {
+		t.Fatalf("checkout: %v\n%s", err, out)
+	}
+	if svc, err = svc.SyncBranch(ctx); err != nil || svc.Branch() != "other" {
+		t.Fatalf("branch after checkout = %q, %v", svc.Branch(), err)
+	}
+}
+
 func TestRunReplyAddsReplyToComment(t *testing.T) {
 	ctx := context.Background()
 	dir := gitRepo(t)

@@ -1566,7 +1566,7 @@ func TestFailuresBackOff(t *testing.T) {
 	if m.failures != maxBackoff {
 		t.Fatalf("diff poll failures should back off, failures=%d", m.failures)
 	}
-	if m = update(t, m, polledMsg{}); m.failures != 0 {
+	if m = update(t, m, polledMsg{svc: m.svc}); m.failures != 0 {
 		t.Fatal("a successful poll should reset the backoff")
 	}
 }

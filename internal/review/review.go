@@ -276,12 +276,13 @@ type Agent interface {
 }
 
 type Service struct {
-	source       Source
-	store        Store
-	agent        Agent
-	branch       string
-	ReplyCommand string
-	Exists       func(path string) bool
+	source        Source
+	store         Store
+	agent         Agent
+	branch        string
+	ReplyCommand  string
+	Exists        func(path string) bool
+	CurrentBranch func(ctx context.Context) (string, error)
 }
 
 func NewService(source Source, store Store, agent Agent, branch string) *Service {
@@ -290,6 +291,22 @@ func NewService(source Source, store Store, agent Agent, branch string) *Service
 
 func (s *Service) Branch() string {
 	return s.branch
+}
+
+func (s *Service) SyncBranch(ctx context.Context) (*Service, error) {
+	if s.CurrentBranch == nil {
+		return s, nil
+	}
+	branch, err := s.CurrentBranch(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read the current branch: %w", err)
+	}
+	if branch == s.branch {
+		return s, nil
+	}
+	next := *s
+	next.branch = branch
+	return &next, nil
 }
 
 func (s *Service) Commits(ctx context.Context) ([]Commit, error) {

@@ -2575,3 +2575,22 @@ func TestLoadShowsThePlainDiffThenColorsIt(t *testing.T) {
 		t.Fatal("a refresh carrying older plain lines for unchanged files should keep the colors")
 	}
 }
+
+func TestPollFollowsACheckedOutBranch(t *testing.T) {
+	m, _ := loaded(t)
+	current := "feature"
+	m.svc.CurrentBranch = func(context.Context) (string, error) { return current, nil }
+
+	current = "other"
+	m = update(t, m, m.poll()())
+	out := screen(m)
+	if m.svc.Branch() != "other" || !strings.Contains(out, "⎇ other") || !strings.Contains(out, "switched to branch other") {
+		t.Fatalf("branch = %q, view:\n%s", m.svc.Branch(), out)
+	}
+
+	m.svc.CurrentBranch = func(context.Context) (string, error) { return "", errors.New("git broke") }
+	m = update(t, m, m.poll()())
+	if m.failures != 1 || m.svc.Branch() != "other" {
+		t.Fatalf("a failed branch read should fail the poll, failures=%d branch=%q", m.failures, m.svc.Branch())
+	}
+}
