@@ -254,10 +254,29 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 	}
 	out := screen(m)
 	for _, want := range []string{"Agent", "Pull Request", "pull requests", "assigned · 2", "#7", "Add login", "o/r", "2h", "#8", "Fix logout", "o/s", "2d", "author", "updated",
-		"#7 o/r", "Overview", "Activity", "Comments", "Commits", "Files", "OPEN · @ana wants to merge login into main", "+10 -2 · 1 files · 1 commits",
+		"#7 o/r", "Overview", "Activity", "Comments", "Commits", "Files", " OPEN ", "+10 -2 · 1 files · 1 commits",
 		"assignees  @me", "reviewers  ✓ @bob  ● @cy", "labels     auth", "checks     ✓ 1  ● 1  ✗ 1", "✓ build success", "✗ test failure", "description", "Adds login support"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
+		}
+	}
+	if strings.Contains(out, "wants to merge") {
+		t.Fatal("the overview should not repeat the branches")
+	}
+	pr, _ := m.selectedPR()
+	var plain []string
+	detail, _ := m.detailLines(pr, 80)
+	for _, l := range detail {
+		plain = append(plain, strings.TrimSpace(ansi.Strip(l)))
+	}
+	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" OPEN ")
+	if !strings.Contains(detail[1], chip) {
+		t.Fatalf("the state should be an accent chip: %q", detail[1])
+	}
+	for _, name := range []string{"assignees", "reviewers", "labels", "checks", "description"} {
+		i := slices.IndexFunc(plain, func(l string) bool { return strings.HasPrefix(l, name) })
+		if i < 1 || plain[i-1] != "" {
+			t.Errorf("%s should follow a blank line: %q", name, plain)
 		}
 	}
 	if !strings.Contains(out, "▌✗ #7") || !strings.Contains(out, "◌ #8") {

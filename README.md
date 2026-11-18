@@ -104,7 +104,7 @@ Press `2` to open the **Pull Request** tab, and `1` to go back to the **Agent** 
 
 The sidebar on the right shows the selected pull request, and `enter` focuses it. `tab` and `shift+tab` move between its tabs:
 
-- **Overview** shows the title, state, branches, line counts, assignees, reviewers with their review state, labels, the checks of the latest commit, and the description rendered as Markdown.
+- **Overview** shows the title, the state in an accent chip, line counts, then assignees, reviewers with their review state, labels, the checks of the latest commit, and the description rendered as Markdown, each separated by a blank line.
 - **Activity** lists the comments, replies, and reviews in the order they happened.
 - **Comments** shows the conversation, the reviews with a message, and the review threads on code, with their replies and reactions. `j` and `k` select a comment.
 - **Commits** and **Files** list the pull request's commits and changed files.

@@ -1536,18 +1536,21 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 	var starts []int
 	switch m.pulls.section {
 	case 0:
-		state := pr.State
+		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" "+pr.State+" ")
 		if pr.Draft {
-			state += " · draft"
+			state += dimStyle.Render(" · draft")
 		}
 		lines = append(lines,
 			" "+lipgloss.NewStyle().Bold(true).Foreground(colorForeground).Render(pr.Title),
-			" "+primaryStyle.Render(state)+dimStyle.Render(" · @"+pr.Author+" wants to merge "+pr.Head+" into "+pr.Base),
+			state,
 			" "+counts(pr.Additions, pr.Deletions, lipgloss.NewStyle())+dimStyle.Render(fmt.Sprintf(" · %d files · %d commits", pr.ChangedFiles, len(pr.Commits))),
 			"",
 			field("assignees", mentions(pr.Assignees)),
+			"",
 			field("reviewers", people(pr)),
+			"",
 			field("labels", strings.Join(pr.Labels, ", ")),
+			"",
 		)
 		summary := make([]int, len(checkIcons))
 		for _, c := range pr.Checks {
