@@ -35,7 +35,7 @@ const (
 	focusComments
 )
 
-var commentKinds = []string{"comment", "note", "suggestion"}
+var commentKinds = []string{"comment", "note", "issue", "suggestion"}
 
 type rowKind int
 
@@ -378,8 +378,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewed = msg.viewed
 			m.relayout()
 		}
-	case generalMsg:
-		m.applyGeneral(msg)
 		return m, nil
 	case commentsMsg:
 		m.err = msg.err
@@ -689,8 +687,6 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case is(key, k.Help):
 		m.help = true
-	case is(key, k.General):
-		return m, m.openModal(modalGeneral, review.PullRequest{})
 	case is(key, k.Actions) && m.pr.Number > 0:
 		return m, m.openModal(modalActions, m.pr)
 	case is(key, k.NextFocus):
@@ -930,23 +926,7 @@ func markMatches(tokens []token, query string) []token {
 		}
 		from += i + len(q)
 	}
-	var out []token
-	pos := 0
-	for _, t := range tokens {
-		start := 0
-		for j := 1; j <= len(t.text); j++ {
-			if j == len(t.text) || hit[pos+j] != hit[pos+start] {
-				style := t.style
-				if hit[pos+start] {
-					style = style.Background(colorPrimary).Foreground(colorOnPrimary)
-				}
-				out = append(out, token{text: t.text[start:j], style: style})
-				start = j
-			}
-		}
-		pos += len(t.text)
-	}
-	return out
+	return paint(tokens, hit, lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary))
 }
 
 func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -496,7 +496,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 		t.Fatal("blank comment should keep the editor open with a notice")
 	}
 	m.editor.area.SetValue("Use this:")
-	m, _ = press(t, m, "tab", "tab")
+	m, _ = press(t, m, "tab", "tab", "tab")
 	if want := "Use this:\n\n```suggestion\nfunc a() {}\nfunc b() {}\n```"; m.editor.area.Value() != want {
 		t.Fatalf("suggestion block = %q, want %q", m.editor.area.Value(), want)
 	}
@@ -508,12 +508,12 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	if m.editor.area.Value() != "first\nsecond\n" {
 		t.Fatalf("newlines not inserted: %q", m.editor.area.Value())
 	}
-	m, _ = press(t, m, "tab", "tab", "tab")
+	m, _ = press(t, m, "tab", "tab", "tab", "tab")
 	if strings.Count(m.editor.area.Value(), "```suggestion") != 1 {
 		t.Fatalf("suggestion injected twice: %q", m.editor.area.Value())
 	}
 	m, _ = press(t, m, "shift+tab")
-	if commentKinds[m.editor.kind] != "note" {
+	if commentKinds[m.editor.kind] != "issue" {
 		t.Fatalf("shift+tab kind = %s", commentKinds[m.editor.kind])
 	}
 	if m.editor.area.Value() != "first\nsecond" {
@@ -528,7 +528,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	}
 
 	m.cursor = rowOf(t, m, rowLine, 1, 2)
-	m, _ = press(t, m, "c", "tab", "tab")
+	m, _ = press(t, m, "c", "tab", "tab", "tab")
 	if m.editor.area.Value() != "" || !strings.Contains(screen(m), "suggestions apply") {
 		t.Fatal("suggestions on removed lines should be refused")
 	}
@@ -806,6 +806,87 @@ func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	plain := highlight(lexerFor("notes.unknownext"), review.ParseLines("@@ -1 +1 @@\n+just\ttext"))
 	if got := plain[1][0].text; got != "just    text" {
 		t.Fatalf("fallback token = %q, want tabs expanded", got)
+	}
+}
+
+func TestChangedWordsMarksOnlyTheDifferingWords(t *testing.T) {
+	marked := func(s string, hit []bool) string {
+		var b strings.Builder
+		for i, c := range []byte(s) {
+			if hit[i] {
+				b.WriteByte(c)
+			} else {
+				b.WriteByte('.')
+			}
+		}
+		return b.String()
+	}
+	for _, tc := range []struct{ name, a, b, wantOld, wantNew string }{
+		{"one word", "return foo(a, b)", "return foo(a, c)", "..............b.", "..............c."},
+		{"spaces between changed words", "a b c", "a x y c", "..b..", "..x y.."},
+		{"appended argument", "call(a)", "call(a, longer)", ".......", "......, longer."},
+		{"whitespace only", "a b", "a  b", ". .", ".  ."},
+		{"whole rewrite", "func old() {}", "var x = 42", "", ""},
+		{"blank line", "", "text", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldHit, newHit := changedWords(tc.a, tc.b)
+			if tc.wantOld == "" {
+				if oldHit != nil || newHit != nil {
+					t.Fatalf("lines too different should not be highlighted, got %q %q", marked(tc.a, oldHit), marked(tc.b, newHit))
+				}
+				return
+			}
+			if got := marked(tc.a, oldHit); got != tc.wantOld {
+				t.Errorf("old = %q, want %q", got, tc.wantOld)
+			}
+			if got := marked(tc.b, newHit); got != tc.wantNew {
+				t.Errorf("new = %q, want %q", got, tc.wantNew)
+			}
+		})
+	}
+	if oldHit, _ := changedWords(strings.Repeat("a ", 600), strings.Repeat("b ", 600)); oldHit != nil {
+		t.Fatal("very long lines should be skipped")
+	}
+}
+
+func TestMarkWordsPairsRemovedAndAddedLinesInOrder(t *testing.T) {
+	lines := review.ParseLines("@@ -1,3 +1,3 @@\n keep := 1\n-x := 1\n-y := 2\n+x := 3\n+totally different\n tail")
+	tokens := plainTokens(lines)
+	background := func(row int, text string) any {
+		for _, tk := range tokens[row] {
+			if tk.text == text {
+				return tk.style.GetBackground()
+			}
+		}
+		t.Fatalf("no %q token on row %d: %+v", text, row, tokens[row])
+		return nil
+	}
+	if background(2, "1") != colorDelWord || background(4, "3") != colorAddWord || background(2, "x := ") == colorDelWord || background(4, "x := ") == colorAddWord {
+		t.Fatal("the first removed and added lines should only highlight the changed number")
+	}
+	if len(tokens[1]) != 1 || len(tokens[3]) != 1 || len(tokens[5]) != 1 || len(tokens[6]) != 1 {
+		t.Fatal("context lines and lines too different should stay unhighlighted")
+	}
+}
+
+func TestChangedWordsAreHighlightedOnBothTabs(t *testing.T) {
+	bg := func(c color.Color) string {
+		r, g, b, _ := c.RGBA()
+		return fmt.Sprintf("48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
+	}
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	if out := strings.Join(m.diffLines(), "\n"); !strings.Contains(out, bg(colorDelWord)) || !strings.Contains(out, bg(colorAddWord)) {
+		t.Fatalf("the Agent diff should highlight old and a:\n%s", out)
+	}
+	pulls, _ := pullsModel(t)
+	pulls = pressRun(t, pulls, "g", "d")
+	if pulls.diff == nil {
+		t.Fatal("gd should open the review diff")
+	}
+	if out := strings.Join(pulls.diff.diffLines(), "\n"); !strings.Contains(out, bg(colorDelWord)) || !strings.Contains(out, bg(colorAddWord)) {
+		t.Fatalf("the review diff should highlight old and a:\n%s", out)
 	}
 }
 
@@ -1644,6 +1725,23 @@ func TestLeavingSuggestionRemovesOnlyTheBlock(t *testing.T) {
 	}
 }
 
+func TestIssueCommentKeepsItsType(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "This panics on nil.")
+	m, _ = press(t, m, "tab", "tab")
+	m, cmd := press(t, m, "ctrl+s")
+	m = run(t, m, cmd)
+	if len(st.comments) != 1 || st.comments[0].Kind != "issue" {
+		t.Fatalf("stored %+v, want an issue comment", st.comments)
+	}
+	if !strings.Contains(screen(m), "◆ issue") {
+		t.Fatalf("issue comment should show its type label:\n%s", screen(m))
+	}
+}
+
 func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 	seen := map[color.Color]bool{}
 	for _, k := range commentKinds {
@@ -1659,12 +1757,15 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 	if out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorNote)+"╭") || !strings.Contains(out[0], prefix(colorNote)+"◆ note") {
 		t.Fatalf("note box should use the note color: %q", out[0])
 	}
+	if out := renderComment(review.Comment{Kind: "issue", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorIssue)+"◆ issue") {
+		t.Fatalf("issue box should use the red issue color and label: %q", out[0])
+	}
 
 	m, _ := loaded(t)
 	m, _ = press(t, m, "l")
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 	m, _ = press(t, m, "c")
-	for _, k := range []string{"comment", "note", "suggestion"} {
+	for _, k := range []string{"comment", "note", "issue", "suggestion"} {
 		box := strings.Join(m.diffLines(), "\n")
 		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, "◆ "+k) {
 			t.Fatalf("editor border should follow the %s type", k)

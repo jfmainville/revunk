@@ -33,7 +33,7 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 - **commits** lists `all changes` and each commit on the branch. Selecting a commit shows only that commit's diff. The pane takes at most 10 rows, or a third of the height when that is smaller, and scrolls to keep the selected commit in view.
 - **files** lists the changed files grouped by directory, each with its added and removed line counts, and the totals in the pane title. Reviewed files move to a **Reviewed** section at the bottom, listed by full path. Marking a file reviewed from this pane selects the next file still to review. Selecting a file scrolls the diff to it, and moving through the diff keeps the file under the cursor selected, marked with a yellow bar.
-- **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, each line shows its number in the current file, or in the old file for removed lines, and code is syntax highlighted. The diff shows as soon as it loads and its colors follow a moment later, since highlighting a large diff takes longer than reading it. Lines wider than the pane wrap onto the next rows without changing the file.
+- **continuous diff** shows every file one after another, each under a header with its status, line counts, and viewed state. Added and removed lines are tinted, each line shows its number in the current file, or in the old file for removed lines, and code is syntax highlighted. Like on GitHub, each removed line is paired in order with an added line of the same change, and the words that differ between them get a stronger tint, unless the lines share less than half their text. The diff shows as soon as it loads and its colors follow a moment later, since highlighting a large diff takes longer than reading it. Lines wider than the pane wrap onto the next rows without changing the file.
 - Comments are drawn inline under the line, range, or file header they belong to. They support Markdown, and a ` ```suggestion ` block is shown as a suggested change against the commented lines.
 - **comments**, hidden until `t` is pressed, lists every comment on the branch with its file, lines, commit, and state. `enter` jumps to the selected comment, switching to its commit view when needed, `x` resolves or reopens it, and `dd` deletes it. Resolved comments show a `✓` and the `resolved` state.
 - A file marked viewed collapses and stays viewed until its diff changes. The reload notices the change, on the Agent tab and in a pull request's review diff, and expands the file again as not viewed.
@@ -74,7 +74,6 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `DD`                             | Delete every comment on the branch                                           |
 | `-`                              | Toggle the file's viewed state                                               |
 | `S`                              | Send unsent comments to the agent                                            |
-| `M`                              | Write a general comment and send it straight to the agent, on either tab     |
 | `y`                              | Copy unsent comments to the clipboard                                        |
 | `gf`                             | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
 | `gd`                             | Review the branch's pull request on the **Pull Request** tab                 |
@@ -88,18 +87,16 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 
 ### Comment editor
 
-| Key                | Action                                                                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ctrl+s`           | Save the comment                                                                                                                                                                            |
-| `enter`            | Insert a newline                                                                                                                                                                            |
-| `tab`, `shift+tab` | Cycle the type (comment, note, suggestion), each drawn in its own color. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
-| `esc`, `jj`        | Switch to normal mode, where `esc` cancels                                                                                                                                                  |
+| Key                | Action                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctrl+s`           | Save the comment                                                                                                                                                                                                       |
+| `enter`            | Insert a newline                                                                                                                                                                                                       |
+| `tab`, `shift+tab` | Cycle the type (comment, note, issue, suggestion), each drawn in its own color, with issues in red. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
+| `esc`, `jj`        | Switch to normal mode, where `esc` cancels                                                                                                                                                                             |
 
 The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `ctrl+d` `ctrl+u`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels. A text longer than its box scrolls to follow the cursor. The cursor is a bar in insert mode and a block in normal mode, in every comment box and modal, and the one line fields of the modals, always typing, show a bar.
 
 Every modal and editor saves with `ctrl+s` only and cancels or closes with `esc` only, so `q` and `enter` are never a shortcut for either.
-
-`M` opens a modal for a general comment that is not tied to a line. `ctrl+s` sends it straight to the agent, without storing it with the review comments.
 
 ## Pull Request tab
 
@@ -107,14 +104,14 @@ Press `2` to open the **Pull Request** tab, and `1` to go back to the **Agent** 
 
 The sidebar on the right shows the selected pull request, and `enter` focuses it. `tab` and `shift+tab` move between its tabs:
 
-- **Overview** shows the title, state, branches, line counts, assignees, reviewers with their review state, labels, the checks of the latest commit, and the description rendered as Markdown.
+- **Overview** shows the title, the state in an accent chip, line counts, then assignees, reviewers with their review state, labels, the checks of the latest commit, and the description rendered as Markdown, each separated by a blank line.
 - **Activity** lists the comments, replies, and reviews in the order they happened.
-- **Comments** shows the conversation, the reviews with a message, and the review threads on code, with their replies and reactions. `j` and `k` select a comment.
+- **Comments** shows the conversation, the reviews with a message, and the review threads on code, with their replies and reactions. `j` and `k` or a click select a comment, marked with its author in the accent color while the sidebar has focus, for `r` to reply or `+` to react. New comments are added from the actions modal.
 - **Commits** and **Files** list the pull request's commits and changed files.
 
 Every change is sent to GitHub through `gh`, then the pull request reloads. The list and the selected pull request also reload every 10 seconds while the tab is open, so new checks, comments, and reviews show up on their own.
 
-`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. The review diff reloads every 15 seconds, and `esc` closes it once nothing is selected or searched. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
+`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. The review diff reloads every 15 seconds, and `esc` closes it once nothing is selected or searched. Viewed files are saved locally, like on the **Agent** tab. A note or an issue is posted as a regular comment since GitHub has no such types.
 
 `A` opens the actions of the selected pull request, also from the review diff. With no pull request selected it lists only the ones that need none. It opens in its search, where typing filters them and `↓` `↑` or `ctrl+n` `ctrl+p` move. `esc` leaves the search for the list, where `j` `k` move and `/` or `i` goes back to the search, and `esc` there closes it. `enter` runs the selected action. Each action has a one cell icon in the accent color:
 

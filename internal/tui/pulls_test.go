@@ -254,10 +254,29 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 	}
 	out := screen(m)
 	for _, want := range []string{"Agent", "Pull Request", "pull requests", "assigned · 2", "#7", "Add login", "o/r", "2h", "#8", "Fix logout", "o/s", "2d", "author", "updated",
-		"#7 o/r", "Overview", "Activity", "Comments", "Commits", "Files", "OPEN · @ana wants to merge login into main", "+10 -2 · 1 files · 1 commits",
+		"#7 o/r", "Overview", "Activity", "Comments", "Commits", "Files", " OPEN ", "+10 -2 · 1 files · 1 commits",
 		"assignees  @me", "reviewers  ✓ @bob  ● @cy", "labels     auth", "checks     ✓ 1  ● 1  ✗ 1", "✓ build success", "✗ test failure", "description", "Adds login support"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
+		}
+	}
+	if strings.Contains(out, "wants to merge") {
+		t.Fatal("the overview should not repeat the branches")
+	}
+	pr, _ := m.selectedPR()
+	var plain []string
+	detail, _ := m.detailLines(pr, 80)
+	for _, l := range detail {
+		plain = append(plain, strings.TrimSpace(ansi.Strip(l)))
+	}
+	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" OPEN ")
+	if !strings.Contains(detail[1], chip) {
+		t.Fatalf("the state should be an accent chip: %q", detail[1])
+	}
+	for _, name := range []string{"assignees", "reviewers", "labels", "checks", "description"} {
+		i := slices.IndexFunc(plain, func(l string) bool { return strings.HasPrefix(l, name) })
+		if i < 1 || plain[i-1] != "" {
+			t.Errorf("%s should follow a blank line: %q", name, plain)
 		}
 	}
 	if !strings.Contains(out, "▌✗ #7") || !strings.Contains(out, "◌ #8") {
@@ -708,6 +727,9 @@ func TestReplyReactResolveTargetTheSelectedComment(t *testing.T) {
 	m = update(t, m, detailMsg{key: "o/r#7", pr: pr})
 	if m = pressRun(t, m, "r"); m.modal.open || !strings.Contains(m.warning, "no comments yet") || m.pulls.item != 0 {
 		t.Fatal("with no comments there is nothing to reply to")
+	}
+	if out := screen(m); !strings.Contains(out, "no comments yet") || strings.Contains(out, "to add one") {
+		t.Fatalf("the empty Comments tab should not point to c:\n%s", out)
 	}
 }
 
@@ -1163,6 +1185,45 @@ func TestClickingTabsSwitchesThem(t *testing.T) {
 	}
 }
 
+func TestCommentsTabSelectsCommentsByKeyAndClick(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "enter", "tab", "tab")
+	pr, _ := m.selectedPR()
+	chip := func(author string) string {
+		return lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render("@" + author)
+	}
+	marked := func(m Model) string {
+		lines, _ := m.detailLines(pr, m.sidebarWidth()-2)
+		return strings.Join(lines, "\n")
+	}
+	if out := marked(m); !strings.Contains(out, chip("ana")) || strings.Contains(out, chip("bob")) {
+		t.Fatalf("only the selected comment should be marked:\n%s", out)
+	}
+	m = pressRun(t, m, "j")
+	if out := marked(m); m.pulls.item != 1 || !strings.Contains(out, chip("bob")) || strings.Contains(out, chip("ana")) {
+		t.Fatalf("j should move the mark to the next comment, item=%d", m.pulls.item)
+	}
+	_, starts := m.detailLines(pr, m.sidebarWidth()-2)
+	if m, _ = click(t, m, m.pullsWidth()+4, 4+starts[0]-m.pulls.scroll+1); m.pulls.item != 0 {
+		t.Fatalf("clicking the first comment should select it, item=%d", m.pulls.item)
+	}
+	m = pressRun(t, m, "r")
+	if !strings.Contains(screen(m), "reply to @ana") {
+		t.Fatalf("r should reply to the clicked comment:\n%s", screen(m))
+	}
+	m = pressRun(t, m, "esc", "esc")
+	if m, _ = click(t, m, m.pullsWidth()+4, 4+starts[1]-m.pulls.scroll); m.pulls.item != 1 {
+		t.Fatalf("clicking the second comment should select it, item=%d", m.pulls.item)
+	}
+	if m = pressRun(t, m, "+"); !strings.Contains(screen(m), "react to @bob") {
+		t.Fatalf("+ should react to the clicked comment:\n%s", screen(m))
+	}
+	m = pressRun(t, m, "esc", "esc")
+	if m, _ = click(t, m, 3, 4); m.pulls.sidebar || strings.Contains(marked(m), chip("bob")) {
+		t.Fatal("the mark should only show while the sidebar has focus")
+	}
+}
+
 func TestClickingDetailTabsOpensThem(t *testing.T) {
 	m, _ := pullsModel(t)
 	x := m.pullsWidth() + 1
@@ -1438,11 +1499,7 @@ func TestModalsOverlayTheScreen(t *testing.T) {
 	if out := screen(m); !strings.Contains(out, "comment on #7") || !strings.Contains(out, "pull requests") {
 		t.Fatalf("the list should stay visible behind the modal:\n%s", out)
 	}
-	m = pressRun(t, m, "esc", "esc", "1", "M")
-	if out := screen(m); !strings.Contains(out, "general comment") || !strings.Contains(out, "files") {
-		t.Fatalf("the Agent panes should stay visible behind the modal:\n%s", out)
-	}
-	m = pressRun(t, m, "esc", "esc", "2", "g", "d")
+	m = pressRun(t, m, "esc", "esc", "g", "d")
 	m = runAction(t, m, "submit")
 	if out := screen(m); !strings.Contains(out, "submit your review of #7") || !strings.Contains(out, "files") {
 		t.Fatalf("the review diff should stay visible behind the submit modal:\n%s", out)

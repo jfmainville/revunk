@@ -543,13 +543,3 @@ func (s *Service) SendComments(ctx context.Context) (string, error) {
 	}
 	return name, s.store.UpdateComments(ctx, s.branch, ids(sent), func(c *Comment) { c.Sent = true })
 }
-
-func (s *Service) SendGeneral(ctx context.Context, text string) (string, error) {
-	if strings.TrimSpace(text) == "" {
-		return "", errors.New("comment is empty")
-	}
-	if s.agent == nil {
-		return "", errors.New("no coding agent is configured")
-	}
-	return s.agent.Prompt(ctx, fmt.Sprintf("General review comment on branch %s:\n\n%s", s.branch, text))
-}

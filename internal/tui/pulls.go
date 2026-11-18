@@ -95,7 +95,6 @@ const (
 	modalLabels
 	modalActions
 	modalClose
-	modalGeneral
 	modalCreate
 )
 
@@ -430,8 +429,6 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pulls.filter = (m.pulls.filter + 1) % len(pullFilters)
 		m.pulls.list, m.pulls.cursor, m.pulls.loading, m.pulls.sidebar = nil, 0, true, false
 		return m, m.fetchPulls()
-	case is(key, k.General):
-		return m, m.openModal(modalGeneral, review.PullRequest{})
 	case is(key, k.Actions) && m.host != nil:
 		return m, m.openModal(modalActions, pr)
 	case !ok:
@@ -557,7 +554,6 @@ func (m *Model) reviewPullRequest(host review.Host, pr review.PullRequest) {
 	m.keys.DeleteAll.SetEnabled(false)
 	m.keys.Resolve.SetEnabled(false)
 	m.keys.Reply.SetEnabled(false)
-	m.keys.General.SetEnabled(false)
 }
 
 func (m *Model) openDiff(pr review.PullRequest) tea.Cmd {
@@ -632,8 +628,6 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		d.drops = []drop{events}
 	case modalClose:
 		d.title, d.hasArea = fmt.Sprintf("close #%d without merging", pr.Number), true
-	case modalGeneral:
-		d.title, d.hasArea = "general comment, sent straight to the agent", true
 	case modalCreate:
 		d.title, d.hasArea, d.titled = "create a pull request", true, true
 		current := ""
@@ -1231,9 +1225,6 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 		}
 		m.modal = modalState{}
 		return m, m.createPR(d.drops[0].value(), d.drops[1].value(), title, description)
-	case modalGeneral:
-		m.modal = modalState{}
-		return m, m.sendGeneral(body)
 	case modalURL:
 		repo, number, err := review.ParsePullRequestURL(d.fields[0].Value())
 		if err != nil {
@@ -1545,18 +1536,21 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 	var starts []int
 	switch m.pulls.section {
 	case 0:
-		state := pr.State
+		state := " " + lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" "+pr.State+" ")
 		if pr.Draft {
-			state += " · draft"
+			state += dimStyle.Render(" · draft")
 		}
 		lines = append(lines,
 			" "+lipgloss.NewStyle().Bold(true).Foreground(colorForeground).Render(pr.Title),
-			" "+primaryStyle.Render(state)+dimStyle.Render(" · @"+pr.Author+" wants to merge "+pr.Head+" into "+pr.Base),
+			state,
 			" "+counts(pr.Additions, pr.Deletions, lipgloss.NewStyle())+dimStyle.Render(fmt.Sprintf(" · %d files · %d commits", pr.ChangedFiles, len(pr.Commits))),
 			"",
 			field("assignees", mentions(pr.Assignees)),
+			"",
 			field("reviewers", people(pr)),
+			"",
 			field("labels", strings.Join(pr.Labels, ", ")),
+			"",
 		)
 		summary := make([]int, len(checkIcons))
 		for _, c := range pr.Checks {
@@ -1597,7 +1591,7 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 	case tabComments:
 		items := commentItems(pr)
 		if len(items) == 0 {
-			lines = append(lines, dimStyle.Render(" no comments yet, press "+label(m.keys.Comment)+" to add one"))
+			lines = append(lines, dimStyle.Render(" no comments yet"))
 		}
 		for i, it := range items {
 			starts = append(starts, len(lines))
@@ -1608,11 +1602,11 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 				}
 				lines = append(lines, " "+lipgloss.NewStyle().Foreground(colorThread).Render(threadTitle(it)))
 			}
-			bar := " "
-			if i == m.pulls.item {
-				bar = primaryStyle.Render("▌")
+			bar, author := " ", primaryStyle.Render("@"+it.note.Author)
+			if i == m.pulls.item && m.pulls.sidebar {
+				bar, author = primaryStyle.Render("▌"), lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary).Render("@"+it.note.Author)
 			}
-			meta := primaryStyle.Render("@"+it.note.Author) + dimStyle.Render(" · "+age(it.note.CreatedAt))
+			meta := author + dimStyle.Render(" · "+age(it.note.CreatedAt))
 			if it.note.State == "PENDING" {
 				meta += dimStyle.Render(" · pending")
 			}
@@ -1818,6 +1812,16 @@ func (m Model) pullsMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pulls.sidebar = msg.X >= m.pullsWidth()
 		if i := tabAt(msg.X-m.pullsWidth()-1, detailTabs, 0); m.pulls.sidebar && msg.Y == 2 && i >= 0 {
 			m.pulls.section, m.pulls.scroll, m.pulls.item = i, 0, 0
+			return m, nil
+		}
+		if m.pulls.sidebar && m.pulls.section == tabComments && msg.Y >= 4 {
+			_, starts := m.detailLines(pr, m.sidebarWidth()-2)
+			line := m.pulls.scroll + msg.Y - 4
+			for i, start := range starts {
+				if start <= line {
+					m.pulls.item = i
+				}
+			}
 			return m, nil
 		}
 		row := msg.Y - 3
