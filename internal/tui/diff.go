@@ -34,6 +34,7 @@ var (
 	colorError      = lipgloss.Color("#fdae95")
 	colorNote       = lipgloss.Color("#8fb8de")
 	colorIssue      = lipgloss.Color("#e5534b")
+	colorMerged     = lipgloss.Color("#b98ee0")
 
 	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle = lipgloss.NewStyle().Foreground(colorPrimary)
@@ -295,7 +296,7 @@ func renderLine(l review.Line, tokens []token, width, part int, cursor, selected
 	if selected {
 		bg = colorVisual
 	}
-	if cursor {
+	if cursor && !selected {
 		bg = colorCursorline
 	}
 	base := lipgloss.NewStyle()
@@ -327,10 +328,10 @@ func renderLine(l review.Line, tokens []token, width, part int, cursor, selected
 
 func renderFileHeader(f review.File, viewed, cursor bool, width int) string {
 	base := lipgloss.NewStyle().Background(colorPanel)
-	arrow := "▾"
+	arrow := iconExpanded
 	state := "unseen"
 	if viewed {
-		arrow, state = "▸", "viewed"
+		arrow, state = iconCollapsed, "viewed"
 	}
 	bar := base.Render(" ")
 	if cursor {
@@ -447,7 +448,7 @@ func commentBox(kind, right string, lines []string, width int) []string {
 		padded[i] = " " + l
 	}
 	indent := strings.Repeat(" ", gutterWidth-2)
-	out := strings.Split(box("◆ "+kind, right, padded, commentWidth(width), len(lines)+2, kindColor(kind)), "\n")
+	out := strings.Split(box(iconComment+" "+kind, right, padded, commentWidth(width), len(lines)+2, kindColor(kind)), "\n")
 	for i, l := range out {
 		out[i] = indent + l
 	}
@@ -457,14 +458,14 @@ func commentBox(kind, right string, lines []string, width int) []string {
 func renderComment(c review.Comment, original []string, width int) []string {
 	wrap := max(commentWidth(width)-4, 10)
 	lines := renderMarkdown(expandSuggestions(c.Body, original), wrap)
-	reply := "↳ agent reply"
+	reply := iconReply + " agent reply"
 	if c.Author != "" {
-		reply = "↳ reply"
+		reply = iconReply + " reply"
 	}
 	for _, r := range c.Replies {
 		label := reply
 		if body, ok := strings.CutPrefix(r, review.YourReply); ok && c.Author == "" {
-			label, r = "↳ your reply", body
+			label, r = iconReply+" your reply", body
 		}
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(colorThread).Render(label))
 		lines = append(lines, renderMarkdown(r, wrap)...)

@@ -372,7 +372,6 @@ func (k keyMap) pullsHints() []hint {
 		{desc: "url", keys: []key.Binding{k.OpenURL}},
 		{desc: "edit", keys: []key.Binding{k.EditPR}},
 		{desc: "create", keys: []key.Binding{k.CreatePR}},
-		{desc: "agent", keys: []key.Binding{k.AgentTab}},
 		{desc: "help", keys: []key.Binding{k.Help}},
 	}
 }

@@ -108,6 +108,7 @@ type editedMsg struct {
 }
 
 type polledMsg struct {
+	svc      *review.Service
 	pruned   int
 	commits  []review.Commit
 	commit   string
@@ -149,6 +150,7 @@ type Model struct {
 	cursor     int
 	offset     int
 	anchor     int
+	dragFrom   int
 	fileCursor int
 	focus      focusArea
 	editing    bool
@@ -195,6 +197,7 @@ func New(svc *review.Service, root, base string) Model {
 		viewed:   map[string]bool{},
 		rendered: map[int][]string{},
 		anchor:   -1,
+		dragFrom: -1,
 		keys:     keys,
 		focus:    focusFiles,
 		loading:  true,
@@ -302,9 +305,9 @@ func (m Model) statusMessage(room int) string {
 		return ""
 	}
 	marks := map[string]string{
-		"error":   errorStyle.Render("✗"),
-		"warning": primaryStyle.Render("⚠"),
-		"info":    lipgloss.NewStyle().Foreground(colorAdd).Render("✓"),
+		"error":   errorStyle.Render(iconError),
+		"warning": primaryStyle.Render(iconAlert),
+		"info":    lipgloss.NewStyle().Foreground(colorAdd).Render(iconCheck),
 		"sync":    primaryStyle.Render(spinnerFrames[m.spin%len(spinnerFrames)]),
 	}
 	return marks[icon] + " " + lipgloss.NewStyle().Foreground(colorForeground).Render(ansi.Truncate(text, room-2, "…"))
@@ -396,6 +399,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyDetail(msg)
 	case pullsTickMsg:
 		return m, m.pullsTicked()
+	case leftMsg:
+		return m, m.dropLeft(msg.key)
 	case nestedMsg:
 		if _, ok := msg.msg.(tickMsg); ok && m.diff != nil && msg.gen == m.diffGen && m.tab != tabPulls {
 			return m, nest(m.diff.tick(), m.diffGen)
@@ -436,7 +441,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.clipboard != "" {
 			return m, tea.SetClipboard(msg.clipboard)
 		}
-	case tea.MouseClickMsg, tea.MouseWheelMsg:
+	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		if c, ok := msg.(tea.MouseClickMsg); ok && c.Button == tea.MouseLeft && c.Y == 0 && m.pr.Number == 0 && !m.help && !m.modal.open && !m.editing {
 			switch tabAt(c.X, tabNames, 1) {
 			case tabAgent:
@@ -456,6 +461,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice, m.warning, m.prefix = "", "", ""
 			return m, m.click(msg.X, msg.Y)
 		}
+	case tea.MouseMotionMsg:
+		if msg.Button == tea.MouseLeft && m.dragFrom >= 0 {
+			m.drag(msg.Y - 2)
+		}
+	case tea.MouseReleaseMsg:
+		m.dragFrom = -1
 	case tea.MouseWheelMsg:
 		if !m.editing && !m.help {
 			step := map[tea.MouseButton]int{tea.MouseWheelDown: 1, tea.MouseWheelUp: -1}[msg.Button]
@@ -528,6 +539,10 @@ func (m Model) poll() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		msg := polledMsg{commit: sha}
+		if svc, msg.err = svc.SyncBranch(ctx); msg.err != nil {
+			return msg
+		}
+		msg.svc = svc
 		if msg.commits, msg.err = svc.Commits(ctx); msg.err != nil {
 			return msg
 		}
@@ -561,6 +576,10 @@ func (m *Model) applyPoll(msg polledMsg) {
 	if msg.pruned > 0 {
 		m.notice = prunedNotice(msg.pruned)
 	}
+	if msg.svc.Branch() != m.svc.Branch() {
+		m.notice = "switched to branch " + msg.svc.Branch()
+	}
+	m.svc = msg.svc
 	sha := m.commitSHA()
 	m.commits, m.commit = msg.commits, 0
 	for i, c := range msg.commits {
@@ -1047,7 +1066,10 @@ func (m *Model) click(x, y int) tea.Cmd {
 			r -= m.rows[r].part
 		}
 		if r < len(m.rows) && m.rows[r].kind != rowText {
-			m.cursor = r
+			m.cursor, m.anchor, m.dragFrom = r, -1, -1
+			if m.rows[r].kind == rowLine {
+				m.dragFrom = r
+			}
 			m.syncFile()
 		}
 	case focusComments:
@@ -1071,11 +1093,32 @@ func (m *Model) scroll(x, y, step int) tea.Cmd {
 	case focusFiles:
 		m.stepFile(step)
 	case focusDiff:
-		m.move(3 * step)
+		m.offset = min(max(m.offset+3*step, 0), max(len(m.rows)-m.diffHeight(), 0))
 	case focusComments:
 		m.listCursor = min(max(m.listCursor+step, 0), max(len(m.comments)-1, 0))
 	}
 	return nil
+}
+
+func (m *Model) drag(i int) {
+	target := m.offset + i
+	switch {
+	case i < 0:
+		target = m.cursor - 1
+	case i >= m.diffHeight():
+		target = m.cursor + 1
+	}
+	for target >= 0 && target < len(m.rows) && m.rows[target].part > 0 {
+		target -= m.rows[target].part
+	}
+	if target < 0 || target >= len(m.rows) || m.rows[target].kind != rowLine || m.rows[target].file != m.rows[m.dragFrom].file {
+		return
+	}
+	m.cursor = target
+	if m.anchor < 0 && target != m.dragFrom {
+		m.anchor = m.dragFrom
+	}
+	m.syncFile()
 }
 
 func (m Model) window(seq string) focusArea {
@@ -1760,9 +1803,9 @@ func (m Model) listLines() []string {
 		if i == cursor {
 			base = base.Background(colorCursorline)
 		}
-		marker, text := "◆", colorForeground
+		marker, text := iconComment, colorForeground
 		if c.Resolved {
-			marker, text = "✓", colorDim
+			marker, text = iconCheck, colorDim
 		}
 		line := base.Foreground(kindColor(c.Kind)).Render(fmt.Sprintf(" %s %-10s ", marker, c.Kind)) + base.Foreground(text).Render(where) + base.Foreground(colorDim).Render("  "+commentState(c)+"  "+first)
 		lines[i] = fit(line, m.width-2, base)
@@ -1896,7 +1939,7 @@ func (m Model) tabBar() string {
 
 func (m Model) rangeLabel() string {
 	if m.commit == 0 {
-		return m.base + "…" + m.svc.Branch()
+		return "vs " + m.base
 	}
 	return m.commits[m.commit-1].Short()
 }
@@ -2014,7 +2057,7 @@ func (m Model) fileLines() ([]string, []int) {
 		}
 		mark := " "
 		if m.viewed[f.Path] {
-			mark = "✓"
+			mark = iconCheck
 		}
 		bar, nameColor := base.Render(indent), colorForeground
 		if i == m.fileCursor {
@@ -2092,7 +2135,7 @@ func (m Model) modeChip() string {
 }
 
 func (m Model) statusLine() string {
-	left := m.modeChip() + " " + primaryStyle.Render("⎇ ") + m.svc.Branch()
+	left := m.modeChip() + " " + primaryStyle.Render(iconBranch+" ") + m.svc.Branch()
 	if m.searching || m.query != "" {
 		count := dimStyle.Render(fmt.Sprintf("  %d/%d", m.matchPosition(), len(m.matches)))
 		if len(m.matches) == 0 && m.query != "" {

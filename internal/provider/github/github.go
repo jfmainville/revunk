@@ -475,6 +475,15 @@ func (c Client) RequestCopilotReview(ctx context.Context, pr review.PullRequest)
 	return err
 }
 
+func (c Client) SetDraft(ctx context.Context, pr review.PullRequest, draft bool) error {
+	args := []string{"pr", "ready", number(pr), "--repo", pr.Repo}
+	if draft {
+		args = append(args, "--undo")
+	}
+	_, err := c.run(ctx, args...)
+	return err
+}
+
 func (c Client) Close(ctx context.Context, pr review.PullRequest, comment string) error {
 	args := []string{"pr", "close", number(pr), "--repo", pr.Repo}
 	if strings.TrimSpace(comment) != "" {

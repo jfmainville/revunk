@@ -260,6 +260,7 @@ type Host interface {
 	Labels(ctx context.Context, repo string) ([]string, error)
 	SetLabels(ctx context.Context, pr PullRequest, labels []string) error
 	RequestCopilotReview(ctx context.Context, pr PullRequest) error
+	SetDraft(ctx context.Context, pr PullRequest, draft bool) error
 	Close(ctx context.Context, pr PullRequest, comment string) error
 	Branches(ctx context.Context, repo string) ([]string, string, error)
 	CreatePullRequest(ctx context.Context, head, base, title, body string) (PullRequest, error)
@@ -276,12 +277,13 @@ type Agent interface {
 }
 
 type Service struct {
-	source       Source
-	store        Store
-	agent        Agent
-	branch       string
-	ReplyCommand string
-	Exists       func(path string) bool
+	source        Source
+	store         Store
+	agent         Agent
+	branch        string
+	ReplyCommand  string
+	Exists        func(path string) bool
+	CurrentBranch func(ctx context.Context) (string, error)
 }
 
 func NewService(source Source, store Store, agent Agent, branch string) *Service {
@@ -290,6 +292,22 @@ func NewService(source Source, store Store, agent Agent, branch string) *Service
 
 func (s *Service) Branch() string {
 	return s.branch
+}
+
+func (s *Service) SyncBranch(ctx context.Context) (*Service, error) {
+	if s.CurrentBranch == nil {
+		return s, nil
+	}
+	branch, err := s.CurrentBranch(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read the current branch: %w", err)
+	}
+	if branch == s.branch {
+		return s, nil
+	}
+	next := *s
+	next.branch = branch
+	return &next, nil
 }
 
 func (s *Service) Commits(ctx context.Context) ([]Commit, error) {

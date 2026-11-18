@@ -186,7 +186,7 @@ func TestLoadedScreenMatchesDesignLayout(t *testing.T) {
 	m, _ := loaded(t)
 	out := screen(m)
 
-	for _, want := range []string{"Agent", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "main…feature", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", "⎇ feature", "0 comments · 0/3 viewed"} {
+	for _, want := range []string{"Agent", "commits", "all changes", "1111111 add readme", "files", "a/", "M main.go", "continuous diff", "vs main", "A  README.md", "+2 -0", "unseen", "@@ -1,3 +1,4 @@", "no textual changes", "NORMAL", " feature", "0 comments · 0/3 viewed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
 		}
@@ -386,7 +386,7 @@ func TestCommentOnLineIsSavedAndShownUnderIt(t *testing.T) {
 	}
 	out := screen(m)
 	lineAt := strings.Index(out, "func a() {}")
-	commentAt := strings.Index(out, "◆ note")
+	commentAt := strings.Index(out, " note")
 	if m.editing || commentAt < lineAt || !strings.Contains(out, "L2 · draft") || !strings.Contains(out, "Rename") || !strings.Contains(out, "1 comments") {
 		t.Fatalf("comment not rendered under its line:\n%s", out)
 	}
@@ -463,7 +463,7 @@ func TestFileCommentFromFilesPaneAndHeader(t *testing.T) {
 	m = run(t, m, cmd)
 
 	out := screen(m)
-	if !strings.Contains(out, "◆ comment") || !strings.Contains(out, "file · draft") || strings.Index(out, "Whole file") > strings.Index(out, "package main") {
+	if !strings.Contains(out, " comment") || !strings.Contains(out, "file · draft") || strings.Index(out, "Whole file") > strings.Index(out, "package main") {
 		t.Fatalf("file comment not shown below its header:\n%s", out)
 	}
 
@@ -603,13 +603,13 @@ func TestResolveHidesCommentFromDiffButKeepsItInThePane(t *testing.T) {
 	}
 
 	m, _ = press(t, m, "t")
-	if out := screen(m); !strings.Contains(out, "✓ nit") || !strings.Contains(out, "resolved  rename this") {
+	if out := screen(m); !strings.Contains(out, " nit") || !strings.Contains(out, "resolved  rename this") {
 		t.Fatalf("comments pane should keep the resolved comment:\n%s", out)
 	}
 
 	m, cmd = press(t, m, "x")
 	m = run(t, m, cmd)
-	if out := screen(m); st.comments[0].Resolved || !strings.Contains(out, "reopened the comment") || !strings.Contains(out, "◆ nit") || !strings.Contains(out, "L2 · draft") {
+	if out := screen(m); st.comments[0].Resolved || !strings.Contains(out, "reopened the comment") || !strings.Contains(out, " nit") || !strings.Contains(out, "L2 · draft") {
 		t.Fatalf("x in the pane should reopen the comment in the diff:\n%s", out)
 	}
 
@@ -651,7 +651,7 @@ func TestReplyAnswersTheAgentUnderTheComment(t *testing.T) {
 	if c := st.comments[0]; c.Sent || !reflect.DeepEqual(c.Replies, []string{"renamed to b", review.YourReply + "why b?"}) || len(st.comments) != 1 {
 		t.Fatalf("reply not saved as a follow-up: %+v", st.comments)
 	}
-	if out := screen(m); !strings.Contains(out, "↳ your reply") || !strings.Contains(out, "why b?") || !strings.Contains(out, "L2 · draft") || strings.Contains(out, "**you**") {
+	if out := screen(m); !strings.Contains(out, " your reply") || !strings.Contains(out, "why b?") || !strings.Contains(out, "L2 · draft") || strings.Contains(out, "**you**") {
 		t.Fatalf("follow-up should show under the comment as a draft:\n%s", out)
 	}
 	if m, _ = press(t, m, "r"); m.editing {
@@ -684,7 +684,7 @@ func TestMarkViewedCollapsesFileUntilItChanges(t *testing.T) {
 	m = run(t, m, cmd)
 
 	out := screen(m)
-	if !strings.Contains(out, "✓") || !strings.Contains(out, "viewed") || strings.Contains(out, "func a() {}") || !strings.Contains(out, "1/3 viewed") {
+	if !strings.Contains(out, "") || !strings.Contains(out, "viewed") || strings.Contains(out, "func a() {}") || !strings.Contains(out, "1/3 viewed") {
 		t.Fatalf("viewed file not collapsed and marked:\n%s", out)
 	}
 	if st.viewed["a/main.go"] == "" {
@@ -1010,11 +1010,11 @@ func TestCopyCommentsWritesClipboard(t *testing.T) {
 
 func TestCommentsAndEditorAreDrawnInBorderedBoxes(t *testing.T) {
 	m := withComment(t, nil)
-	if out := screen(m); !strings.Contains(out, "╭─ ◆ nit") || !strings.Contains(out, "rename") {
+	if out := screen(m); !strings.Contains(out, "╭─  nit") || !strings.Contains(out, "rename") {
 		t.Fatalf("comment box missing:\n%s", out)
 	}
 	m, _ = press(t, m, "C")
-	if out := screen(m); !strings.Contains(out, "╭─ ◆ comment") || !strings.Contains(out, "C-s save") {
+	if out := screen(m); !strings.Contains(out, "╭─  comment") || !strings.Contains(out, "C-s save") {
 		t.Fatalf("editor box missing:\n%s", out)
 	}
 }
@@ -1028,7 +1028,7 @@ func TestDeleteAllCommentsNeedsSecondPress(t *testing.T) {
 	}
 	m, cmd = press(t, m, "D")
 	m = run(t, m, cmd)
-	if out := screen(m); len(m.comments) != 0 || strings.Contains(out, "◆ nit") || !strings.Contains(out, "deleted 1 comments") {
+	if out := screen(m); len(m.comments) != 0 || strings.Contains(out, " nit") || !strings.Contains(out, "deleted 1 comments") {
 		t.Fatalf("comments not deleted:\n%s", out)
 	}
 
@@ -1073,7 +1073,7 @@ func TestPollingShowsAgentRepliesUnderComments(t *testing.T) {
 	got := updated.(Model)
 
 	out := screen(got)
-	if !strings.Contains(out, "L2 · replied") || !strings.Contains(out, "↳ agent reply") || !strings.Contains(out, "Renamed to") || !strings.Contains(out, "start") {
+	if !strings.Contains(out, "L2 · replied") || !strings.Contains(out, " agent reply") || !strings.Contains(out, "Renamed to") || !strings.Contains(out, "start") {
 		t.Fatalf("reply not shown:\n%s", out)
 	}
 	if next == nil {
@@ -1235,7 +1235,7 @@ func TestCommentsPaneIsHiddenUntilToggled(t *testing.T) {
 	m, _ = press(t, m, "t")
 
 	out := screen(m)
-	for _, want := range []string{"╭─ comments", "◆ note", "a/main.go L3  draft  second func", "README.md file", "a/main.go L2 @2222222  sent  rename only"} {
+	for _, want := range []string{"╭─ comments", " note", "a/main.go L3  draft  second func", "README.md file", "a/main.go L2 @2222222  sent  rename only"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("comments pane missing %q:\n%s", want, out)
 		}
@@ -1455,16 +1455,41 @@ func TestClickCommentsPaneGoesToComment(t *testing.T) {
 	}
 }
 
-func TestWheelScrollsPaneUnderPointer(t *testing.T) {
-	m, _ := loaded(t)
+func longModel(t *testing.T) Model {
+	t.Helper()
+	lines := make([]string, 100)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("+line %d", i+1)
+	}
+	patch := "@@ -0,0 +1,100 @@\n" + strings.Join(lines, "\n")
+	return newModel(t, fakeSource{files: map[string][]review.File{"": {{Path: "long.go", Status: review.StatusAdded, Additions: 100, Patch: patch}}}}, &fakeStore{viewed: map[string]string{}})
+}
+
+func TestWheelScrollsTheDiffWithoutMovingTheCursor(t *testing.T) {
+	m := longModel(t)
 	m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown)
-	if m.cursor != 3 {
-		t.Fatalf("wheel down should move the diff 3 rows, cursor=%d", m.cursor)
+	if m.offset != 3 || m.cursor != 0 || m.focus != focusDiff {
+		t.Fatalf("wheel down should scroll 3 rows and keep the cursor, offset=%d cursor=%d", m.offset, m.cursor)
 	}
 	m, _ = wheel(t, m, 60, 10, tea.MouseWheelUp)
-	if m.cursor != 0 {
-		t.Fatalf("wheel up should move back, cursor=%d", m.cursor)
+	m, _ = wheel(t, m, 60, 10, tea.MouseWheelUp)
+	if m.offset != 0 || m.cursor != 0 {
+		t.Fatalf("wheel up should stop at the top, offset=%d cursor=%d", m.offset, m.cursor)
 	}
+	for range 50 {
+		m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown)
+	}
+	if last := len(m.rows) - m.diffHeight(); m.offset != last || m.cursor != 0 || !strings.Contains(screen(m), "line 100") {
+		t.Fatalf("wheel down should stop with the last row at the bottom, offset=%d want %d", m.offset, last)
+	}
+	m, _ = press(t, m, "j")
+	if m.cursor == 0 || m.offset > m.cursor {
+		t.Fatalf("moving the cursor should bring it back into view, offset=%d cursor=%d", m.offset, m.cursor)
+	}
+}
+
+func TestWheelScrollsPaneUnderPointer(t *testing.T) {
+	m, _ := loaded(t)
 	m, _ = wheel(t, m, 5, 5, tea.MouseWheelDown)
 	if m.fileCursor != 1 {
 		t.Fatalf("wheel over files should select the next file, got %d", m.fileCursor)
@@ -1692,7 +1717,7 @@ func TestExplorerShowsLineCounts(t *testing.T) {
 	}
 	m, cmd := press(t, m, "-")
 	m = run(t, m, cmd)
-	if !strings.Contains(screen(m), "A README.md              +2 -0 ✓") {
+	if !strings.Contains(screen(m), "A README.md              +2 -0 ") {
 		t.Fatalf("viewed mark should follow the counts:\n%s", screen(m))
 	}
 
@@ -1737,7 +1762,7 @@ func TestIssueCommentKeepsItsType(t *testing.T) {
 	if len(st.comments) != 1 || st.comments[0].Kind != "issue" {
 		t.Fatalf("stored %+v, want an issue comment", st.comments)
 	}
-	if !strings.Contains(screen(m), "◆ issue") {
+	if !strings.Contains(screen(m), " issue") {
 		t.Fatalf("issue comment should show its type label:\n%s", screen(m))
 	}
 }
@@ -1754,10 +1779,10 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 		p, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(c).Render("x"), "x")
 		return p
 	}
-	if out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorNote)+"╭") || !strings.Contains(out[0], prefix(colorNote)+"◆ note") {
+	if out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorNote)+"╭") || !strings.Contains(out[0], prefix(colorNote)+" note") {
 		t.Fatalf("note box should use the note color: %q", out[0])
 	}
-	if out := renderComment(review.Comment{Kind: "issue", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorIssue)+"◆ issue") {
+	if out := renderComment(review.Comment{Kind: "issue", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorIssue)+" issue") {
 		t.Fatalf("issue box should use the red issue color and label: %q", out[0])
 	}
 
@@ -1767,7 +1792,7 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 	m, _ = press(t, m, "c")
 	for _, k := range []string{"comment", "note", "issue", "suggestion"} {
 		box := strings.Join(m.diffLines(), "\n")
-		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, "◆ "+k) {
+		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, " "+k) {
 			t.Fatalf("editor border should follow the %s type", k)
 		}
 		m, _ = press(t, m, "tab")
@@ -1858,7 +1883,7 @@ func TestReviewedFilesMoveToReviewSection(t *testing.T) {
 	for _, l := range lines {
 		text = append(text, strings.TrimRight(ansi.Strip(l), " "))
 	}
-	want := []string{"▌A README.md              +2 -0", " M img.png                +0 -0", "", " Reviewed", " M a/main.go              +2 -1 ✓"}
+	want := []string{"▌A README.md              +2 -0", " M img.png                +0 -0", "", " Reviewed", " M a/main.go              +2 -1 "}
 	if !reflect.DeepEqual(text, want) {
 		t.Fatalf("explorer = %q", text)
 	}
@@ -1940,8 +1965,8 @@ func TestScrollingTheDiffFocusesIt(t *testing.T) {
 		t.Fatalf("focus=%d", m.focus)
 	}
 	m, _ = wheel(t, m, 60, 10, tea.MouseWheelDown)
-	if m.focus != focusDiff || m.cursor != 3 {
-		t.Fatalf("wheel over the diff should focus it and move, focus=%d cursor=%d", m.focus, m.cursor)
+	if m.focus != focusDiff || m.cursor != 0 {
+		t.Fatalf("wheel over the diff should focus it without moving the cursor, focus=%d cursor=%d", m.focus, m.cursor)
 	}
 	if !strings.Contains(strings.Join(m.diffLines(), "\n"), "▌") {
 		t.Fatal("the cursor should be visible once the diff has focus")
@@ -2573,5 +2598,90 @@ func TestLoadShowsThePlainDiffThenColorsIt(t *testing.T) {
 	m.refreshFiles(parsed{files: m.files, lines: m.lines, tokens: loaded.diff.tokens})
 	if !reflect.DeepEqual(m.tokens, colored.tokens) {
 		t.Fatal("a refresh carrying older plain lines for unchanged files should keep the colors")
+	}
+}
+
+func TestPollFollowsACheckedOutBranch(t *testing.T) {
+	m, _ := loaded(t)
+	current := "feature"
+	m.svc.CurrentBranch = func(context.Context) (string, error) { return current, nil }
+
+	current = "other"
+	m = update(t, m, m.poll()())
+	out := screen(m)
+	if m.svc.Branch() != "other" || !strings.Contains(out, " other") || !strings.Contains(out, "switched to branch other") {
+		t.Fatalf("branch = %q, view:\n%s", m.svc.Branch(), out)
+	}
+
+	m.svc.CurrentBranch = func(context.Context) (string, error) { return "", errors.New("git broke") }
+	m = update(t, m, m.poll()())
+	if m.failures != 1 || m.svc.Branch() != "other" {
+		t.Fatalf("a failed branch read should fail the poll, failures=%d branch=%q", m.failures, m.svc.Branch())
+	}
+}
+
+func motion(t *testing.T, m Model, y int) Model {
+	t.Helper()
+	return update(t, m, tea.MouseMotionMsg{X: 60, Y: y, Button: tea.MouseLeft})
+}
+
+func TestDraggingOverTheDiffSelectsLines(t *testing.T) {
+	m := longModel(t)
+	first, third := rowOf(t, m, rowLine, 0, 1), rowOf(t, m, rowLine, 0, 3)
+	m, _ = click(t, m, 60, first+2)
+	if m.cursor != first || m.anchor != -1 {
+		t.Fatalf("a click should only move the cursor, cursor=%d anchor=%d", m.cursor, m.anchor)
+	}
+	m = motion(t, m, third+2)
+	if m.anchor != first || m.cursor != third || !strings.Contains(screen(m), "VISUAL") {
+		t.Fatalf("dragging should start visual mode from the clicked line, anchor=%d cursor=%d:\n%s", m.anchor, m.cursor, screen(m))
+	}
+	m = motion(t, m, rowOf(t, m, rowHunk, 0, 0)+2)
+	if m.cursor != third {
+		t.Fatalf("dragging over a hunk header should keep the selection, cursor=%d", m.cursor)
+	}
+	m = update(t, m, tea.MouseReleaseMsg{X: 60, Y: third + 2, Button: tea.MouseLeft})
+	if m = motion(t, m, first+2); m.cursor != third || m.anchor != first {
+		t.Fatalf("moving after the release should not change the selection, anchor=%d cursor=%d", m.anchor, m.cursor)
+	}
+	if target, ok := m.lineTarget(); !ok || target.Start != 1 || target.End != 3 {
+		t.Fatalf("a comment should cover the dragged lines, got %+v %v", target, ok)
+	}
+	if m, _ = click(t, m, 60, first+2); m.anchor != -1 {
+		t.Fatal("a new click should clear the selection")
+	}
+}
+
+func TestDraggingPastThePaneScrollsTheSelection(t *testing.T) {
+	m := longModel(t)
+	bottom := m.diffHeight() - 1
+	m, _ = click(t, m, 60, bottom+2)
+	start := m.cursor
+	m = motion(t, m, m.panesHeight()+5)
+	if m.cursor != start+1 || m.anchor != start || m.offset != 1 {
+		t.Fatalf("dragging below the pane should extend down and scroll, cursor=%d anchor=%d offset=%d", m.cursor, m.anchor, m.offset)
+	}
+	m = motion(t, m, 0)
+	if m.cursor != start || m.anchor != start {
+		t.Fatalf("dragging above the pane should extend up, cursor=%d", m.cursor)
+	}
+}
+
+func TestDraggingStaysInTheClickedFile(t *testing.T) {
+	m, _ := loaded(t)
+	readme := rowOf(t, m, rowLine, 0, 1)
+	m, _ = click(t, m, 60, readme+2)
+	if m = motion(t, m, rowOf(t, m, rowLine, 1, 2)+2); m.cursor != readme || m.anchor != -1 {
+		t.Fatalf("dragging into another file should not select it, cursor=%d anchor=%d", m.cursor, m.anchor)
+	}
+}
+
+func TestSelectedLinesShareTheVisualColor(t *testing.T) {
+	l := review.Line{Kind: review.LineAdded, New: 1, Text: "x"}
+	if out := renderLine(l, plainTokens([]review.Line{l})[0], 40, 0, true, true); !strings.Contains(out, "48;2;24;68;58") || strings.Contains(out, "48;2;50;38;24") {
+		t.Fatalf("the cursor line inside a selection should use the visual color: %q", out)
+	}
+	if out := renderLine(l, plainTokens([]review.Line{l})[0], 40, 0, true, false); !strings.Contains(out, "48;2;50;38;24") {
+		t.Fatalf("the cursor line outside a selection should keep the cursor color: %q", out)
 	}
 }

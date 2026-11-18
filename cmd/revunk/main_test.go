@@ -61,16 +61,31 @@ func gitRepo(t *testing.T) string {
 
 func TestSetupWiresBranchAndBase(t *testing.T) {
 	dir := gitRepo(t)
-	for base, want := range map[string]string{"": "main…feature", "develop": "develop…feature"} {
+	for base, want := range map[string]string{"": "vs main", "develop": "vs develop"} {
 		model, err := setup(context.Background(), dir, base)
 		if err != nil {
 			t.Fatal(err)
 		}
 		updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 		out := ansi.Strip(updated.View().Content)
-		if !strings.Contains(out, want) || strings.Contains(out, filepath.Base(dir)+" ·") {
-			t.Fatalf("base %q: view missing %q or repo name:\n%s", base, want, out)
+		if !strings.Contains(out, want) || !strings.Contains(out, " feature") || strings.Contains(out, "…feature") || strings.Contains(out, filepath.Base(dir)+" ·") {
+			t.Fatalf("base %q: view missing %q, the branch in the status bar, or shows the branch in the diff title or the repo name:\n%s", base, want, out)
 		}
+	}
+}
+
+func TestServiceFollowsBranchCheckout(t *testing.T) {
+	ctx := context.Background()
+	dir := gitRepo(t)
+	svc, _, _, _, err := service(ctx, dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "checkout", "-q", "-b", "other").CombinedOutput(); err != nil {
+		t.Fatalf("checkout: %v\n%s", err, out)
+	}
+	if svc, err = svc.SyncBranch(ctx); err != nil || svc.Branch() != "other" {
+		t.Fatalf("branch after checkout = %q, %v", svc.Branch(), err)
 	}
 }
 

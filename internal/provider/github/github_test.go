@@ -346,7 +346,7 @@ func TestMergePinsTheReviewedHeadCommit(t *testing.T) {
 	}
 }
 
-func TestLabelsCopilotAndClose(t *testing.T) {
+func TestLabelsCopilotCloseAndDraft(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeGH{replies: []string{`[{"name":"auth"},{"name":"bug"}]`}}
 	if names, err := f.client().Labels(ctx, "o/r"); err != nil || !reflect.DeepEqual(names, []string{"auth", "bug"}) || !slices.Contains(f.calls[0], "repos/o/r/labels?per_page=100") {
@@ -374,11 +374,17 @@ func TestLabelsCopilotAndClose(t *testing.T) {
 	if err := c.Close(ctx, pr, "Superseded"); err != nil || !reflect.DeepEqual(f.calls[3], []string{"pr", "close", "7", "--repo", "o/r", "--comment", "Superseded"}) {
 		t.Fatalf("close with a comment = %q, %v", f.calls[3], err)
 	}
+	if err := c.SetDraft(ctx, pr, false); err != nil || !reflect.DeepEqual(f.calls[4], []string{"pr", "ready", "7", "--repo", "o/r"}) {
+		t.Fatalf("ready call = %q, %v", f.calls[4], err)
+	}
+	if err := c.SetDraft(ctx, pr, true); err != nil || !reflect.DeepEqual(f.calls[5], []string{"pr", "ready", "7", "--repo", "o/r", "--undo"}) {
+		t.Fatalf("draft call = %q, %v", f.calls[5], err)
+	}
 	failing := (&fakeGH{err: errors.New("gh: HTTP 403")}).client()
 	if _, err := failing.Labels(ctx, "o/r"); err == nil {
 		t.Fatal("expected the labels error")
 	}
-	for name, err := range map[string]error{"set labels": failing.SetLabels(ctx, labeled, nil), "copilot": failing.RequestCopilotReview(ctx, pr), "close": failing.Close(ctx, pr, "")} {
+	for name, err := range map[string]error{"set labels": failing.SetLabels(ctx, labeled, nil), "copilot": failing.RequestCopilotReview(ctx, pr), "close": failing.Close(ctx, pr, ""), "draft": failing.SetDraft(ctx, pr, true)} {
 		if err == nil || !strings.Contains(err.Error(), "403") {
 			t.Fatalf("%s error = %v", name, err)
 		}

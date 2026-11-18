@@ -102,6 +102,16 @@ func (h *fakeHost) RequestCopilotReview(_ context.Context, pr review.PullRequest
 	return h.record("copilot " + prKey(pr))
 }
 
+func (h *fakeHost) SetDraft(_ context.Context, pr review.PullRequest, draft bool) error {
+	if err := h.record(fmt.Sprintf("draft %s %t", prKey(pr), draft)); err != nil {
+		return err
+	}
+	d := h.details[prKey(pr)]
+	d.Draft = draft
+	h.details[prKey(pr)] = d
+	return nil
+}
+
 func (h *fakeHost) Close(_ context.Context, pr review.PullRequest, comment string) error {
 	return h.record("close " + prKey(pr) + " " + comment)
 }
@@ -177,7 +187,7 @@ func samplePulls() (review.PullRequest, review.PullRequest) {
 
 func newHost() *fakeHost {
 	short, detail := samplePulls()
-	other := review.PullRequest{Repo: "o/s", Number: 8, Title: "Fix logout", Author: "bob", Draft: true, UpdatedAt: clock.Add(-49 * time.Hour)}
+	other := review.PullRequest{Repo: "o/s", Number: 8, Title: "Fix logout", Author: "bob", State: "OPEN", Draft: true, UpdatedAt: clock.Add(-49 * time.Hour)}
 	otherDetail := other
 	otherDetail.Detailed, otherDetail.State = true, "OPEN"
 	return &fakeHost{
@@ -255,7 +265,7 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 	out := screen(m)
 	for _, want := range []string{"Agent", "Pull Request", "pull requests", "assigned · 2", "#7", "Add login", "o/r", "2h", "#8", "Fix logout", "o/s", "2d", "author", "updated",
 		"#7 o/r", "Overview", "Activity", "Comments", "Commits", "Files", " OPEN ", "+10 -2 · 1 files · 1 commits",
-		"assignees  @me", "reviewers  ✓ @bob  ● @cy", "labels     auth", "checks     ✓ 1  ● 1  ✗ 1", "✓ build success", "✗ test failure", "description", "Adds login support"} {
+		"assignees  @me", "reviewers   @bob   @cy", "labels     auth", "checks     ✓ 1  ● 1  ✗ 1", "✓ build success", "✗ test failure", "description", "Adds login support"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("screen missing %q", want)
 		}
@@ -269,9 +279,9 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 	for _, l := range detail {
 		plain = append(plain, strings.TrimSpace(ansi.Strip(l)))
 	}
-	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorPrimary).Render(" OPEN ")
+	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorAdd).Render(" \uf407 OPEN ")
 	if !strings.Contains(detail[1], chip) {
-		t.Fatalf("the state should be an accent chip: %q", detail[1])
+		t.Fatalf("an open state should be a green chip: %q", detail[1])
 	}
 	for _, name := range []string{"assignees", "reviewers", "labels", "checks", "description"} {
 		i := slices.IndexFunc(plain, func(l string) bool { return strings.HasPrefix(l, name) })
@@ -279,8 +289,8 @@ func TestPullsTabListsPullRequestsWithDetails(t *testing.T) {
 			t.Errorf("%s should follow a blank line: %q", name, plain)
 		}
 	}
-	if !strings.Contains(out, "▌✗ #7") || !strings.Contains(out, "◌ #8") {
-		t.Fatalf("the list should show the failing checks and the draft:\n%s", out)
+	if !strings.Contains(out, "▌\uf407 ✗ #7") || !strings.Contains(out, "   #8") {
+		t.Fatalf("the list should show the failing checks, and the draft icon in place of the state icon:\n%s", out)
 	}
 	m = pressRun(t, m, "1")
 	if m.tab != tabAgent || !strings.Contains(screen(m), "continuous diff") {
@@ -478,8 +488,8 @@ func TestActionsListEveryPullRequestAction(t *testing.T) {
 	m, _ := pullsModel(t)
 	m = pressRun(t, m, "A")
 	out := screen(m)
-	for _, want := range []string{"actions for #7", "✎  Edit the title and description", "ge", "±  Review the diff", "gd", "↗  Review a pull request from its URL", "gu",
-		"❝  Comment", "✓  Submit a review", "⎇  Merge", "✗  Close without merging", "◉  Assignees", "◎  Reviewers", "◆  Labels", "✦  Request a review from Copilot", "⏎ run  esc list"} {
+	for _, want := range []string{"actions for #7", "  Edit the title and description", "ge", "  Review the diff", "gd", "  Review a pull request from its URL", "gu",
+		"  Comment", "  Submit a review", "  Merge", "  Close without merging", "  Mark as ready for review", "  Convert to draft", "  Assignees", "  Reviewers", "  Labels", "  Request a review from Copilot", "⏎ run  esc list"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the actions should list %q:\n%s", want, out)
 		}
@@ -494,7 +504,7 @@ func TestActionsListEveryPullRequestAction(t *testing.T) {
 		}
 	}
 	m = typeText(t, m, "REVIEW")
-	if got := len(m.matchingActions()); got != 5 || m.modal.cursor != 0 {
+	if got := len(m.matchingActions()); got != 6 || m.modal.cursor != 0 {
 		t.Fatalf("the search should filter without case, got %d matches", got)
 	}
 	m = pressRun(t, m, "down", "down", "down", "down", "up")
@@ -647,7 +657,7 @@ func TestMergeFollowsRepositorySettingsAndState(t *testing.T) {
 	}{
 		{review.PullRequest{Repo: "o/r", Number: 9}, "wait for #9 to load before merging"},
 		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "CLOSED"}, "#9 is closed, only open pull requests merge"},
-		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN", Draft: true, MergeMethods: detail.MergeMethods}, "#9 is a draft, mark it ready for review on GitHub before merging"},
+		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN", Draft: true, MergeMethods: detail.MergeMethods}, "#9 is a draft, mark it ready for review before merging"},
 		{review.PullRequest{Repo: "o/r", Number: 9, Detailed: true, State: "OPEN"}, "o/r allows no merge method, check its settings on GitHub"},
 	} {
 		if cmd := m.openMerge(c.pr); cmd != nil || m.modal.kind == modalMerge && m.modal.pr.Number == 9 || m.warning != c.notice {
@@ -697,7 +707,7 @@ func TestReplyReactResolveTargetTheSelectedComment(t *testing.T) {
 	}
 
 	m = pressRun(t, m, "+")
-	if !strings.Contains(screen(m), "▸ 👍 thumbs up") || !strings.Contains(screen(m), "j k pick") {
+	if !strings.Contains(screen(m), " 👍 thumbs up") || !strings.Contains(screen(m), "j k pick") {
 		t.Fatalf("missing reaction picker:\n%s", screen(m))
 	}
 	m = pressRun(t, m, "j", "j", "k", "enter", "ctrl+s")
@@ -866,7 +876,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 		t.Fatal("gd should open the review diff")
 	}
 	out := screen(m)
-	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "main…o/r#7") || !strings.Contains(footer, "A actions") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") || strings.Contains(footer, "x resolve") || strings.Contains(footer, "r reply") {
+	if footer := ansi.Strip(m.diff.footer()); !strings.Contains(out, "continuous diff") || !strings.Contains(out, "vs main") || !strings.Contains(footer, "A actions") || strings.Contains(footer, "S send") || strings.Contains(footer, "y copy") || strings.Contains(footer, "x resolve") || strings.Contains(footer, "r reply") {
 		t.Fatalf("review diff screen:\n%s", out)
 	}
 	if m = pressRun(t, m, "S"); m.diff.notice != "" {
@@ -896,7 +906,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 	}
 	m = runAction(t, m, "submit")
 	m = pressRun(t, m, "enter")
-	if out := screen(m); !m.diff.modal.expanded || !strings.Contains(out, "▸ Comment") || !strings.Contains(out, "Request changes") {
+	if out := screen(m); !m.diff.modal.expanded || !strings.Contains(out, " Comment") || !strings.Contains(out, "Request changes") {
 		t.Fatalf("enter should open the dropdown:\n%s", out)
 	}
 	m = pressRun(t, m, "j", "enter")
@@ -927,7 +937,7 @@ func TestReviewDiffOpensAndSubmitsToGitHub(t *testing.T) {
 	if m.tab != tabAgent || m.diff == nil {
 		t.Fatal("1 should show the Agent tab and keep the review diff")
 	}
-	if m = pressRun(t, m, "2"); !strings.Contains(screen(m), "main…o/r#7") {
+	if m = pressRun(t, m, "2"); !strings.Contains(screen(m), "vs main") {
 		t.Fatal("2 should come back to the review diff")
 	}
 	m = update(t, m, tea.WindowSizeMsg{Width: 90, Height: 30})
@@ -1136,7 +1146,7 @@ func TestPullsHelpers(t *testing.T) {
 	if got := ansi.Strip(reactionLine([]review.Reaction{{Content: "HEART", Count: 1}, {Content: "UNKNOWN", Count: 3}, {Content: "ROCKET", Count: 2, Mine: true}})); got != "💖 1  🚀 2" {
 		t.Fatalf("reactionLine = %q", got)
 	}
-	if got := people(review.PullRequest{Reviewers: []review.Reviewer{{Login: "a", State: "CHANGES_REQUESTED"}, {Login: "b", State: "DISMISSED"}}}); got != "✗ @a  @b" {
+	if got := people(review.PullRequest{Reviewers: []review.Reviewer{{Login: "a", State: "CHANGES_REQUESTED"}, {Login: "b", State: "DISMISSED"}}}); got != " @a  @b" {
 		t.Fatalf("people = %q", got)
 	}
 }
@@ -1153,7 +1163,7 @@ func TestGitHubCommentsShowAuthorAndState(t *testing.T) {
 		}
 	}
 	out := ansi.Strip(strings.Join(renderComment(review.Comment{Kind: "comment", Path: "a.go", End: 2, Start: 2, Body: "why", Author: "bob", Sent: true, Replies: []string{"**@ana** because"}}, nil, 80), "\n"))
-	if !strings.Contains(out, "L2 · @bob") || !strings.Contains(out, "↳ reply") || strings.Contains(out, "agent reply") || !strings.Contains(out, "@ana because") {
+	if !strings.Contains(out, "L2 · @bob") || !strings.Contains(out, " reply") || strings.Contains(out, "agent reply") || !strings.Contains(out, "@ana because") {
 		t.Fatalf("GitHub comment box:\n%s", out)
 	}
 }
@@ -1566,7 +1576,7 @@ func TestFailuresBackOff(t *testing.T) {
 	if m.failures != maxBackoff {
 		t.Fatalf("diff poll failures should back off, failures=%d", m.failures)
 	}
-	if m = update(t, m, polledMsg{}); m.failures != 0 {
+	if m = update(t, m, polledMsg{svc: m.svc}); m.failures != 0 {
 		t.Fatal("a successful poll should reset the backoff")
 	}
 }
@@ -1662,7 +1672,7 @@ func TestCreatePullRequestFromTheActions(t *testing.T) {
 	}
 	rows := strings.Split(out, "\n")
 	at := slices.IndexFunc(rows, func(r string) bool { return strings.Contains(r, "branch      feature") })
-	if !strings.Contains(rows[at+2], "into        main") || strings.Trim(rows[at+1][strings.Index(rows[at+1], "│ "):], "│ ◌▌") != "" {
+	if !strings.Contains(rows[at+2], "into        main") || strings.Trim(rows[at+1][strings.Index(rows[at+1], "│ "):], "│ ▌\uf407") != "" {
 		t.Fatalf("an empty line should separate the source and target branches:\n%s", strings.Join(rows[at:at+3], "\n"))
 	}
 	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || m.warning != "the title can't be empty" {
@@ -1766,7 +1776,7 @@ func TestOpenDropdownShowsAWindowOfChoices(t *testing.T) {
 	m.modal.setFocus(0)
 	m.modal.expanded, m.modal.drops[0].choice = true, 13
 	lines := m.dropdownList()
-	if strings.Contains(lines, "branch-04") || !strings.Contains(lines, "branch-05") || !strings.Contains(lines, "▸ branch-12") || strings.Contains(lines, "branch-13") {
+	if strings.Contains(lines, "branch-04") || !strings.Contains(lines, "branch-05") || !strings.Contains(lines, " branch-12") || strings.Contains(lines, "branch-13") {
 		t.Fatalf("the open dropdown should show the %d rows ending at the picked one:\n%s", dropdownRows, ansi.Strip(lines))
 	}
 }
@@ -1800,9 +1810,9 @@ func TestStatusMessagesShowOnTheRightWithAnIconForFiveSeconds(t *testing.T) {
 		set  func(*Model)
 		want string
 	}{
-		{func(m *Model) { m.notice = "merged #7" }, "✓ merged #7"},
-		{func(m *Model) { m.warning = "#7 is a draft" }, "⚠ #7 is a draft"},
-		{func(m *Model) { m.pulls.err = errors.New("HTTP 502") }, "✗ HTTP 502"},
+		{func(m *Model) { m.notice = "merged #7" }, " merged #7"},
+		{func(m *Model) { m.warning = "#7 is a draft" }, " #7 is a draft"},
+		{func(m *Model) { m.pulls.err = errors.New("HTTP 502") }, " HTTP 502"},
 	} {
 		c.set(&m)
 		m = update(t, m, tea.FocusMsg{})
@@ -2004,24 +2014,24 @@ func TestOpenDropdownOverlaysTheModal(t *testing.T) {
 	m = pressRun(t, m, "enter")
 	open := strings.Split(screen(m), "\n")
 	row := slices.IndexFunc(closed, func(r string) bool { return strings.Contains(r, "branch      feature") })
-	if row < 0 || !strings.Contains(open[row], "branch      feature") || !strings.Contains(open[row], "▴") {
+	if row < 0 || !strings.Contains(open[row], "branch      feature") || !strings.Contains(open[row], "") {
 		t.Fatalf("the dropdown should stay on its row:\n%s", strings.Join(open, "\n"))
 	}
 	for _, label := range []string{"into ", "│ title", "│ description"} {
 		before := slices.IndexFunc(closed, func(r string) bool { return strings.Contains(r, label) })
-		after := slices.IndexFunc(open, func(r string) bool { return strings.Contains(r, label) && !strings.Contains(r, "▸") })
+		after := slices.IndexFunc(open, func(r string) bool { return strings.Contains(r, label) && !strings.Contains(r, "") })
 		if before < 0 || label != "into " && before != after {
 			t.Fatalf("%q moved from row %d to %d when the dropdown opened", label, before, after)
 		}
 	}
 	col := strings.Index(open[row], "feature")
-	for i, want := range []string{"▸ feature", "  main", "  login", "  release"} {
+	for i, want := range []string{" feature", "  main", "  login", "  release"} {
 		got := open[row+2+i]
 		if !strings.Contains(got, want) || ansi.StringWidth(got[:strings.Index(got, want)]) != ansi.StringWidth(open[row][:col]) {
 			t.Fatalf("the list should open under the dropdown, row %d = %q", i, got)
 		}
 	}
-	if m = pressRun(t, m, "enter"); strings.Contains(screen(m), "▸ feature") || len(strings.Split(screen(m), "\n")) != len(closed) {
+	if m = pressRun(t, m, "enter"); strings.Contains(screen(m), " feature") || len(strings.Split(screen(m), "\n")) != len(closed) {
 		t.Fatal("closing the dropdown should remove the list")
 	}
 }
@@ -2086,5 +2096,142 @@ func TestTitleBoxIsOneVimLine(t *testing.T) {
 	}
 	if m.modal.area.Value() != "Adds **login** support" {
 		t.Fatal("editing the title should leave the description alone")
+	}
+}
+
+func TestMergedPullRequestTurnsPurpleThenLeavesTheList(t *testing.T) {
+	m, host := pullsModel(t)
+	if raw := m.View().Content; !strings.Contains(raw, lipgloss.NewStyle().Background(colorCursorline).Foreground(colorAdd).Render("\uf407")) {
+		t.Fatalf("open pull requests should show a green icon:\n%s", raw)
+	}
+	m = runAction(t, m, "merge")
+	m = pressRun(t, m, "ctrl+s")
+	merged := lipgloss.NewStyle().Background(colorCursorline).Foreground(colorMerged).Render("\uf419")
+	if raw := m.View().Content; !host.has("merge o/r#7 MERGE Merge pull request #7 from o/login|Add login") || !strings.Contains(raw, merged) {
+		t.Fatalf("the merged pull request should turn purple right after the merge, calls=%q:\n%s", host.calls, raw)
+	}
+	if _, cmd := m.Update(detailMsg{key: "o/r#7", pr: host.details["o/r#7"]}); cmd != nil {
+		t.Fatal("a second reload of the merged pull request should not start another timer")
+	}
+
+	other := m.pulls.list[1]
+	m = update(t, m, pullsMsg{list: []review.PullRequest{other}})
+	if len(m.pulls.list) != 2 || prKey(m.pulls.list[0]) != "o/r#7" || m.pulls.cursor != 0 {
+		t.Fatalf("the merged pull request should stay in the list until its time is up, list=%v cursor=%d", m.pulls.list, m.pulls.cursor)
+	}
+
+	updated, cmd := m.Update(leftMsg{key: "o/r#7"})
+	m = updated.(Model)
+	if len(m.pulls.list) != 1 || prKey(m.pulls.list[0]) != "o/s#8" || m.pulls.cursor != 0 || cmd == nil || strings.Contains(screen(m), "Add login") {
+		t.Fatalf("the merged pull request should leave the list and select the next one, list=%v cursor=%d:\n%s", m.pulls.list, m.pulls.cursor, screen(m))
+	}
+	if m = update(t, m, pullsMsg{list: []review.PullRequest{other}}); len(m.pulls.list) != 1 {
+		t.Fatal("a removed pull request should not come back on the next reload")
+	}
+}
+
+func TestClosedPullRequestTurnsRedAndLeavesWithoutMovingTheSelection(t *testing.T) {
+	m, host := pullsModel(t)
+	m = pressRun(t, m, "j")
+	closed := host.details["o/r#7"]
+	closed.State = "CLOSED"
+	updated, cmd := m.Update(detailMsg{key: "o/r#7", pr: closed})
+	m = updated.(Model)
+	if raw := m.View().Content; cmd == nil || !strings.Contains(raw, lipgloss.NewStyle().Foreground(colorIssue).Render("\uf4dc")) {
+		t.Fatalf("a closed pull request should show a red icon and start its timer:\n%s", raw)
+	}
+	if m = update(t, m, leftMsg{key: "o/r#7"}); len(m.pulls.list) != 1 || prKey(m.pulls.list[m.pulls.cursor]) != "o/s#8" {
+		t.Fatalf("the selection should stay on #8, list=%v cursor=%d", m.pulls.list, m.pulls.cursor)
+	}
+	if m = update(t, m, leftMsg{key: "o/r#7"}); len(m.pulls.list) != 1 {
+		t.Fatal("a second removal of the same pull request should change nothing")
+	}
+}
+
+func TestStateOf(t *testing.T) {
+	for state, want := range map[string]prState{"OPEN": {"\uf407", colorAdd}, "DRAFT": {iconDraft, colorDim}, "MERGED": {"\uf419", colorMerged}, "CLOSED": {"\uf4dc", colorIssue}, "": {"\uf407", colorDim}} {
+		if got := stateOf(state); got != want {
+			t.Errorf("stateOf(%q) = %v, want %v", state, got, want)
+		}
+	}
+}
+
+func TestDraftPullRequestKeepsItsPassingChecksMark(t *testing.T) {
+	m, _ := pullsModel(t)
+	m.pulls.list[1].Draft, m.pulls.list[1].State = true, "OPEN"
+	m.pulls.list[1].Checks = []review.Check{{Name: "checks", State: "SUCCESS"}}
+	raw := m.View().Content
+	draft := lipgloss.NewStyle().Foreground(colorDim).Render(iconDraft)
+	passed := lipgloss.NewStyle().Foreground(colorAdd).Render("✓")
+	if !strings.Contains(raw, draft+" "+passed) {
+		t.Fatalf("a draft should show the gray draft icon then the green check:\n%q", raw)
+	}
+}
+
+func TestDraftActionsToggleTheDraftState(t *testing.T) {
+	m, host := pullsModel(t)
+	if m = runAction(t, m, "ready for review"); !strings.Contains(statusText(m), "#7 is already ready for review") || host.has("draft o/r#7 false") {
+		t.Fatalf("an open pull request should not be marked ready again, calls=%q", host.calls)
+	}
+
+	m = runAction(t, m, "convert to draft")
+	chip := lipgloss.NewStyle().Foreground(colorOnPrimary).Background(colorDim).Render(" " + iconDraft + " DRAFT ")
+	if pr, _ := m.selectedPR(); !host.has("draft o/r#7 true") || host.last() != "detail o/r#7" || m.notice != "converted #7 to a draft" || !pr.Draft {
+		t.Fatalf("convert to draft should call GitHub and reload, calls=%q notice=%q", host.calls, m.notice)
+	}
+	detail, _ := m.detailLines(host.details["o/r#7"], 80)
+	if !strings.Contains(detail[1], chip) || strings.Contains(ansi.Strip(detail[1]), "OPEN") || strings.Contains(ansi.Strip(detail[1]), "· draft") {
+		t.Fatalf("a draft should show a gray DRAFT chip instead of OPEN: %q", detail[1])
+	}
+	if raw := m.View().Content; !strings.Contains(raw, lipgloss.NewStyle().Background(colorCursorline).Foreground(colorDim).Render(iconDraft)) {
+		t.Fatalf("the list should switch to the gray draft icon:\n%s", raw)
+	}
+	if m = runAction(t, m, "convert to draft"); !strings.Contains(statusText(m), "#7 is already a draft") {
+		t.Fatal("a draft should not be converted again")
+	}
+
+	m = runAction(t, m, "ready for review")
+	if pr, _ := m.selectedPR(); !host.has("draft o/r#7 false") || m.notice != "marked #7 ready for review" || pr.Draft || stateName(pr) != "OPEN" {
+		t.Fatalf("ready for review should call GitHub and reload, calls=%q notice=%q", host.calls, m.notice)
+	}
+
+	host.err = errors.New("HTTP 403")
+	if m = runAction(t, m, "convert to draft"); !strings.Contains(statusText(m), "HTTP 403") || m.notice == "converted #7 to a draft" {
+		t.Fatalf("a refused change should show GitHub's error:\n%s", statusText(m))
+	}
+}
+
+func TestDraftActionsRefuseClosedPullRequests(t *testing.T) {
+	m, host := pullsModel(t)
+	d := host.details["o/r#7"]
+	d.State = "MERGED"
+	m.pulls.details["o/r#7"] = d
+	if m = runAction(t, m, "ready for review"); !strings.Contains(statusText(m), "#7 is merged, only open pull requests change") || host.has("draft o/r#7 false") {
+		t.Fatalf("a merged pull request should not change, calls=%q", host.calls)
+	}
+}
+
+func TestStateName(t *testing.T) {
+	for _, c := range []struct {
+		pr   review.PullRequest
+		want string
+	}{{review.PullRequest{State: "OPEN"}, "OPEN"}, {review.PullRequest{State: "OPEN", Draft: true}, "DRAFT"}, {review.PullRequest{State: "CLOSED", Draft: true}, "CLOSED"}, {review.PullRequest{State: "MERGED"}, "MERGED"}} {
+		if got := stateName(c.pr); got != c.want {
+			t.Errorf("stateName(%+v) = %q, want %q", c.pr, got, c.want)
+		}
+	}
+}
+
+func TestDraggingSelectsLinesInTheReviewDiff(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "g", "d")
+	first, second := rowOf(t, *m.diff, rowLine, 1, 1), rowOf(t, *m.diff, rowLine, 1, 2)
+	m = update(t, m, tea.MouseClickMsg{X: 60, Y: first + 2, Button: tea.MouseLeft})
+	m = update(t, m, tea.MouseMotionMsg{X: 60, Y: second + 2, Button: tea.MouseLeft})
+	if m.diff.anchor != first || m.diff.cursor != second {
+		t.Fatalf("dragging in the review diff should select lines, anchor=%d cursor=%d", m.diff.anchor, m.diff.cursor)
+	}
+	if m = update(t, m, tea.MouseReleaseMsg{X: 60, Y: second + 2, Button: tea.MouseLeft}); m.diff.dragFrom != -1 {
+		t.Fatal("releasing should end the drag in the review diff")
 	}
 }
