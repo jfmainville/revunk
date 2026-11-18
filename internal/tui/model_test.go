@@ -508,7 +508,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	if m.editor.area.Value() != "first\nsecond\n" {
 		t.Fatalf("newlines not inserted: %q", m.editor.area.Value())
 	}
-	m, _ = press(t, m, "tab", "tab", "tab")
+	m, _ = press(t, m, "tab", "tab", "tab", "tab")
 	if strings.Count(m.editor.area.Value(), "```suggestion") != 1 {
 		t.Fatalf("suggestion injected twice: %q", m.editor.area.Value())
 	}
@@ -1638,9 +1638,26 @@ func TestLeavingSuggestionRemovesOnlyTheBlock(t *testing.T) {
 		m.editor.kind = slices.Index(commentKinds, "suggestion")
 		m.editor.area.SetValue(tc.body)
 		m, _ = press(t, m, "tab")
-		if got := m.editor.area.Value(); got != tc.want || commentKinds[m.editor.kind] != "comment" {
+		if got := m.editor.area.Value(); got != tc.want || commentKinds[m.editor.kind] != "issue" {
 			t.Errorf("%q: got %q kind %s, want %q", tc.body, got, commentKinds[m.editor.kind], tc.want)
 		}
+	}
+}
+
+func TestIssueCommentKeepsItsType(t *testing.T) {
+	m, st := loaded(t)
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	m, _ = press(t, m, "c")
+	m = typeText(t, m, "This panics on nil.")
+	m, _ = press(t, m, "shift+tab")
+	m, cmd := press(t, m, "ctrl+s")
+	m = run(t, m, cmd)
+	if len(st.comments) != 1 || st.comments[0].Kind != "issue" {
+		t.Fatalf("stored %+v, want an issue comment", st.comments)
+	}
+	if !strings.Contains(screen(m), "◆ issue") {
+		t.Fatalf("issue comment should show its type label:\n%s", screen(m))
 	}
 }
 
@@ -1659,12 +1676,15 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 	if out := renderComment(review.Comment{Kind: "note", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorNote)+"╭") || !strings.Contains(out[0], prefix(colorNote)+"◆ note") {
 		t.Fatalf("note box should use the note color: %q", out[0])
 	}
+	if out := renderComment(review.Comment{Kind: "issue", Start: 1, End: 1, Body: "hi"}, nil, 80); !strings.Contains(out[0], prefix(colorIssue)+"◆ issue") {
+		t.Fatalf("issue box should use the red issue color and label: %q", out[0])
+	}
 
 	m, _ := loaded(t)
 	m, _ = press(t, m, "l")
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 	m, _ = press(t, m, "c")
-	for _, k := range []string{"comment", "note", "suggestion"} {
+	for _, k := range []string{"comment", "note", "suggestion", "issue"} {
 		box := strings.Join(m.diffLines(), "\n")
 		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, "◆ "+k) {
 			t.Fatalf("editor border should follow the %s type", k)

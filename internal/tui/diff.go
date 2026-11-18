@@ -31,6 +31,7 @@ var (
 	colorDelBg      = lipgloss.Color("#34231d")
 	colorError      = lipgloss.Color("#fdae95")
 	colorNote       = lipgloss.Color("#8fb8de")
+	colorIssue      = lipgloss.Color("#e5534b")
 
 	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
 	primaryStyle = lipgloss.NewStyle().Foreground(colorPrimary)
@@ -324,6 +325,8 @@ func kindColor(kind string) color.Color {
 		return colorNote
 	case "suggestion":
 		return colorAdd
+	case "issue":
+		return colorIssue
 	}
 	return colorPrimary
 }

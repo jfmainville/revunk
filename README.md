@@ -88,12 +88,12 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 
 ### Comment editor
 
-| Key                | Action                                                                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ctrl+s`           | Save the comment                                                                                                                                                                            |
-| `enter`            | Insert a newline                                                                                                                                                                            |
-| `tab`, `shift+tab` | Cycle the type (comment, note, suggestion), each drawn in its own color. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
-| `esc`, `jj`        | Switch to normal mode, where `esc` cancels                                                                                                                                                  |
+| Key                | Action                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctrl+s`           | Save the comment                                                                                                                                                                                                       |
+| `enter`            | Insert a newline                                                                                                                                                                                                       |
+| `tab`, `shift+tab` | Cycle the type (comment, note, suggestion, issue), each drawn in its own color, with issues in red. Picking suggestion adds the commented lines as a ` ```suggestion ` block to edit, and leaving it removes the block |
+| `esc`, `jj`        | Switch to normal mode, where `esc` cancels                                                                                                                                                                             |
 
 The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `ctrl+d` `ctrl+u`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels. A text longer than its box scrolls to follow the cursor. The cursor is a bar in insert mode and a block in normal mode, in every comment box and modal, and the one line fields of the modals, always typing, show a bar.
 
@@ -114,7 +114,7 @@ The sidebar on the right shows the selected pull request, and `enter` focuses it
 
 Every change is sent to GitHub through `gh`, then the pull request reloads. The list and the selected pull request also reload every 10 seconds while the tab is open, so new checks, comments, and reviews show up on their own.
 
-`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. The review diff reloads every 15 seconds, and `esc` closes it once nothing is selected or searched. Viewed files are saved locally, like on the **Agent** tab. A note is posted as a regular comment since GitHub has no notes.
+`gd` opens the pull request's diff in the same continuous diff as the **Agent** tab, with the commits and files panes, search, viewed state, and comments. Comments there are GitHub review comments: `c`, `C`, and a ` ```suggestion ` block add them to your pending review, they show with their author, replies, and `pending`, `resolved`, or published state, and `dd` deletes one. The review diff reloads every 15 seconds, and `esc` closes it once nothing is selected or searched. Viewed files are saved locally, like on the **Agent** tab. A note or an issue is posted as a regular comment since GitHub has no such types.
 
 `A` opens the actions of the selected pull request, also from the review diff. With no pull request selected it lists only the ones that need none. It opens in its search, where typing filters them and `↓` `↑` or `ctrl+n` `ctrl+p` move. `esc` leaves the search for the list, where `j` `k` move and `/` or `i` goes back to the search, and `esc` there closes it. `enter` runs the selected action. Each action has a one cell icon in the accent color:
 
