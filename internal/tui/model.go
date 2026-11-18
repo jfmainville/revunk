@@ -35,7 +35,7 @@ const (
 	focusComments
 )
 
-var commentKinds = []string{"comment", "note", "suggestion", "issue"}
+var commentKinds = []string{"comment", "note", "issue", "suggestion"}
 
 type rowKind int
 

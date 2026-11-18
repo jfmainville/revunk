@@ -496,7 +496,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 		t.Fatal("blank comment should keep the editor open with a notice")
 	}
 	m.editor.area.SetValue("Use this:")
-	m, _ = press(t, m, "tab", "tab")
+	m, _ = press(t, m, "tab", "tab", "tab")
 	if want := "Use this:\n\n```suggestion\nfunc a() {}\nfunc b() {}\n```"; m.editor.area.Value() != want {
 		t.Fatalf("suggestion block = %q, want %q", m.editor.area.Value(), want)
 	}
@@ -513,7 +513,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 		t.Fatalf("suggestion injected twice: %q", m.editor.area.Value())
 	}
 	m, _ = press(t, m, "shift+tab")
-	if commentKinds[m.editor.kind] != "note" {
+	if commentKinds[m.editor.kind] != "issue" {
 		t.Fatalf("shift+tab kind = %s", commentKinds[m.editor.kind])
 	}
 	if m.editor.area.Value() != "first\nsecond" {
@@ -528,7 +528,7 @@ func TestEditorNewlineSuggestionAndValidation(t *testing.T) {
 	}
 
 	m.cursor = rowOf(t, m, rowLine, 1, 2)
-	m, _ = press(t, m, "c", "tab", "tab")
+	m, _ = press(t, m, "c", "tab", "tab", "tab")
 	if m.editor.area.Value() != "" || !strings.Contains(screen(m), "suggestions apply") {
 		t.Fatal("suggestions on removed lines should be refused")
 	}
@@ -1638,7 +1638,7 @@ func TestLeavingSuggestionRemovesOnlyTheBlock(t *testing.T) {
 		m.editor.kind = slices.Index(commentKinds, "suggestion")
 		m.editor.area.SetValue(tc.body)
 		m, _ = press(t, m, "tab")
-		if got := m.editor.area.Value(); got != tc.want || commentKinds[m.editor.kind] != "issue" {
+		if got := m.editor.area.Value(); got != tc.want || commentKinds[m.editor.kind] != "comment" {
 			t.Errorf("%q: got %q kind %s, want %q", tc.body, got, commentKinds[m.editor.kind], tc.want)
 		}
 	}
@@ -1650,7 +1650,7 @@ func TestIssueCommentKeepsItsType(t *testing.T) {
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 	m, _ = press(t, m, "c")
 	m = typeText(t, m, "This panics on nil.")
-	m, _ = press(t, m, "shift+tab")
+	m, _ = press(t, m, "tab", "tab")
 	m, cmd := press(t, m, "ctrl+s")
 	m = run(t, m, cmd)
 	if len(st.comments) != 1 || st.comments[0].Kind != "issue" {
@@ -1684,7 +1684,7 @@ func TestCommentKindsHaveTheirOwnColors(t *testing.T) {
 	m, _ = press(t, m, "l")
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
 	m, _ = press(t, m, "c")
-	for _, k := range []string{"comment", "note", "suggestion", "issue"} {
+	for _, k := range []string{"comment", "note", "issue", "suggestion"} {
 		box := strings.Join(m.diffLines(), "\n")
 		if commentKinds[m.editor.kind] != k || !strings.Contains(box, prefix(kindColor(k))+"╭") || !strings.Contains(box, "◆ "+k) {
 			t.Fatalf("editor border should follow the %s type", k)
