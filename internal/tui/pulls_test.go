@@ -1438,11 +1438,7 @@ func TestModalsOverlayTheScreen(t *testing.T) {
 	if out := screen(m); !strings.Contains(out, "comment on #7") || !strings.Contains(out, "pull requests") {
 		t.Fatalf("the list should stay visible behind the modal:\n%s", out)
 	}
-	m = pressRun(t, m, "esc", "esc", "1", "M")
-	if out := screen(m); !strings.Contains(out, "general comment") || !strings.Contains(out, "files") {
-		t.Fatalf("the Agent panes should stay visible behind the modal:\n%s", out)
-	}
-	m = pressRun(t, m, "esc", "esc", "2", "g", "d")
+	m = pressRun(t, m, "esc", "esc", "g", "d")
 	m = runAction(t, m, "submit")
 	if out := screen(m); !strings.Contains(out, "submit your review of #7") || !strings.Contains(out, "files") {
 		t.Fatalf("the review diff should stay visible behind the submit modal:\n%s", out)

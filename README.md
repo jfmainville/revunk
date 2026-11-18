@@ -74,7 +74,6 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `DD`                             | Delete every comment on the branch                                           |
 | `-`                              | Toggle the file's viewed state                                               |
 | `S`                              | Send unsent comments to the agent                                            |
-| `M`                              | Write a general comment and send it straight to the agent, on either tab     |
 | `y`                              | Copy unsent comments to the clipboard                                        |
 | `gf`                             | Open the file at the cursor's line in `$VISUAL`, `$EDITOR`, or `nvim`        |
 | `gd`                             | Review the branch's pull request on the **Pull Request** tab                 |
@@ -98,8 +97,6 @@ Clicking a comment in the comments pane jumps to it like `enter`. While mouse su
 The comment text works like vim, on the **Agent** tab and in the pull request review diff, and its Markdown is highlighted as you type: headings, lists, bold, italic, code, links, and quotes. It starts in insert mode, `esc` or `jj` switches to normal mode, where `h` `j` `k` `l`, `w` `b`, `0` `$`, `gg` `G`, `ctrl+d` `ctrl+u`, `i` `a` `I` `A` `o` `O`, `x`, and `dd` work, and `esc` in normal mode cancels. A text longer than its box scrolls to follow the cursor. The cursor is a bar in insert mode and a block in normal mode, in every comment box and modal, and the one line fields of the modals, always typing, show a bar.
 
 Every modal and editor saves with `ctrl+s` only and cancels or closes with `esc` only, so `q` and `enter` are never a shortcut for either.
-
-`M` opens a modal for a general comment that is not tied to a line. `ctrl+s` sends it straight to the agent, without storing it with the review comments.
 
 ## Pull Request tab
 

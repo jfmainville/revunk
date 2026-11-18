@@ -378,8 +378,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewed = msg.viewed
 			m.relayout()
 		}
-	case generalMsg:
-		m.applyGeneral(msg)
 		return m, nil
 	case commentsMsg:
 		m.err = msg.err
@@ -689,8 +687,6 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case is(key, k.Help):
 		m.help = true
-	case is(key, k.General):
-		return m, m.openModal(modalGeneral, review.PullRequest{})
 	case is(key, k.Actions) && m.pr.Number > 0:
 		return m, m.openModal(modalActions, m.pr)
 	case is(key, k.NextFocus):

@@ -95,7 +95,6 @@ const (
 	modalLabels
 	modalActions
 	modalClose
-	modalGeneral
 	modalCreate
 )
 
@@ -430,8 +429,6 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.pulls.filter = (m.pulls.filter + 1) % len(pullFilters)
 		m.pulls.list, m.pulls.cursor, m.pulls.loading, m.pulls.sidebar = nil, 0, true, false
 		return m, m.fetchPulls()
-	case is(key, k.General):
-		return m, m.openModal(modalGeneral, review.PullRequest{})
 	case is(key, k.Actions) && m.host != nil:
 		return m, m.openModal(modalActions, pr)
 	case !ok:
@@ -557,7 +554,6 @@ func (m *Model) reviewPullRequest(host review.Host, pr review.PullRequest) {
 	m.keys.DeleteAll.SetEnabled(false)
 	m.keys.Resolve.SetEnabled(false)
 	m.keys.Reply.SetEnabled(false)
-	m.keys.General.SetEnabled(false)
 }
 
 func (m *Model) openDiff(pr review.PullRequest) tea.Cmd {
@@ -632,8 +628,6 @@ func (m *Model) openModal(kind modalKind, pr review.PullRequest) tea.Cmd {
 		d.drops = []drop{events}
 	case modalClose:
 		d.title, d.hasArea = fmt.Sprintf("close #%d without merging", pr.Number), true
-	case modalGeneral:
-		d.title, d.hasArea = "general comment, sent straight to the agent", true
 	case modalCreate:
 		d.title, d.hasArea, d.titled = "create a pull request", true, true
 		current := ""
@@ -1231,9 +1225,6 @@ func (m Model) saveModal() (tea.Model, tea.Cmd) {
 		}
 		m.modal = modalState{}
 		return m, m.createPR(d.drops[0].value(), d.drops[1].value(), title, description)
-	case modalGeneral:
-		m.modal = modalState{}
-		return m, m.sendGeneral(body)
 	case modalURL:
 		repo, number, err := review.ParsePullRequestURL(d.fields[0].Value())
 		if err != nil {

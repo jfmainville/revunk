@@ -38,7 +38,6 @@ type keyMap struct {
 	Comments    key.Binding
 	Explorer    key.Binding
 	Send        key.Binding
-	General     key.Binding
 	Copy        key.Binding
 	Save        key.Binding
 	Newline     key.Binding
@@ -119,7 +118,6 @@ func defaultKeys() keyMap {
 		Comments:    bind("t"),
 		Explorer:    bind("e"),
 		Send:        bind("S"),
-		General:     bind("M"),
 		Copy:        bind("y"),
 		Save:        bind("ctrl+s"),
 		Newline:     bind("enter"),
@@ -262,7 +260,6 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "delete every comment", keys: []key.Binding{k.DeleteAll}},
 			{desc: "mark file viewed until it changes", keys: []key.Binding{k.Viewed}},
 			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
-			{desc: "write a general comment and send it straight to the agent, on either tab", keys: []key.Binding{k.General}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
 			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
 			{desc: "edit the reviewed pull request, in a review diff", keys: []key.Binding{k.EditPR}},
