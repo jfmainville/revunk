@@ -809,6 +809,87 @@ func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	}
 }
 
+func TestChangedWordsMarksOnlyTheDifferingWords(t *testing.T) {
+	marked := func(s string, hit []bool) string {
+		var b strings.Builder
+		for i, c := range []byte(s) {
+			if hit[i] {
+				b.WriteByte(c)
+			} else {
+				b.WriteByte('.')
+			}
+		}
+		return b.String()
+	}
+	for _, tc := range []struct{ name, a, b, wantOld, wantNew string }{
+		{"one word", "return foo(a, b)", "return foo(a, c)", "..............b.", "..............c."},
+		{"spaces between changed words", "a b c", "a x y c", "..b..", "..x y.."},
+		{"appended argument", "call(a)", "call(a, longer)", ".......", "......, longer."},
+		{"whitespace only", "a b", "a  b", ". .", ".  ."},
+		{"whole rewrite", "func old() {}", "var x = 42", "", ""},
+		{"blank line", "", "text", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldHit, newHit := changedWords(tc.a, tc.b)
+			if tc.wantOld == "" {
+				if oldHit != nil || newHit != nil {
+					t.Fatalf("lines too different should not be highlighted, got %q %q", marked(tc.a, oldHit), marked(tc.b, newHit))
+				}
+				return
+			}
+			if got := marked(tc.a, oldHit); got != tc.wantOld {
+				t.Errorf("old = %q, want %q", got, tc.wantOld)
+			}
+			if got := marked(tc.b, newHit); got != tc.wantNew {
+				t.Errorf("new = %q, want %q", got, tc.wantNew)
+			}
+		})
+	}
+	if oldHit, _ := changedWords(strings.Repeat("a ", 600), strings.Repeat("b ", 600)); oldHit != nil {
+		t.Fatal("very long lines should be skipped")
+	}
+}
+
+func TestMarkWordsPairsRemovedAndAddedLinesInOrder(t *testing.T) {
+	lines := review.ParseLines("@@ -1,3 +1,3 @@\n keep := 1\n-x := 1\n-y := 2\n+x := 3\n+totally different\n tail")
+	tokens := plainTokens(lines)
+	background := func(row int, text string) any {
+		for _, tk := range tokens[row] {
+			if tk.text == text {
+				return tk.style.GetBackground()
+			}
+		}
+		t.Fatalf("no %q token on row %d: %+v", text, row, tokens[row])
+		return nil
+	}
+	if background(2, "1") != colorDelWord || background(4, "3") != colorAddWord || background(2, "x := ") == colorDelWord || background(4, "x := ") == colorAddWord {
+		t.Fatal("the first removed and added lines should only highlight the changed number")
+	}
+	if len(tokens[1]) != 1 || len(tokens[3]) != 1 || len(tokens[5]) != 1 || len(tokens[6]) != 1 {
+		t.Fatal("context lines and lines too different should stay unhighlighted")
+	}
+}
+
+func TestChangedWordsAreHighlightedOnBothTabs(t *testing.T) {
+	bg := func(c color.Color) string {
+		r, g, b, _ := c.RGBA()
+		return fmt.Sprintf("48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
+	}
+	m, _ := loaded(t)
+	m, _ = press(t, m, "l")
+	if out := strings.Join(m.diffLines(), "\n"); !strings.Contains(out, bg(colorDelWord)) || !strings.Contains(out, bg(colorAddWord)) {
+		t.Fatalf("the Agent diff should highlight old and a:\n%s", out)
+	}
+	pulls, _ := pullsModel(t)
+	pulls = pressRun(t, pulls, "g", "d")
+	if pulls.diff == nil {
+		t.Fatal("gd should open the review diff")
+	}
+	if out := strings.Join(pulls.diff.diffLines(), "\n"); !strings.Contains(out, bg(colorDelWord)) || !strings.Contains(out, bg(colorAddWord)) {
+		t.Fatalf("the review diff should highlight old and a:\n%s", out)
+	}
+}
+
 func TestSmallHelpers(t *testing.T) {
 	for want, c := range map[string]review.Comment{"file": {}, "L3": {Start: 3, End: 3}, "L3-5": {Start: 3, End: 5}} {
 		if got := lineLabel(c); got != want {

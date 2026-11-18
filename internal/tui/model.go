@@ -926,23 +926,7 @@ func markMatches(tokens []token, query string) []token {
 		}
 		from += i + len(q)
 	}
-	var out []token
-	pos := 0
-	for _, t := range tokens {
-		start := 0
-		for j := 1; j <= len(t.text); j++ {
-			if j == len(t.text) || hit[pos+j] != hit[pos+start] {
-				style := t.style
-				if hit[pos+start] {
-					style = style.Background(colorPrimary).Foreground(colorOnPrimary)
-				}
-				out = append(out, token{text: t.text[start:j], style: style})
-				start = j
-			}
-		}
-		pos += len(t.text)
-	}
-	return out
+	return paint(tokens, hit, lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary))
 }
 
 func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

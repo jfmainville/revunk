@@ -29,6 +29,8 @@ var (
 	colorVisual     = lipgloss.Color("#18443a")
 	colorAddBg      = lipgloss.Color("#292519")
 	colorDelBg      = lipgloss.Color("#34231d")
+	colorAddWord    = lipgloss.Color("#46512a")
+	colorDelWord    = lipgloss.Color("#633629")
 	colorError      = lipgloss.Color("#fdae95")
 	colorNote       = lipgloss.Color("#8fb8de")
 	colorIssue      = lipgloss.Color("#e5534b")
@@ -88,7 +90,7 @@ func plainTokens(lines []review.Line) [][]token {
 	for i, t := range lineTexts(lines) {
 		out[i] = []token{{text: t, style: lipgloss.NewStyle().Foreground(colorForeground)}}
 	}
-	return out
+	return markWords(lines, out)
 }
 
 func highlight(lexer chroma.Lexer, lines []review.Line) [][]token {
@@ -117,6 +119,114 @@ func highlight(lexer chroma.Lexer, lines []review.Line) [][]token {
 			}
 			out[i] = append(out[i], token{text: text, style: style})
 		}
+	}
+	return markWords(lines, out)
+}
+
+const maxWordPairs = 250_000
+
+var wordPattern = regexp.MustCompile(`[\p{L}\p{N}_]+|\s+|.`)
+
+func markWords(lines []review.Line, tokens [][]token) [][]token {
+	for i := 0; i < len(lines); {
+		if lines[i].Kind != review.LineRemoved {
+			i++
+			continue
+		}
+		removed := i
+		for i < len(lines) && lines[i].Kind == review.LineRemoved {
+			i++
+		}
+		added := i
+		for i < len(lines) && lines[i].Kind == review.LineAdded {
+			i++
+		}
+		for k := 0; removed+k < added && added+k < i; k++ {
+			oldHit, newHit := changedWords(lineText(tokens[removed+k]), lineText(tokens[added+k]))
+			if oldHit == nil {
+				continue
+			}
+			tokens[removed+k] = paint(tokens[removed+k], oldHit, lipgloss.NewStyle().Background(colorDelWord))
+			tokens[added+k] = paint(tokens[added+k], newHit, lipgloss.NewStyle().Background(colorAddWord))
+		}
+	}
+	return tokens
+}
+
+func changedWords(a, b string) ([]bool, []bool) {
+	x, y := wordPattern.FindAllStringIndex(a, -1), wordPattern.FindAllStringIndex(b, -1)
+	if len(x)*len(y) > maxWordPairs {
+		return nil, nil
+	}
+	same := func(i, j int) bool { return a[x[i][0]:x[i][1]] == b[y[j][0]:y[j][1]] }
+	lcs := make([][]int, len(x)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(y)+1)
+	}
+	for i := len(x) - 1; i >= 0; i-- {
+		for j := len(y) - 1; j >= 0; j-- {
+			if same(i, j) {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
+		}
+	}
+	oldWords, newWords := make([]bool, len(x)), make([]bool, len(y))
+	kept := 0
+	for i, j := 0, 0; i < len(x) && j < len(y); {
+		switch {
+		case same(i, j):
+			oldWords[i], newWords[j] = true, true
+			kept += len(strings.TrimSpace(a[x[i][0]:x[i][1]]))
+			i, j = i+1, j+1
+		case lcs[i+1][j] >= lcs[i][j+1]:
+			i++
+		default:
+			j++
+		}
+	}
+	nonSpace := func(s string) int { return len(strings.Join(strings.Fields(s), "")) }
+	if kept == 0 || kept*2 < min(nonSpace(a), nonSpace(b)) {
+		return nil, nil
+	}
+	return changedBytes(a, x, oldWords), changedBytes(b, y, newWords)
+}
+
+func changedBytes(s string, words [][]int, kept []bool) []bool {
+	hit := make([]bool, len(s))
+	for k, w := range words {
+		changed := !kept[k]
+		if strings.TrimSpace(s[w[0]:w[1]]) == "" {
+			before, after := k > 0 && !kept[k-1], k < len(words)-1 && !kept[k+1]
+			changed = before && after || changed && !before && !after
+		}
+		if !changed {
+			continue
+		}
+		for i := w[0]; i < w[1]; i++ {
+			hit[i] = true
+		}
+	}
+	return hit
+}
+
+func paint(tokens []token, hit []bool, mark lipgloss.Style) []token {
+	var out []token
+	pos := 0
+	for _, t := range tokens {
+		start := 0
+		for j := 1; j <= len(t.text); j++ {
+			if j == len(t.text) || hit[pos+j] != hit[pos+start] {
+				style := t.style
+				if hit[pos+start] {
+					style = mark.Inherit(style)
+				}
+				out = append(out, token{text: t.text[start:j], style: style})
+				start = j
+			}
+		}
+		pos += len(t.text)
 	}
 	return out
 }
