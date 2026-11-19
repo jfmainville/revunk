@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"charm.land/bubbles/v2/key"
 	"cmp"
 	"context"
 	"errors"
@@ -11,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"charm.land/bubbles/v2/key"
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
@@ -1175,7 +1176,7 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		d.expanded = false
 	case is(key, k.Cancel) && !d.normal && (d.kind == modalActions || d.picker()):
 		d.listKey(key, k, 0)
-	case is(key, k.Cancel) && (d.normal || d.text() == nil):
+	case is(key, k.Cancel) && (d.normal || d.text() == nil && d.kind != modalURL):
 		m.modal = modalState{}
 	case d.kind == modalActions:
 		return m.updateActions(msg)
@@ -1206,7 +1207,7 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case d.picker():
 		cmd = d.pickKey(msg, k)
 	case d.field() >= 0:
-		d.fields[d.field()], cmd = d.fields[d.field()].Update(msg)
+		cmd = d.fieldKey(&d.fields[d.field()], msg, k)
 	case d.text() != nil:
 		cmd = d.update(d.text(), msg, k)
 		d.oneLineTitle()
@@ -1253,6 +1254,9 @@ func (d *modalState) text() *textarea.Model {
 }
 
 func (d *modalState) mode() string {
+	if d.kind == modalURL && d.field() >= 0 {
+		return d.vimState.mode()
+	}
 	if d.text() == nil {
 		return ""
 	}

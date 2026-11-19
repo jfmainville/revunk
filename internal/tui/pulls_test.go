@@ -1323,7 +1323,7 @@ func TestURLModalOpensTheReviewDiff(t *testing.T) {
 	if m = pressRun(t, m, "ctrl+s"); !m.modal.open || !strings.Contains(statusText(m), "is not a GitHub pull") || host.has("detail o/s#8") {
 		t.Fatalf("an unsupported URL should keep the modal open without loading anything:\n%s", screen(m))
 	}
-	m = pressRun(t, m, "esc", "g", "u")
+	m = pressRun(t, m, "esc", "esc", "g", "u")
 	if m.modal.fields[0].Value() != "" {
 		t.Fatal("the URL modal should open empty")
 	}
@@ -1357,6 +1357,33 @@ func TestURLModalOpensTheReviewDiff(t *testing.T) {
 	plain, _ := loaded(t)
 	if plain, _ = press(t, plain, "g", "u"); plain.modal.open {
 		t.Fatal("without gh, gu does nothing")
+	}
+}
+
+func TestURLModalUsesVimModes(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "g", "u")
+	m = typeText(t, m, "ello")
+	if m = pressRun(t, m, "esc"); m.modal.mode() != "normal" || !m.modal.open {
+		t.Fatal("esc should switch the URL field to normal mode without closing the modal")
+	}
+	m = pressRun(t, m, "0", "i")
+	m = typeText(t, m, "h")
+	if got := m.modal.fields[0].Value(); got != "hello" || m.modal.mode() != "insert" {
+		t.Fatalf("0 and i should insert at the line start, value=%q mode=%q", got, m.modal.mode())
+	}
+	m = pressRun(t, m, "esc", "0", "x")
+	if got := m.modal.fields[0].Value(); got != "ello" {
+		t.Fatalf("0 and x should delete the first character, value=%q", got)
+	}
+	m = pressRun(t, m, "A")
+	m = typeText(t, m, "!")
+	if got := m.modal.fields[0].Value(); got != "ello!" {
+		t.Fatalf("A should append at the end, value=%q", got)
+	}
+	m = pressRun(t, m, "esc")
+	if m = pressRun(t, m, "esc"); m.modal.open {
+		t.Fatal("esc from normal mode should close the URL modal")
 	}
 }
 
