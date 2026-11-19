@@ -84,13 +84,13 @@ type keyMap struct {
 	WindowRight key.Binding
 }
 
-// operatorKeys are the text edits of a text box, kept out of the global sequences so c and d stay single keys there.
+// operatorKeys stay out of the global sequences so c and d remain single keys outside text boxes.
 type operatorKeys struct {
-	InnerChange, WordChange, InnerDelete, WordDelete key.Binding
+	InnerChange, WordChange, InnerDelete, WordDelete, ChangeToEnd, DeleteToEnd key.Binding
 }
 
 func (o operatorKeys) list() []key.Binding {
-	return []key.Binding{o.InnerChange, o.WordChange, o.InnerDelete, o.WordDelete}
+	return []key.Binding{o.InnerChange, o.WordChange, o.InnerDelete, o.WordDelete, o.ChangeToEnd, o.DeleteToEnd}
 }
 
 func bind(keys ...string) key.Binding {
@@ -172,6 +172,8 @@ func defaultKeys() keyMap {
 			WordChange:  bind("c w"),
 			InnerDelete: bind("d i w"),
 			WordDelete:  bind("d w"),
+			ChangeToEnd: bind("c $"),
+			DeleteToEnd: bind("d $"),
 		},
 		WindowLeft:  bind("ctrl+w h"),
 		WindowDown:  bind("ctrl+w j"),
@@ -195,7 +197,6 @@ func (k keyMap) all() []key.Binding {
 	return out
 }
 
-// pendingOp reports whether seq can still grow into a vim operator, such as g, d, or c i.
 func (k keyMap) pendingOp(seq string) bool {
 	for _, b := range append([]key.Binding{k.Top, k.Delete}, k.Ops.list()...) {
 		if _, ok := rest(b, seq); ok {

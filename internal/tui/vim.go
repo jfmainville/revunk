@@ -60,7 +60,6 @@ func sendKey(a *textarea.Model, code rune, mod tea.KeyMod) {
 	*a, _ = a.Update(tea.KeyPressMsg{Code: code, Mod: mod})
 }
 
-// sequence joins key to a pending operator and clears it.
 func (v *vimState) sequence(key string) string {
 	if v.pending == "" {
 		return key
@@ -70,7 +69,6 @@ func (v *vimState) sequence(key string) string {
 	return seq
 }
 
-// placeCursor moves the cursor of a text area to row and col.
 func placeCursor(a *textarea.Model, row, col int) {
 	a.MoveToBegin()
 	for a.Line() < row {
@@ -82,9 +80,10 @@ func placeCursor(a *textarea.Model, row, col int) {
 type wordSpan int
 
 const (
-	wordInner wordSpan = iota // iw, the word under the cursor
-	wordEnd                   // e, from the cursor to the end of the word
-	wordNext                  // w, from the cursor to the next word
+	wordInner wordSpan = iota
+	wordEnd
+	wordNext
+	wordLineEnd
 )
 
 const (
@@ -103,7 +102,6 @@ func charClass(r rune) int {
 	return classPunct
 }
 
-// deleteWord removes the span from col and returns the rest of the line and the column the cursor lands on.
 func deleteWord(line []rune, col int, span wordSpan) ([]rune, int) {
 	if col >= len(line) {
 		return line, col
@@ -122,6 +120,9 @@ func deleteWord(line []rune, col int, span wordSpan) ([]rune, int) {
 		for end < len(line) && charClass(line[end]) == classBlank {
 			end++
 		}
+	}
+	if span == wordLineEnd {
+		end = len(line)
 	}
 	return slices.Concat(line[:start], line[end:]), start
 }
@@ -197,6 +198,10 @@ func (v *vimState) fieldNormalKey(f *textinput.Model, key string, k keyMap) {
 		v.fieldWord(f, wordInner, false)
 	case is(key, k.Ops.WordDelete):
 		v.fieldWord(f, wordNext, false)
+	case is(key, k.Ops.ChangeToEnd):
+		v.fieldWord(f, wordLineEnd, true)
+	case is(key, k.Ops.DeleteToEnd):
+		v.fieldWord(f, wordLineEnd, false)
 	default:
 		if k.pendingOp(key) {
 			v.pending = key
@@ -223,6 +228,10 @@ func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 		v.areaWord(a, wordInner, false)
 	case is(seq, k.Ops.WordDelete):
 		v.areaWord(a, wordNext, false)
+	case is(seq, k.Ops.ChangeToEnd):
+		v.areaWord(a, wordLineEnd, true)
+	case is(seq, k.Ops.DeleteToEnd):
+		v.areaWord(a, wordLineEnd, false)
 	case seq != key:
 		if k.pendingOp(seq) {
 			v.pending = seq

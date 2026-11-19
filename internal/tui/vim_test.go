@@ -18,6 +18,8 @@ func TestDeleteWord(t *testing.T) {
 		{"next word", "foo bar baz", 0, wordNext, "bar baz", 0},
 		{"next word from inside a word", "foo  bar", 2, wordNext, "fobar", 2},
 		{"next word on the last word", "foo", 0, wordNext, "", 0},
+		{"to the line end", "foo bar", 4, wordLineEnd, "foo ", 4},
+		{"to the line end from the start", "foo", 0, wordLineEnd, "", 0},
 		{"empty line", "", 0, wordInner, "", 0},
 		{"column past the end", "ab", 2, wordInner, "ab", 2},
 	}
@@ -46,6 +48,21 @@ func TestURLFieldChangesAndDeletesWords(t *testing.T) {
 	m = pressRun(t, m, "esc", "0", "d", "w")
 	if got := m.modal.fields[0].Value(); got != "world" || m.modal.mode() != "normal" {
 		t.Fatalf("dw should delete the word and the blanks after it, value=%q mode=%q", got, m.modal.mode())
+	}
+}
+
+func TestURLFieldChangesAndDeletesToTheLineEnd(t *testing.T) {
+	m, _ := pullsModel(t)
+	m = pressRun(t, m, "g", "u")
+	m = typeText(t, m, "hello world")
+	m = pressRun(t, m, "esc", "0", "l", "l", "l", "l", "l", "l", "d", "$")
+	if got := m.modal.fields[0].Value(); got != "hello " {
+		t.Fatalf("d$ should delete to the line end, value=%q", got)
+	}
+	m = pressRun(t, m, "0", "c", "$")
+	m = typeText(t, m, "!")
+	if got := m.modal.fields[0].Value(); got != "!" || m.modal.mode() != "insert" {
+		t.Fatalf("c$ should replace to the line end, value=%q mode=%q", got, m.modal.mode())
 	}
 }
 
