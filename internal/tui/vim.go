@@ -59,6 +59,55 @@ func sendKey(a *textarea.Model, code rune, mod tea.KeyMod) {
 	*a, _ = a.Update(tea.KeyPressMsg{Code: code, Mod: mod})
 }
 
+func (v *vimState) fieldKey(f *textinput.Model, msg tea.KeyPressMsg, k keyMap) tea.Cmd {
+	key := msg.String()
+	if v.normal {
+		v.fieldNormalKey(f, key, k)
+		return nil
+	}
+	leave := is(key, k.LeaveInsert) && v.pending == key
+	v.pending = ""
+	if is(key, k.NormalMode) || leave {
+		if leave {
+			*f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+		}
+		v.normal = true
+		return nil
+	}
+	if is(key, k.LeaveInsert) {
+		v.pending = key
+	}
+	var cmd tea.Cmd
+	*f, cmd = f.Update(msg)
+	return cmd
+}
+
+func (v *vimState) fieldNormalKey(f *textinput.Model, key string, k keyMap) {
+	switch {
+	case is(key, k.Insert):
+		v.normal = false
+	case is(key, k.Append):
+		f.SetCursor(f.Position() + 1)
+		v.normal = false
+	case is(key, k.InsertStart):
+		f.CursorStart()
+		v.normal = false
+	case is(key, k.AppendEnd):
+		f.CursorEnd()
+		v.normal = false
+	case is(key, k.CharLeft):
+		f.SetCursor(f.Position() - 1)
+	case is(key, k.CharRight):
+		f.SetCursor(min(f.Position()+1, max(len([]rune(f.Value()))-1, 0)))
+	case is(key, k.LineStart):
+		f.CursorStart()
+	case is(key, k.LineEnd):
+		f.CursorEnd()
+	case is(key, k.DeleteUnder):
+		*f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
+	}
+}
+
 func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 	seq := key
 	if v.pending != "" {
