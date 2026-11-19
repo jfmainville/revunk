@@ -77,10 +77,20 @@ type keyMap struct {
 	LineStart   key.Binding
 	LineEnd     key.Binding
 	DeleteUnder key.Binding
+	Ops         operatorKeys
 	WindowLeft  key.Binding
 	WindowDown  key.Binding
 	WindowUp    key.Binding
 	WindowRight key.Binding
+}
+
+// operatorKeys are the text edits of a text box, kept out of the global sequences so c and d stay single keys there.
+type operatorKeys struct {
+	InnerChange, WordChange, InnerDelete, WordDelete key.Binding
+}
+
+func (o operatorKeys) list() []key.Binding {
+	return []key.Binding{o.InnerChange, o.WordChange, o.InnerDelete, o.WordDelete}
 }
 
 func bind(keys ...string) key.Binding {
@@ -157,6 +167,12 @@ func defaultKeys() keyMap {
 		LineStart:   bind("0"),
 		LineEnd:     bind("$"),
 		DeleteUnder: bind("x"),
+		Ops: operatorKeys{
+			InnerChange: bind("c i w"),
+			WordChange:  bind("c w"),
+			InnerDelete: bind("d i w"),
+			WordDelete:  bind("d w"),
+		},
 		WindowLeft:  bind("ctrl+w h"),
 		WindowDown:  bind("ctrl+w j"),
 		WindowUp:    bind("ctrl+w k"),
@@ -170,11 +186,23 @@ func is(k string, b key.Binding) bool {
 
 func (k keyMap) all() []key.Binding {
 	v := reflect.ValueOf(k)
-	out := make([]key.Binding, v.NumField())
-	for i := range out {
-		out[i] = v.Field(i).Interface().(key.Binding)
+	var out []key.Binding
+	for i := range v.NumField() {
+		if b, ok := v.Field(i).Interface().(key.Binding); ok {
+			out = append(out, b)
+		}
 	}
 	return out
+}
+
+// pendingOp reports whether seq can still grow into a vim operator, such as g, d, or c i.
+func (k keyMap) pendingOp(seq string) bool {
+	for _, b := range append([]key.Binding{k.Top, k.Delete}, k.Ops.list()...) {
+		if _, ok := rest(b, seq); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (k keyMap) isPrefix(s string) bool {
@@ -295,7 +323,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "left / right", keys: []key.Binding{k.CharLeft, k.CharRight}},
 			{desc: "next / previous word", keys: []key.Binding{k.WordNext, k.WordPrev}},
 			{desc: "line start / end", keys: []key.Binding{k.LineStart, k.LineEnd}},
-			{desc: "delete the character, the line", keys: []key.Binding{k.DeleteUnder, k.Delete}},
+			{desc: "delete or change a character, line, or word", keys: []key.Binding{k.DeleteUnder, k.Delete, k.Ops.InnerDelete, k.Ops.WordDelete, k.Ops.InnerChange, k.Ops.WordChange}},
 			{desc: "cancel, from normal", keys: []key.Binding{k.Cancel}},
 		}},
 		{"anywhere", []hint{

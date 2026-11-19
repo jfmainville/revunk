@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/textarea"
@@ -59,10 +60,93 @@ func sendKey(a *textarea.Model, code rune, mod tea.KeyMod) {
 	*a, _ = a.Update(tea.KeyPressMsg{Code: code, Mod: mod})
 }
 
+// sequence joins key to a pending operator and clears it.
+func (v *vimState) sequence(key string) string {
+	if v.pending == "" {
+		return key
+	}
+	seq := v.pending + " " + key
+	v.pending = ""
+	return seq
+}
+
+// placeCursor moves the cursor of a text area to row and col.
+func placeCursor(a *textarea.Model, row, col int) {
+	a.MoveToBegin()
+	for a.Line() < row {
+		a.CursorDown()
+	}
+	a.SetCursorColumn(col)
+}
+
+type wordSpan int
+
+const (
+	wordInner wordSpan = iota // iw, the word under the cursor
+	wordEnd                   // e, from the cursor to the end of the word
+	wordNext                  // w, from the cursor to the next word
+)
+
+const (
+	classBlank = iota
+	classWord
+	classPunct
+)
+
+func charClass(r rune) int {
+	switch {
+	case unicode.IsSpace(r):
+		return classBlank
+	case unicode.IsLetter(r), unicode.IsDigit(r), r == '_':
+		return classWord
+	}
+	return classPunct
+}
+
+// deleteWord removes the span from col and returns the rest of the line and the column the cursor lands on.
+func deleteWord(line []rune, col int, span wordSpan) ([]rune, int) {
+	if col >= len(line) {
+		return line, col
+	}
+	start, end := col, col
+	class := charClass(line[col])
+	for end < len(line) && charClass(line[end]) == class {
+		end++
+	}
+	switch span {
+	case wordInner:
+		for start > 0 && charClass(line[start-1]) == class {
+			start--
+		}
+	case wordNext:
+		for end < len(line) && charClass(line[end]) == classBlank {
+			end++
+		}
+	}
+	return slices.Concat(line[:start], line[end:]), start
+}
+
+func (v *vimState) areaWord(a *textarea.Model, span wordSpan, change bool) {
+	lines := strings.Split(a.Value(), "\n")
+	row := a.Line()
+	line, col := deleteWord([]rune(lines[row]), a.Column(), span)
+	lines[row] = string(line)
+	a.SetValue(strings.Join(lines, "\n"))
+	placeCursor(a, row, col)
+	v.normal = !change
+}
+
+func (v *vimState) fieldWord(f *textinput.Model, span wordSpan, change bool) {
+	line, col := deleteWord([]rune(f.Value()), f.Position(), span)
+	f.SetValue(string(line))
+	f.SetCursor(col)
+	v.normal = !change
+}
+
 func (v *vimState) fieldKey(f *textinput.Model, msg tea.KeyPressMsg, k keyMap) tea.Cmd {
 	key := msg.String()
 	if v.normal {
-		v.fieldNormalKey(f, key, k)
+		v.fieldNormalKey(f, v.sequence(key), k)
 		return nil
 	}
 	leave := is(key, k.LeaveInsert) && v.pending == key
@@ -105,14 +189,23 @@ func (v *vimState) fieldNormalKey(f *textinput.Model, key string, k keyMap) {
 		f.CursorEnd()
 	case is(key, k.DeleteUnder):
 		*f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
+	case is(key, k.Ops.InnerChange):
+		v.fieldWord(f, wordInner, true)
+	case is(key, k.Ops.WordChange):
+		v.fieldWord(f, wordEnd, true)
+	case is(key, k.Ops.InnerDelete):
+		v.fieldWord(f, wordInner, false)
+	case is(key, k.Ops.WordDelete):
+		v.fieldWord(f, wordNext, false)
+	default:
+		if k.pendingOp(key) {
+			v.pending = key
+		}
 	}
 }
 
 func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
-	seq := key
-	if v.pending != "" {
-		seq, v.pending = v.pending+" "+key, ""
-	}
+	seq := v.sequence(key)
 	lines := strings.Split(a.Value(), "\n")
 	switch {
 	case is(seq, k.Top):
@@ -121,11 +214,19 @@ func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 		row := a.Line()
 		lines = slices.Delete(lines, row, row+1)
 		a.SetValue(strings.Join(lines, "\n"))
-		a.MoveToBegin()
-		for a.Line() < min(row, len(lines)-1) {
-			a.CursorDown()
-		}
+		placeCursor(a, min(row, len(lines)-1), 0)
+	case is(seq, k.Ops.InnerChange):
+		v.areaWord(a, wordInner, true)
+	case is(seq, k.Ops.WordChange):
+		v.areaWord(a, wordEnd, true)
+	case is(seq, k.Ops.InnerDelete):
+		v.areaWord(a, wordInner, false)
+	case is(seq, k.Ops.WordDelete):
+		v.areaWord(a, wordNext, false)
 	case seq != key:
+		if k.pendingOp(seq) {
+			v.pending = seq
+		}
 	case is(key, k.Down):
 		a.CursorDown()
 	case is(key, k.Up):
@@ -207,9 +308,7 @@ func (v *vimState) normalKey(a *textarea.Model, key string, k keyMap) {
 		a.CursorUp()
 		v.normal = false
 	default:
-		if _, ok := rest(k.Top, key); ok {
-			v.pending = key
-		} else if _, ok := rest(k.Delete, key); ok {
+		if k.pendingOp(key) {
 			v.pending = key
 		}
 	}
