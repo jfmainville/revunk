@@ -33,6 +33,7 @@ Commands:
 Flags:
   -base     Branch to compare against (default: origin's default branch, else main)
   -cleanup  Delete .git/revunk.json, every saved comment and viewed file, then exit
+  -leader   Key that starts leader sequences, such as <leader> e for the explorer (default: space)
   -version  Print the version, then exit
 `
 
@@ -48,6 +49,7 @@ func run(args []string) error {
 	flags.Usage = func() { fmt.Fprint(flags.Output(), usage) }
 	base := flags.String("base", "", "")
 	cleanup := flags.Bool("cleanup", false, "")
+	leader := flags.String("leader", "space", "")
 	showVersion := flags.Bool("version", false, "")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -88,7 +90,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		_, err = tea.NewProgram(model).Run()
+		_, err = tea.NewProgram(model.WithLeader(*leader)).Run()
 		return err
 	case "reply":
 		if flags.NArg() < 3 {

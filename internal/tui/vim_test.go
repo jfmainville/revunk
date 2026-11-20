@@ -84,7 +84,7 @@ func TestCommentEditorChangesAndDeletesWords(t *testing.T) {
 }
 
 func TestPendingOperatorsOnlyStartInTextBoxes(t *testing.T) {
-	k := defaultKeys()
+	k := defaultKeys("space")
 	for _, seq := range []string{"c", "c i", "d", "d i", "g"} {
 		if !k.pendingOp(seq) {
 			t.Errorf("%q should wait for the rest of a text edit", seq)

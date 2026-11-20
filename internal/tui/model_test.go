@@ -1541,7 +1541,7 @@ func TestMouseIgnoredWhileEditingOrHelp(t *testing.T) {
 
 func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 	m, _ := loaded(t)
-	m, _ = press(t, m, "e")
+	m, _ = press(t, m, "space", "e")
 	out := screen(m)
 	if strings.Contains(out, "╭─ files") || strings.Contains(out, "╭─ commits") || !strings.Contains(out, "╭─ continuous diff") {
 		t.Fatalf("e should hide commits and files:\n%s", out)
@@ -1568,7 +1568,7 @@ func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 		t.Fatalf("left clicks should hit the diff, focus=%d cursor=%d", m.focus, m.cursor)
 	}
 
-	m, _ = press(t, m, "e")
+	m, _ = press(t, m, "space", "e")
 	if !strings.Contains(screen(m), "╭─ files") || m.focus != focusFiles {
 		t.Fatal("e again should bring the panes back and focus the files")
 	}
@@ -1580,7 +1580,7 @@ func TestExplorerToggleHidesCommitsAndFiles(t *testing.T) {
 	}
 
 	d, _ := loaded(t)
-	d, _ = press(t, d, "l", "e")
+	d, _ = press(t, d, "l", "space", "e")
 	if d.focus != focusDiff {
 		t.Fatal("hiding the explorer should keep focus on the diff")
 	}
@@ -2438,7 +2438,7 @@ func TestCtrlWMovesBetweenPanes(t *testing.T) {
 			t.Fatalf("with comments, step %d ctrl+w %s: focus=%d want %d", i, s.key, m.focus, s.want)
 		}
 	}
-	m, _ = press(t, m, "e")
+	m, _ = press(t, m, "space", "e")
 	if m, _ = press(t, m, "ctrl+w", "h"); m.focus != focusDiff {
 		t.Fatal("ctrl+w h should stay on the diff when the left panes are hidden")
 	}
@@ -2683,5 +2683,72 @@ func TestSelectedLinesShareTheVisualColor(t *testing.T) {
 	}
 	if out := renderLine(l, plainTokens([]review.Line{l})[0], 40, 0, true, false); !strings.Contains(out, "48;2;50;38;24") {
 		t.Fatalf("the cursor line outside a selection should keep the cursor color: %q", out)
+	}
+}
+
+func TestEditSavesTheCommentAndShowsTheChange(t *testing.T) {
+	m, st := loaded(t)
+	st.comments = []review.Comment{{ID: "a", Kind: "nit", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "rename this"}}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	if m, _ = press(t, m, "e"); !m.editing || m.editor.area.Value() != "rename this" || !strings.Contains(screen(m), "L2 · edit") || strings.Count(screen(m), "rename this") != 1 {
+		t.Fatalf("e should replace the comment with an editor holding its body:\n%s", screen(m))
+	}
+	m = typeText(t, m, "!")
+	m, cmd := press(t, m, "ctrl+s")
+	m = run(t, m, cmd)
+	if c := st.comments[0]; c.Body != "rename this!" || c.Sent || len(st.comments) != 1 {
+		t.Fatalf("edit not saved in place: %+v", st.comments)
+	}
+	if out := screen(m); m.editing || !strings.Contains(out, "rename this!") {
+		t.Fatalf("saved edit should show under the comment:\n%s", out)
+	}
+}
+
+func TestEditRefusesCommentsNotWrittenLocally(t *testing.T) {
+	m, st := loaded(t)
+	st.comments = []review.Comment{{ID: "a", Author: "octocat", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "nit"}}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	if m, _ = press(t, m, "e"); m.editing || !strings.Contains(m.warning, "only your own comments can be edited") {
+		t.Fatalf("e should refuse a GitHub comment, warning %q", m.warning)
+	}
+}
+
+func TestEditExplainsWhenNoCommentIsUnderTheCursor(t *testing.T) {
+	m, _ := loaded(t)
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	if m, _ = press(t, m, "e"); m.editing || m.warning != "no comment here to edit" {
+		t.Fatalf("e without a comment should explain, warning %q", m.warning)
+	}
+}
+
+func TestEditHintShowsOnlyOverAnOwnComment(t *testing.T) {
+	m, st := loaded(t)
+	st.comments = []review.Comment{{ID: "a", Path: "a/main.go", Side: review.SideRight, Start: 2, End: 2, Body: "nit"}}
+	m = update(t, m, m.Init()())
+	m, _ = press(t, m, "l")
+	m.cursor = rowOf(t, m, rowLine, 1, 3)
+	if !strings.Contains(m.footer(), "edit") {
+		t.Fatalf("footer should offer edit over the comment: %q", m.footer())
+	}
+	m.cursor = rowOf(t, m, rowLine, 1, 4)
+	if strings.Contains(m.footer(), "edit") {
+		t.Fatalf("footer should not offer edit away from the comment: %q", m.footer())
+	}
+}
+
+func TestLeaderKeyToggleTheExplorer(t *testing.T) {
+	m, _ := loaded(t)
+	m = m.WithLeader(",")
+	if m, _ = press(t, m, ",", "e"); !m.hideTree {
+		t.Fatal(", e should hide the explorer")
+	}
+	if m, _ = press(t, m, "e"); !m.hideTree || m.warning != "no comment here to edit" {
+		t.Fatalf("e alone should edit, not toggle the explorer, warning %q", m.warning)
 	}
 }

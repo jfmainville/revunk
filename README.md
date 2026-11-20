@@ -72,7 +72,7 @@ Revunk reloads commits, the diff, viewed state, and comments every 2 seconds, ke
 | `x`                              | Resolve or reopen the comment under the cursor                                         |
 | `r`                              | Reply to the agent's answer on the comment under the cursor                            |
 | `t`                              | Show or hide the comments pane                                                         |
-| `e`                              | Show the files and commits panes and focus the files, or hide them                     |
+| `space e`                        | Show the files and commits panes and focus the files, or hide them                     |
 | `DD`                             | Delete every comment on the branch                                                     |
 | `-`                              | Toggle the file's viewed state                                                         |
 | `S`                              | Send unsent comments to the agent                                                      |

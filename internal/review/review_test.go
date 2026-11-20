@@ -679,3 +679,50 @@ func TestSyncBranchWrapsErrors(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 }
+
+func TestEditCommentReplacesBodyAndResendsIt(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	svc := review.NewService(&fakeSource{}, st, nil, "feature")
+	if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Kind: "nit", Body: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	id := idOf(t, svc, "old")
+	if err := st.UpdateComments(ctx, "feature", []string{id}, func(c *review.Comment) { c.Sent = true }); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.EditComment(ctx, review.Comment{ID: id, Kind: "question", Body: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.Comments(ctx)
+	if len(got) != 1 || got[0].ID != id || got[0].Body != "new" || got[0].Kind != "question" || got[0].Sent {
+		t.Fatalf("Comments after edit = %+v", got)
+	}
+}
+
+func TestEditCommentRejectsEditsThatCannotBeSaved(t *testing.T) {
+	ctx := context.Background()
+	st := newStore(t)
+	svc := review.NewService(&fakeSource{}, st, nil, "feature")
+	if err := svc.AddComment(ctx, review.Comment{Path: "a.go", Body: "mine"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddComment(ctx, "feature", review.Comment{Path: "a.go", Author: "octocat", Body: "theirs"}); err != nil {
+		t.Fatal(err)
+	}
+	mine, theirs := idOf(t, svc, "mine"), idOf(t, svc, "theirs")
+
+	for name, c := range map[string]review.Comment{
+		"empty body":     {ID: mine, Body: "  "},
+		"unknown id":     {ID: "missing", Body: "x"},
+		"someone else's": {ID: theirs, Body: "x"},
+	} {
+		if err := svc.EditComment(ctx, c); err == nil {
+			t.Errorf("%s: EditComment should fail", name)
+		}
+	}
+	if got, _ := svc.Comments(ctx); len(got) != 2 || got[0].Body != "mine" || got[1].Body != "theirs" {
+		t.Fatalf("failed edits should leave comments unchanged: %+v", got)
+	}
+}
