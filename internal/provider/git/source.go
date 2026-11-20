@@ -165,6 +165,14 @@ func DefaultBase(ctx context.Context, dir string) string {
 	return strings.TrimSpace(out)
 }
 
+func Repo(ctx context.Context, dir string) string {
+	out, err := run(ctx, dir, "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return repoName(out)
+}
+
 func StatePath(ctx context.Context, dir string) (string, error) {
 	out, err := run(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {

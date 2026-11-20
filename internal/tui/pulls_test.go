@@ -351,6 +351,25 @@ func TestFilterCyclesAndIgnoresStaleResults(t *testing.T) {
 	}
 }
 
+func TestRepoFilterIsTheDefaultWhenTheRepoIsKnown(t *testing.T) {
+	host := newHost()
+	host.lists["repo:o/r"] = host.lists["assignee:@me"]
+	m, _ := loaded(t)
+	m = m.WithRepo("o/r").WithHost(host, func(pr review.PullRequest) *review.Service {
+		return review.NewService(sample, &fakeStore{viewed: map[string]string{}}, nil, prKey(pr))
+	})
+	m = pressRun(t, m, "2")
+	if !host.has("list repo:o/r") || host.has("list assignee:@me") || !strings.Contains(screen(m), "this repo · 2") {
+		t.Fatalf("calls=%q screen:\n%s", host.calls, screen(m))
+	}
+	if m = pressRun(t, m, "s"); m.pulls.filter != 1 || !host.has("list assignee:@me") {
+		t.Fatalf("s should move from this repo to assigned, calls=%q", host.calls)
+	}
+	if m = pressRun(t, m, "s", "s", "s", "s"); m.pulls.filter != 0 || !host.has("list repo:o/r") {
+		t.Fatalf("filters should wrap back to this repo, calls=%q", host.calls)
+	}
+}
+
 func TestMovingSelectionFetchesDetailsOnce(t *testing.T) {
 	m, host := pullsModel(t)
 	m = pressRun(t, m, "j")

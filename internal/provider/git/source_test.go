@@ -150,6 +150,20 @@ func TestErrorsIncludeGitMessage(t *testing.T) {
 	}
 }
 
+func TestRepoReadsOriginName(t *testing.T) {
+	dir := repo(t)
+	git(t, dir, "remote", "add", "origin", "git@github.com:acme/revunk.git")
+	if got := Repo(context.Background(), dir); got != "acme/revunk" {
+		t.Fatalf("Repo() = %q, want acme/revunk", got)
+	}
+}
+
+func TestRepoIsEmptyWithoutOrigin(t *testing.T) {
+	if got := Repo(context.Background(), repo(t)); got != "" {
+		t.Fatalf("Repo() = %q, want empty without origin", got)
+	}
+}
+
 func TestRunReportsMissingGitBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := run(context.Background(), ".", "status"); err == nil || !strings.Contains(err.Error(), "git status") {
