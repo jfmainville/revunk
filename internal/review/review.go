@@ -25,6 +25,9 @@ const (
 type Commit struct {
 	SHA     string
 	Subject string
+	Author  string
+	Date    time.Time
+	Body    string
 }
 
 func (c Commit) Short() string {

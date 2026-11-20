@@ -56,6 +56,7 @@ type keyMap struct {
 	OpenURL     key.Binding
 	CreatePR    key.Binding
 	Actions     key.Binding
+	CommitInfo  key.Binding
 	PickDown    key.Binding
 	PickUp      key.Binding
 	Toggle      key.Binding
@@ -146,6 +147,7 @@ func defaultKeys() keyMap {
 		OpenURL:     bind("g u"),
 		CreatePR:    bind("g c"),
 		Actions:     bind("A"),
+		CommitInfo:  bind("K"),
 		PickDown:    bind("down", "ctrl+n"),
 		PickUp:      bind("up", "ctrl+p"),
 		Toggle:      bind("space"),
@@ -287,6 +289,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "show or hide the comments pane", keys: []key.Binding{k.Comments}},
 			{desc: "show or hide the commits and files panes", keys: []key.Binding{k.Explorer}},
 			{desc: "delete every comment", keys: []key.Binding{k.DeleteAll}},
+			{desc: "details of the selected commit: author, message, changed files", keys: []key.Binding{k.CommitInfo}},
 			{desc: "mark file viewed until it changes", keys: []key.Binding{k.Viewed}},
 			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},

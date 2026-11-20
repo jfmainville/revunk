@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jfmainville/revunk/internal/review"
 )
@@ -33,16 +34,21 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 func (s Source) Commits(ctx context.Context) ([]review.Commit, error) {
-	out, err := run(ctx, s.Dir, "log", "--reverse", "--format=%H%x1f%s", s.Base+"..HEAD")
+	out, err := run(ctx, s.Dir, "log", "--reverse", "--format=%H%x1f%s%x1f%an%x1f%aI%x1f%b%x1e", s.Base+"..HEAD")
 	if err != nil {
 		return nil, err
 	}
 	var commits []review.Commit
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		sha, subject, ok := strings.Cut(line, "\x1f")
-		if ok {
-			commits = append(commits, review.Commit{SHA: sha, Subject: subject})
+	for record := range strings.SplitSeq(out, "\x1e") {
+		fields := strings.SplitN(strings.TrimSpace(record), "\x1f", 5)
+		if len(fields) != 5 {
+			continue
 		}
+		date, err := time.Parse(time.RFC3339, fields[3])
+		if err != nil {
+			return nil, fmt.Errorf("parse date of commit %s: %w", fields[0], err)
+		}
+		commits = append(commits, review.Commit{SHA: fields[0], Subject: fields[1], Author: fields[2], Date: date, Body: strings.TrimSpace(fields[4])})
 	}
 	return commits, nil
 }

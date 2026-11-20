@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jfmainville/revunk/internal/review"
 )
@@ -297,5 +298,32 @@ func TestBranchesSkipsBranchesWhoseUpstreamIsGone(t *testing.T) {
 	}
 	if _, err := Branches(ctx, t.TempDir()); err == nil {
 		t.Fatal("Branches outside a repository should fail")
+	}
+}
+
+func TestCommitsReadsAuthorDateAndBody(t *testing.T) {
+	dir := repo(t)
+	write(t, dir, "keep.go", "package keep\n\nfunc A() { _ = 1 }\n")
+	commit(t, dir, "change keep\n\nfirst line\n\nsecond line")
+	write(t, dir, "new.go", "package keep\n")
+	commit(t, dir, "add new")
+
+	commits, err := Source{Dir: dir, Base: "main"}.Commits(context.Background())
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 2 {
+		t.Fatalf("commits = %+v", commits)
+	}
+	first := commits[0]
+	if first.Subject != "change keep" || first.Body != "first line\n\nsecond line" || first.Author != "t" {
+		t.Fatalf("first commit = %+v", first)
+	}
+	if first.Date.IsZero() || first.Date.After(time.Now()) {
+		t.Fatalf("date = %v", first.Date)
+	}
+	if commits[1].Body != "" {
+		t.Fatalf("body of a commit without one = %q", commits[1].Body)
 	}
 }

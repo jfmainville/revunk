@@ -157,6 +157,7 @@ type Model struct {
 	editor     editorState
 	prefix     string
 	help       bool
+	commitInfo bool
 	showList   bool
 	searching  bool
 	query      string
@@ -458,7 +459,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft && !m.editing && !m.help {
+		if msg.Button == tea.MouseLeft && !m.editing && !m.help && !m.commitInfo {
 			m.notice, m.warning, m.prefix = "", "", ""
 			return m, m.click(msg.X, msg.Y)
 		}
@@ -469,7 +470,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseReleaseMsg:
 		m.dragFrom = -1
 	case tea.MouseWheelMsg:
-		if !m.editing && !m.help {
+		if !m.editing && !m.help && !m.commitInfo {
 			step := map[tea.MouseButton]int{tea.MouseWheelDown: 1, tea.MouseWheelUp: -1}[msg.Button]
 			return m, m.scroll(msg.X, msg.Y, step)
 		}
@@ -662,6 +663,12 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.commitInfo {
+		if is(key, k.Cancel) {
+			m.commitInfo = false
+		}
+		return m, nil
+	}
 	if m.prefix != "" {
 		seq := m.prefix + " " + key
 		m.prefix = ""
@@ -707,6 +714,12 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case is(key, k.Help):
 		m.help = true
+	case is(key, k.CommitInfo):
+		_, ok := m.selectedCommit()
+		m.commitInfo = ok
+		if !ok {
+			m.warning = "select a commit to see its details"
+		}
 	case is(key, k.Actions) && m.pr.Number > 0:
 		return m, m.openModal(modalActions, m.pr)
 	case is(key, k.NextFocus):
@@ -1860,6 +1873,9 @@ func (m Model) render() string {
 		if m.modal.open {
 			panes = m.renderModal(panes)
 		}
+		if m.commitInfo {
+			panes = m.renderCommitInfo(panes)
+		}
 	}
 	parts := []string{m.tabBar(), panes}
 	if m.showList && !m.help {
@@ -2182,6 +2198,8 @@ func (m Model) footer() string {
 		return hints(m.keys.searchHints())
 	case m.anchor >= 0:
 		return hints(m.keys.rangeHints())
+	case m.commitInfo:
+		return hints([]hint{{desc: "close", keys: []key.Binding{m.keys.Cancel}}})
 	case m.focus == focusComments:
 		return hints(m.keys.listHints())
 	}
