@@ -178,6 +178,7 @@ type Model struct {
 	tab        int
 	host       review.Host
 	openReview func(review.PullRequest) *review.Service
+	checkout   func(context.Context, review.PullRequest) error
 	pulls      pullsState
 	diff       *Model
 	diffGen    int

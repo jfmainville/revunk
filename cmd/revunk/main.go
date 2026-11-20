@@ -118,7 +118,8 @@ func setup(ctx context.Context, dir, base string) (tui.Model, error) {
 	if err != nil {
 		return tui.Model{}, err
 	}
-	return tui.New(svc, root, base).WithHost(github.Client{}, pullRequestReview(github.Client{}, st)), nil
+	checkout := func(ctx context.Context, pr review.PullRequest) error { return git.CheckoutPullRequest(ctx, root, pr) }
+	return tui.New(svc, root, base).WithHost(github.Client{}, pullRequestReview(github.Client{}, st)).WithCheckout(checkout), nil
 }
 
 func pullRequestReview(client github.Client, st review.Store) func(review.PullRequest) *review.Service {

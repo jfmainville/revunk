@@ -180,6 +180,11 @@ func (m Model) WithHost(host review.Host, open func(review.PullRequest) *review.
 	return m
 }
 
+func (m Model) WithCheckout(checkout func(context.Context, review.PullRequest) error) Model {
+	m.checkout = checkout
+	return m
+}
+
 func prKey(pr review.PullRequest) string {
 	return fmt.Sprintf("%s#%d", pr.Repo, pr.Number)
 }
@@ -770,6 +775,9 @@ func (m Model) actions() []action {
 		if m.pr.Number == 0 {
 			list = append(list, action{iconDiff, "Review the diff", k.OpenDiff, func(m *Model, pr review.PullRequest) tea.Cmd { return m.openDiff(pr) }})
 		}
+		if m.checkout != nil {
+			list = append(list, action{iconBranch, "Check out the branch locally", key.Binding{}, func(m *Model, pr review.PullRequest) tea.Cmd { return m.checkoutPR(pr) }})
+		}
 		list = append(list,
 			action{iconComment, "Comment", key.Binding{}, modal(modalComment)},
 			action{iconReview, "Submit a review", key.Binding{}, modal(modalSubmit)},
@@ -824,6 +832,16 @@ func (m *Model) setDraft(pr review.PullRequest, draft bool) tea.Cmd {
 		notice = fmt.Sprintf("converted #%d to a draft", pr.Number)
 	}
 	return m.hostAction(pr, notice, func(ctx context.Context) error { return host.SetDraft(ctx, pr, draft) })
+}
+
+func (m *Model) checkoutPR(pr review.PullRequest) tea.Cmd {
+	checkout := m.checkout
+	return func() tea.Msg {
+		if err := checkout(context.Background(), pr); err != nil {
+			return actionMsg{err: fmt.Errorf("check out %s: %w", pr.Head, err)}
+		}
+		return actionMsg{notice: fmt.Sprintf("checked out %s for #%d", pr.Head, pr.Number)}
+	}
 }
 
 func first(value string, list []string) []string {

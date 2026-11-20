@@ -11,41 +11,41 @@ Revunk is a pull request review tool written in Go with a Bubble Tea terminal in
 - Test: `go test ./...`
 - Coverage: `go test -cover ./...`
 
-Run format, vet, and tests before every commit. All must pass. CI runs the same checks on every pull request through `.github/workflows/validation.yml`, which calls the reusable `.github/workflows/validation-go.yml`. Every push to `main` runs `.github/workflows/release.yml`, which versions releases from conventional commits with `semantic-release`, see `docs/releases.md`.
+Format, vet, and test must all pass before every commit. CI runs the same checks through `.github/workflows/validation.yml`, which calls `.github/workflows/validation-go.yml`. Pushes to `main` run `.github/workflows/release.yml`, which versions releases from conventional commits with `semantic-release` (see `docs/releases.md`).
 
 ## Architecture
 
-- `internal/review` holds the domain types, the `Source`, `Store`, `Host`, and `Agent` interfaces, and `Service`. It must never import UI, provider, or storage packages.
-- `internal/provider/<name>` implements `review.Source` for one source of changes: `git` for the local branch, `github` for pull requests through `gh`, which also implements `review.Host` and the `review.Store` comments of a pull request's review.
-- `internal/agent` implements `review.Agent` by reaching a coding agent through `herdr`.
+- `internal/review` holds the domain types, the `Source`, `Store`, `Host`, and `Agent` interfaces, and `Service`. It never imports UI, provider, or storage packages.
+- `internal/provider/<name>` implements `review.Source` for one change source: `git` for the local branch, and `github` for pull requests through `gh`, which also implements `review.Host` and the `review.Store` comments of a pull request's review.
+- `internal/agent` implements `review.Agent` through `herdr`.
 - `internal/store` implements `review.Store`.
-- `internal/tui` is the only package allowed to import Charm libraries (`bubbletea`, `bubbles`, `lipgloss`).
-- Every key binding lives in `defaultKeys()` in `internal/tui/keys.go`, together with the help screen and footer hints. Match keys with `is(key, m.keys.X)` and never compare key strings anywhere else.
+- `internal/tui` is the only package that imports Charm libraries (`bubbletea`, `bubbles`, `lipgloss`).
+- Every key binding lives in `defaultKeys()` in `internal/tui/keys.go`, with the help screen and footer hints. Match keys with `is(key, m.keys.X)`, never by comparing key strings.
 - `cmd/revunk` only parses arguments and wires dependencies together.
 
 ## Simplicity
 
-Always choose the simplest solution that fully meets the requirement.
+Choose the simplest solution that fully meets the requirement.
 
 - Write plain, direct code. No abstractions, interfaces, config, or generalization until there is a real second use.
 - Prefer the standard library. Add a dependency only when it replaces substantial code and is popular and maintained.
-- Reuse existing types and functions before writing new ones. Extend instead of duplicating.
-- Inline one-off helpers. Delete dead code, unused exports, and stale files in the area you touch.
-- Don't add features, flags, or placeholder commands that aren't needed yet.
-- No code comments unless the code can't be made clear on its own. Never leave commented-out code.
+- Reuse and extend existing types and functions before writing new ones.
+- Delete dead code, unused exports, and stale files in the area you touch. Inline one-off helpers.
+- Add no features, flags, or placeholder commands before they are needed.
+- Write no comments unless the code can't be clear on its own. Never leave commented-out code.
 
 ## Tests
 
-- Every function gets a unit test, written in the same change as the function.
-- Tests must check behavior and fail when the behavior breaks. No tests that only restate the implementation or assert that code runs.
-- Cover error paths and edge cases (empty input, boundaries, failing dependencies), not only the happy path.
+- Every function gets a unit test in the same change.
+- Tests check behavior and must fail when it breaks. Don't write tests that restate the implementation or only assert that code runs.
+- Cover error paths and edge cases (empty input, boundaries, failing dependencies), not just the happy path.
 - Use small hand-written fakes for `review.Source` and `review.Store`. No mocking libraries.
 - Test the TUI by sending messages to `Model.Update` and checking the model state or rendered output.
 - Only code that needs a real terminal, such as `main()` and starting the Bubble Tea program, may go untested.
 
 ## Docs
 
-- `README.md` covers what Revunk is, requirements, commands, keys, CLI usage, and the project layout. Update it in the same change as any behavior, command, or layout change.
-- Longer technical docs (architecture, design decisions) go in `docs/`, kept short and focused on what the code can't show.
+- `README.md` covers what Revunk is, its requirements, commands, keys, CLI usage, and project layout. Don't update it on every change. Edit it only when the user asks, or when a change makes one of its lines false, and then change only that line.
+- Put longer technical docs (architecture, design decisions) in `docs/`, short and focused on what the code can't show.
 - Document only what exists. No roadmaps, placeholders, or "not implemented yet" notes.
 - Format Markdown with `npx prettier --write`.
