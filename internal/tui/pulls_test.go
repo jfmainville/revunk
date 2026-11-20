@@ -2262,3 +2262,26 @@ func TestDraggingSelectsLinesInTheReviewDiff(t *testing.T) {
 		t.Fatal("releasing should end the drag in the review diff")
 	}
 }
+
+func TestCheckoutAction(t *testing.T) {
+	m, _ := pullsModel(t)
+	if out := screen(pressRun(t, m, "A")); strings.Contains(out, "Check out the branch locally") {
+		t.Fatalf("the checkout action needs a checkout function:\n%s", out)
+	}
+	var checked []review.PullRequest
+	var checkoutErr error
+	m = m.WithCheckout(func(_ context.Context, pr review.PullRequest) error {
+		checked = append(checked, pr)
+		return checkoutErr
+	})
+	if out := screen(pressRun(t, m, "A")); !strings.Contains(out, "  Check out the branch locally") {
+		t.Fatalf("the actions should list the checkout:\n%s", out)
+	}
+	if m = runAction(t, m, "check out"); len(checked) != 1 || checked[0].Number != 7 || m.err != nil || m.notice != "checked out "+checked[0].Head+" for #7" {
+		t.Fatalf("checked=%v err=%v notice=%q", checked, m.err, m.notice)
+	}
+	checkoutErr = errors.New("local changes would be overwritten")
+	if m = runAction(t, m, "check out"); m.err == nil || !strings.Contains(m.err.Error(), "local changes would be overwritten") || m.notice != "" {
+		t.Fatalf("a failed checkout should report the error, got err=%v notice=%q", m.err, m.notice)
+	}
+}
