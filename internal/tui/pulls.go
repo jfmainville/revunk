@@ -27,11 +27,19 @@ const (
 	tabPulls
 )
 
-var pullFilters = []struct{ name, query string }{
-	{"assigned", "assignee:@me"},
-	{"review requested", "review-requested:@me"},
-	{"authored", "author:@me"},
-	{"involved", "involves:@me"},
+type pullFilter struct{ name, query string }
+
+func (m Model) pullFilters() []pullFilter {
+	var filters []pullFilter
+	if m.pulls.repo != "" {
+		filters = append(filters, pullFilter{"this repo", "repo:" + m.pulls.repo})
+	}
+	return append(filters,
+		pullFilter{"assigned", "assignee:@me"},
+		pullFilter{"review requested", "review-requested:@me"},
+		pullFilter{"authored", "author:@me"},
+		pullFilter{"involved", "involves:@me"},
+	)
 }
 
 var detailTabs = []string{"Overview", "Activity", "Comments", "Commits", "Files"}
@@ -69,6 +77,7 @@ var (
 
 type pullsState struct {
 	list     []review.PullRequest
+	repo     string
 	cursor   int
 	filter   int
 	failures int
@@ -185,6 +194,11 @@ func (m Model) WithCheckout(checkout func(context.Context, review.PullRequest) e
 	return m
 }
 
+func (m Model) WithRepo(repo string) Model {
+	m.pulls.repo = repo
+	return m
+}
+
 func prKey(pr review.PullRequest) string {
 	return fmt.Sprintf("%s#%d", pr.Repo, pr.Number)
 }
@@ -234,8 +248,9 @@ func (m *Model) startPulls() tea.Cmd {
 
 func (m Model) fetchPulls() tea.Cmd {
 	host, filter := m.host, m.pulls.filter
+	query := m.pullFilters()[filter].query
 	return func() tea.Msg {
-		list, err := host.PullRequests(context.Background(), pullFilters[filter].query)
+		list, err := host.PullRequests(context.Background(), query)
 		return pullsMsg{filter: filter, list: list, err: err}
 	}
 }
@@ -472,7 +487,7 @@ func (m Model) updatePullsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.help = true
 		return m, nil
 	case is(key, k.NextFilter) && m.host != nil:
-		m.pulls.filter = (m.pulls.filter + 1) % len(pullFilters)
+		m.pulls.filter = (m.pulls.filter + 1) % len(m.pullFilters())
 		m.pulls.list, m.pulls.cursor, m.pulls.loading, m.pulls.sidebar = nil, 0, true, false
 		return m, m.fetchPulls()
 	case is(key, k.Actions) && m.host != nil:
@@ -1414,7 +1429,7 @@ func (m Model) renderPulls() string {
 			lines = m.detailView(pr)
 		}
 		panes = lipgloss.JoinHorizontal(lipgloss.Top,
-			box("pull requests", pullFilters[m.pulls.filter].name+" · "+fmt.Sprint(len(m.pulls.list)), m.pullLines(), m.pullsWidth(), m.panesHeight(), focusColor(!m.pulls.sidebar)),
+			box("pull requests", m.pullFilters()[m.pulls.filter].name+" · "+fmt.Sprint(len(m.pulls.list)), m.pullLines(), m.pullsWidth(), m.panesHeight(), focusColor(!m.pulls.sidebar)),
 			box(title, right, lines, m.sidebarWidth(), m.panesHeight(), focusColor(m.pulls.sidebar)),
 		)
 		if m.modal.open {

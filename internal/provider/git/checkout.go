@@ -34,10 +34,15 @@ func CheckoutPullRequest(ctx context.Context, dir string, pr review.PullRequest)
 }
 
 func sameRepo(remote, repo string) bool {
+	name := repoName(remote)
+	return name != "" && strings.EqualFold(name, repo)
+}
+
+func repoName(remote string) string {
 	path := strings.TrimSuffix(strings.TrimSpace(remote), ".git")
 	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == ':' })
 	if len(parts) < 2 {
-		return false
+		return ""
 	}
-	return strings.EqualFold(strings.Join(parts[len(parts)-2:], "/"), repo)
+	return strings.Join(parts[len(parts)-2:], "/")
 }

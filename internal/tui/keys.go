@@ -295,7 +295,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "review the branch's pull request", keys: []key.Binding{k.OpenDiff}},
 		}},
 		{"pull requests", []hint{
-			{desc: "next filter: assigned, review requested, authored, involved", keys: []key.Binding{k.NextFilter}},
+			{desc: "next filter: this repo, assigned, review requested, authored, involved", keys: []key.Binding{k.NextFilter}},
 			{desc: "focus the details sidebar, back to the list", keys: []key.Binding{k.Open, k.Cancel}},
 			{desc: "next / previous details tab", keys: []key.Binding{k.NextFocus, k.PrevFocus}},
 			{desc: "edit the title and description, create a pull request", keys: []key.Binding{k.EditPR, k.CreatePR}},
