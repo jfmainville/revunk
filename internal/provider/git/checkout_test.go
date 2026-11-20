@@ -9,7 +9,6 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
-// pullRequestRepo returns a repository on feature whose origin is acme/revunk, with pull request 7 at head.
 func pullRequestRepo(t *testing.T) (dir, head string) {
 	t.Helper()
 	dir = repo(t)

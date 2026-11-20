@@ -8,8 +8,6 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
-// CheckoutPullRequest checks out the head branch of a pull request in dir.
-// It never resets or forces: git refuses checkouts that would overwrite local changes.
 func CheckoutPullRequest(ctx context.Context, dir string, pr review.PullRequest) error {
 	remote, err := run(ctx, dir, "remote", "get-url", "origin")
 	if err != nil {
@@ -35,7 +33,6 @@ func CheckoutPullRequest(ctx context.Context, dir string, pr review.PullRequest)
 	return err
 }
 
-// sameRepo reports whether a remote URL such as git@github.com:owner/name.git points at repo, an owner/name pair.
 func sameRepo(remote, repo string) bool {
 	path := strings.TrimSuffix(strings.TrimSpace(remote), ".git")
 	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == ':' })
