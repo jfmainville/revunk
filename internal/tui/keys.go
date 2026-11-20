@@ -36,6 +36,7 @@ type keyMap struct {
 	DeleteAll   key.Binding
 	Viewed      key.Binding
 	Comments    key.Binding
+	Edit        key.Binding
 	Explorer    key.Binding
 	Send        key.Binding
 	Copy        key.Binding
@@ -98,7 +99,7 @@ func bind(keys ...string) key.Binding {
 	return key.NewBinding(key.WithKeys(keys...))
 }
 
-func defaultKeys() keyMap {
+func defaultKeys(leader string) keyMap {
 	return keyMap{
 		Quit:        bind("q"),
 		ForceQuit:   bind("ctrl+c"),
@@ -127,7 +128,8 @@ func defaultKeys() keyMap {
 		DeleteAll:   bind("D D"),
 		Viewed:      bind("-"),
 		Comments:    bind("t"),
-		Explorer:    bind("e"),
+		Edit:        bind("e"),
+		Explorer:    bind(leader + " e"),
 		Send:        bind("S"),
 		Copy:        bind("y"),
 		Save:        bind("ctrl+s"),
@@ -232,7 +234,7 @@ type hint struct {
 	label string
 }
 
-var keyNames = strings.NewReplacer(" ", "", "enter", "⏎", "ctrl+", "C-", "shift+", "S-", "down", "↓", "up", "↑", "pgdown", "pgdn")
+var keyNames = strings.NewReplacer("space ", "SPC ", " ", "", "enter", "⏎", "ctrl+", "C-", "shift+", "S-", "down", "↓", "up", "↑", "pgdown", "pgdn")
 
 func (h hint) text(all bool) string {
 	if h.label != "" {
@@ -283,6 +285,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "visual range", keys: []key.Binding{k.Select}},
 			{desc: "comment on line, range or file header", keys: []key.Binding{k.Comment}},
 			{desc: "comment on the whole file", keys: []key.Binding{k.FileComment}},
+			{desc: "edit the comment under cursor, your own only", keys: []key.Binding{k.Edit}},
 			{desc: "delete comment under cursor", keys: []key.Binding{k.Delete}},
 			{desc: "resolve or reopen comment, resolved ones only show in the comments pane", keys: []key.Binding{k.Resolve}},
 			{desc: "reply to the agent's answer, sent with the thread by the next send", keys: []key.Binding{k.Reply}},

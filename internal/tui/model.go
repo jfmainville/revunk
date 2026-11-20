@@ -60,6 +60,11 @@ type editorState struct {
 	area   textarea.Model
 	target review.Comment
 	kind   int
+	edit   bool
+}
+
+func (e editorState) reply() bool {
+	return e.target.ID != "" && !e.edit
 }
 
 type parsed struct {
@@ -191,7 +196,6 @@ type Model struct {
 }
 
 func New(svc *review.Service, root, base string) Model {
-	keys := defaultKeys()
 	return Model{
 		svc:      svc,
 		root:     root,
@@ -200,12 +204,17 @@ func New(svc *review.Service, root, base string) Model {
 		rendered: map[int][]string{},
 		anchor:   -1,
 		dragFrom: -1,
-		keys:     keys,
+		keys:     defaultKeys("space"),
 		focus:    focusFiles,
 		loading:  true,
 		every:    pollEvery,
 		pulls:    pullsState{details: map[string]review.PullRequest{}, markdown: map[string][]string{}},
 	}
+}
+
+func (m Model) WithLeader(leader string) Model {
+	m.keys = defaultKeys(leader)
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -684,6 +693,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.deleteComment()
 		case is(seq, k.DeleteAll):
 			return m, m.deleteAllComments()
+		case is(seq, k.Explorer):
+			m.toggleExplorer()
 		case is(seq, k.OpenFile):
 			return m, m.openFile()
 		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
@@ -726,14 +737,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cycleFocus(1)
 	case is(key, k.PrevFocus):
 		m.cycleFocus(-1)
-	case is(key, k.Explorer):
-		m.hideTree = !m.hideTree
-		m.focus = focusFiles
-		if m.hideTree {
-			m.focus = focusDiff
-		}
-		m.rendered = map[int][]string{}
-		m.relayout()
+	case is(key, k.Edit):
+		return m, m.editComment()
 	case is(key, k.Comments):
 		m.showList = !m.showList
 		m.focus = focusComments
@@ -845,6 +850,16 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) toggleExplorer() {
+	m.hideTree = !m.hideTree
+	m.focus = focusFiles
+	if m.hideTree {
+		m.focus = focusDiff
+	}
+	m.rendered = map[int][]string{}
+	m.relayout()
 }
 
 func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -982,8 +997,8 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		c.Kind, c.Body = commentKinds[m.editor.kind], body
 		m.editing = false
 		m.relayout()
-		return m, m.saveComment(c)
-	case (is(key, k.NextKind) || is(key, k.PrevKind)) && m.editor.target.ID != "":
+		return m, m.saveComment(c, m.editor.edit)
+	case (is(key, k.NextKind) || is(key, k.PrevKind)) && m.editor.reply():
 	case is(key, k.NextKind), is(key, k.PrevKind):
 		step := 1
 		if is(key, k.PrevKind) {
@@ -1470,11 +1485,14 @@ func (m Model) original(c review.Comment) []string {
 	return nil
 }
 
-func (m Model) saveComment(c review.Comment) tea.Cmd {
+func (m Model) saveComment(c review.Comment, edit bool) tea.Cmd {
 	svc := m.svc
 	return func() tea.Msg {
 		save := svc.AddComment
-		if c.ID != "" {
+		switch {
+		case edit:
+			save = svc.EditComment
+		case c.ID != "":
 			save = func(ctx context.Context, c review.Comment) error { return svc.FollowUp(ctx, c.ID, c.Body) }
 		}
 		if err := save(context.Background(), c); err != nil {
@@ -1524,7 +1542,7 @@ func (m *Model) replyToComment() tea.Cmd {
 	case !c.Answered():
 		m.warning = "you can reply once the agent has answered this comment"
 		return nil
-	case !m.visible(c, c.Path) || !slices.ContainsFunc(m.files, func(f review.File) bool { return f.Path == c.Path }):
+	case !m.inView(c):
 		m.warning = "press " + label(m.keys.Open) + " to go to the comment first"
 		return nil
 	}
@@ -1533,6 +1551,41 @@ func (m *Model) replyToComment() tea.Cmd {
 	m.relayout()
 	m.revealEditor()
 	return cmd
+}
+
+func (m *Model) editComment() tea.Cmd {
+	c, ok := m.targetComment()
+	switch {
+	case !ok:
+		m.warning = "no comment here to edit"
+		return nil
+	case c.Author != "":
+		m.warning = "only your own comments can be edited"
+		return nil
+	case !m.inView(c):
+		m.warning = "press " + label(m.keys.Open) + " to go to the comment first"
+		return nil
+	}
+	cmd := m.openEditor(c)
+	m.editor.edit, m.editor.kind = true, max(slices.Index(commentKinds, c.Kind), 0)
+	m.editor.area.SetValue(c.Body)
+	m.fitEditor()
+	m.relayout()
+	m.revealEditor()
+	return cmd
+}
+
+// inView reports whether the comment's file is in the diff and the comment is visible on it.
+func (m Model) inView(c review.Comment) bool {
+	return m.visible(c, c.Path) && slices.ContainsFunc(m.files, func(f review.File) bool { return f.Path == c.Path })
+}
+
+// withEdit adds the edit hint when the selected comment is your own and can be edited now.
+func (m Model) withEdit(list []hint) []hint {
+	if c, ok := m.targetComment(); ok && c.Author == "" && m.inView(c) {
+		list = append(list, hint{desc: "edit", keys: []key.Binding{m.keys.Edit}})
+	}
+	return list
 }
 
 func (m *Model) resolveComment() tea.Cmd {
@@ -1761,8 +1814,11 @@ func (m Model) editorLines() []string {
 		}
 	}
 	top, right, list := strings.Join(chips, "  "), lineLabel(m.editor.target), m.keys.editorHints(m.editor.mode())
-	if m.editor.target.ID != "" {
+	switch {
+	case m.editor.reply():
 		top, right, list = dimStyle.Render("reply to the agent, sent with the thread on the next "+label(m.keys.Send)), right+" · reply", slices.Delete(list, 2, 3)
+	case m.editor.edit:
+		right += " · edit"
 	}
 	lines := append([]string{top}, strings.Split(markdownView(m.editor.area, m.editor.mode() == "insert"), "\n")...)
 	lines = append(lines, hints(list))
@@ -2201,12 +2257,12 @@ func (m Model) footer() string {
 	case m.commitInfo:
 		return hints([]hint{{desc: "close", keys: []key.Binding{m.keys.Cancel}}})
 	case m.focus == focusComments:
-		return hints(m.keys.listHints())
+		return hints(m.withEdit(m.keys.listHints()))
 	}
 	if m.pr.Number > 0 {
-		return hints(append(m.keys.mainHints(), hint{desc: "actions", keys: []key.Binding{m.keys.Actions}}))
+		return hints(m.withEdit(append(m.keys.mainHints(), hint{desc: "actions", keys: []key.Binding{m.keys.Actions}})))
 	}
-	return hints(m.keys.mainHints())
+	return hints(m.withEdit(m.keys.mainHints()))
 }
 
 func (m Model) helpLines() []string {

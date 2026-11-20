@@ -22,7 +22,7 @@ func TestIsMatchesOnlyEnabledBindings(t *testing.T) {
 }
 
 func TestPrefixAndRest(t *testing.T) {
-	k := defaultKeys()
+	k := defaultKeys("space")
 	for _, p := range []string{"g", "d", "D", "]", "["} {
 		if !k.isPrefix(p) {
 			t.Errorf("%q should start a sequence", p)
@@ -47,7 +47,7 @@ func TestPrefixAndRest(t *testing.T) {
 }
 
 func TestHintText(t *testing.T) {
-	k := defaultKeys()
+	k := defaultKeys("space")
 	pair := hint{keys: []key.Binding{k.Down, k.Up}}
 	if got := pair.text(false); got != "j k" {
 		t.Fatalf("short = %q", got)
@@ -69,7 +69,7 @@ func TestHintText(t *testing.T) {
 }
 
 func TestEveryBindingIsDocumented(t *testing.T) {
-	k := defaultKeys()
+	k := defaultKeys("space")
 	documented := map[string]bool{}
 	for _, sec := range k.helpSections() {
 		for _, h := range sec.hints {
@@ -138,5 +138,14 @@ func TestReboundKeysDriveBehaviorAndLabels(t *testing.T) {
 	m = update(t, m, tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl})
 	if m.editor.area.Value() != "a\n" {
 		t.Fatalf("the rebound newline key should insert one: %q", m.editor.area.Value())
+	}
+}
+
+func TestExplorerLabelShowsTheLeader(t *testing.T) {
+	if got := label(defaultKeys("space").Explorer); got != "SPC e" {
+		t.Fatalf("label = %q", got)
+	}
+	if got := label(defaultKeys(",").Explorer); got != ",e" {
+		t.Fatalf("label = %q", got)
 	}
 }

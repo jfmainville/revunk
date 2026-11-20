@@ -1188,7 +1188,7 @@ func TestGitHubCommentsShowAuthorAndState(t *testing.T) {
 }
 
 func TestHintsSkipDisabledBindings(t *testing.T) {
-	k := defaultKeys()
+	k := defaultKeys("space")
 	k.Send.SetEnabled(false)
 	out := ansi.Strip(hints([]hint{{desc: "send", keys: []key.Binding{k.Send}}, {desc: "copy", keys: []key.Binding{k.Copy}}}))
 	if out != "y copy" {
@@ -1500,7 +1500,7 @@ func TestModalTextUsesVimModes(t *testing.T) {
 }
 
 func TestModalHintsFollowTheFocus(t *testing.T) {
-	k := defaultKeys()
+	k := defaultKeys("space")
 	for mode, want := range map[string]string{"": "esc cancel", "insert": "esc jj normal", "normal": "i insert  esc cancel"} {
 		if got := ansi.Strip(hints(k.modalHints(false, false, mode))); !strings.Contains(got, want) {
 			t.Errorf("mode %q hints %q, want %q", mode, got, want)

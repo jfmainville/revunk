@@ -385,6 +385,27 @@ func (s *Service) DeleteComment(ctx context.Context, id string) error {
 	return s.store.DeleteComments(ctx, s.branch, []string{id})
 }
 
+// EditComment saves a new body and kind for one of your own comments, and sends it again.
+func (s *Service) EditComment(ctx context.Context, c Comment) error {
+	if strings.TrimSpace(c.Body) == "" {
+		return errors.New("comment is empty")
+	}
+	comments, err := s.Comments(ctx)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(comments, func(o Comment) bool { return o.ID == c.ID })
+	switch {
+	case i < 0:
+		return fmt.Errorf("no comment %s on %s", c.ID, s.branch)
+	case comments[i].Author != "":
+		return fmt.Errorf("comment %s is not yours to edit", c.ID)
+	}
+	return s.store.UpdateComments(ctx, s.branch, []string{c.ID}, func(o *Comment) {
+		o.Body, o.Kind, o.Sent = c.Body, c.Kind, false
+	})
+}
+
 func (s *Service) ResolveComment(ctx context.Context, id string, resolved bool) error {
 	return s.store.UpdateComments(ctx, s.branch, []string{id}, func(c *Comment) { c.Resolved = resolved })
 }
