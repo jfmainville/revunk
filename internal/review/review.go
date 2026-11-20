@@ -385,7 +385,6 @@ func (s *Service) DeleteComment(ctx context.Context, id string) error {
 	return s.store.DeleteComments(ctx, s.branch, []string{id})
 }
 
-// EditComment saves a new body and kind for one of your own comments, and sends it again.
 func (s *Service) EditComment(ctx context.Context, c Comment) error {
 	if strings.TrimSpace(c.Body) == "" {
 		return errors.New("comment is empty")

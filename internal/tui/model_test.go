@@ -2692,8 +2692,8 @@ func TestEditSavesTheCommentAndShowsTheChange(t *testing.T) {
 	m = update(t, m, m.Init()())
 	m, _ = press(t, m, "l")
 	m.cursor = rowOf(t, m, rowLine, 1, 3)
-	if m, _ = press(t, m, "e"); !m.editing || m.editor.area.Value() != "rename this" || !strings.Contains(screen(m), "L2 · edit") {
-		t.Fatalf("e should open the comment body in an editor:\n%s", screen(m))
+	if m, _ = press(t, m, "e"); !m.editing || m.editor.area.Value() != "rename this" || !strings.Contains(screen(m), "L2 · edit") || strings.Count(screen(m), "rename this") != 1 {
+		t.Fatalf("e should replace the comment with an editor holding its body:\n%s", screen(m))
 	}
 	m = typeText(t, m, "!")
 	m, cmd := press(t, m, "ctrl+s")

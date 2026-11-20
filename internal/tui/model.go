@@ -1575,12 +1575,10 @@ func (m *Model) editComment() tea.Cmd {
 	return cmd
 }
 
-// inView reports whether the comment's file is in the diff and the comment is visible on it.
 func (m Model) inView(c review.Comment) bool {
 	return m.visible(c, c.Path) && slices.ContainsFunc(m.files, func(f review.File) bool { return f.Path == c.Path })
 }
 
-// withEdit adds the edit hint when the selected comment is your own and can be edited now.
 func (m Model) withEdit(list []hint) []hint {
 	if c, ok := m.targetComment(); ok && c.Author == "" && m.inView(c) {
 		list = append(list, hint{desc: "edit", keys: []key.Binding{m.keys.Edit}})
@@ -1780,6 +1778,10 @@ func (m Model) anchored(c review.Comment, file int) bool {
 }
 
 func (m *Model) addComment(index, file int) {
+	if m.editing && m.editor.edit && m.editor.target.ID == m.comments[index].ID {
+		m.addEditor(file)
+		return
+	}
 	lines, ok := m.rendered[index]
 	if !ok {
 		c := m.comments[index]
