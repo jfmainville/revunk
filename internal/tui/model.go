@@ -1937,7 +1937,7 @@ func (m Model) render() string {
 	if m.help {
 		panes = box("help · "+label(m.keys.Cancel)+" closes", "", m.helpLines(), m.width, m.panesHeight(), colorPrimary)
 	} else {
-		panes = box("diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), focusColor(m.focus == focusDiff))
+		panes = box("continuous diff", m.rangeLabel(), m.diffLines(), m.width-m.leftWidth(), m.panesHeight(), focusColor(m.focus == focusDiff))
 		if !m.hideTree {
 			files, _ := m.fileLines()
 			left := lipgloss.JoinVertical(lipgloss.Left,
