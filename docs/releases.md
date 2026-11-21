@@ -11,6 +11,8 @@ Every push to `main` runs `.github/workflows/release.yml`. `semantic-release` re
 
 When a release is due, `semantic-release` pushes the `vX.Y.Z` tag and runs `goreleaser release --clean` through `@semantic-release/exec`. GoReleaser builds `revunk` for Linux and macOS on `amd64` and `arm64`, packages each build as a `.tar.gz`, adds a `.deb` for each Linux build, and publishes them with `checksums.txt` and a grouped changelog on the GitHub release. Each build gets the release version through `-X main.version={{.Version}}`, which `revunk -version` prints. Builds made with `go build` or `go run` print `dev`.
 
+If `semantic-release` fails after pushing the tag, for example when its notes ref is rejected, the workflow's last step publishes the tag at `HEAD` with `goreleaser release --clean` and adds a warning to the run. That step fails instead when no tag points at `HEAD`, or when the tag already has a GitHub release.
+
 ## Configuration
 
 | File                            | Role                                                    |
