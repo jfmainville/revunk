@@ -326,12 +326,15 @@ func renderLine(l review.Line, tokens []token, width, part int, cursor, selected
 	return fit(b.String(), width, base)
 }
 
-func renderFileHeader(f review.File, viewed, cursor bool, width int) string {
+func renderFileHeader(f review.File, viewed, collapsed, cursor bool, width int) string {
 	base := lipgloss.NewStyle().Background(colorPanel)
 	arrow := iconExpanded
 	state := "unseen"
+	if collapsed {
+		arrow = iconCollapsed
+	}
 	if viewed {
-		arrow, state = iconCollapsed, "viewed"
+		state = "viewed"
 	}
 	bar := base.Render(" ")
 	if cursor {

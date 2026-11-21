@@ -676,6 +676,54 @@ func TestOutdatedCommentIsShownUnderFileHeader(t *testing.T) {
 	}
 }
 
+func TestZcAndZoCollapseAndExpandTheActiveFile(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "j")
+	if !strings.Contains(screen(m), "func a() {}") {
+		t.Fatalf("file body not shown before collapse:\n%s", screen(m))
+	}
+
+	m, _ = press(t, m, "z", "c")
+	if out := screen(m); strings.Contains(out, "func a() {}") || !strings.Contains(out, iconCollapsed+" ") {
+		t.Fatalf("zc did not collapse the active file:\n%s", out)
+	}
+
+	m, _ = press(t, m, "z", "o")
+	if out := screen(m); !strings.Contains(out, "func a() {}") {
+		t.Fatalf("zo did not expand the active file:\n%s", out)
+	}
+}
+
+func TestCollapseLeavesOtherFilesExpanded(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "z", "c")
+	if strings.Contains(screen(m), "# Title") {
+		t.Fatalf("README.md body still shown after zc:\n%s", screen(m))
+	}
+
+	m, _ = press(t, m, "f")
+	if m.fileCursor != 1 || !strings.Contains(screen(m), "func a() {}") {
+		t.Fatalf("a/main.go should stay expanded, file %d:\n%s", m.fileCursor, screen(m))
+	}
+}
+
+func TestCollapseKeepsTheCursorOnTheFileHeader(t *testing.T) {
+	m, _ := loaded(t)
+	m, _ = press(t, m, "j", "l", "j", "j")
+	m, _ = press(t, m, "z", "c")
+	if got := m.rows[m.cursor]; got.kind != rowFile || got.file != m.fileCursor {
+		t.Fatalf("cursor on %+v, want the header of file %d", got, m.fileCursor)
+	}
+}
+
+func TestCollapseWithoutFilesDoesNothing(t *testing.T) {
+	m := newModel(t, fakeSource{}, &fakeStore{viewed: map[string]string{}})
+	m, _ = press(t, m, "z", "c")
+	if !strings.Contains(screen(m), "no changes") {
+		t.Fatalf("empty state changed:\n%s", screen(m))
+	}
+}
+
 func TestMarkViewedCollapsesFileUntilItChanges(t *testing.T) {
 	m, st := loaded(t)
 	m, _ = press(t, m, "j")
@@ -921,7 +969,7 @@ func TestSmallHelpers(t *testing.T) {
 	if got := ansi.Strip(box("a-very-long-title", "right", nil, 12, 2, colorPrimary)); strings.Contains(got, "right") {
 		t.Fatalf("right label should be dropped when it does not fit: %q", got)
 	}
-	if got := ansi.Strip(renderFileHeader(review.File{Path: strings.Repeat("x", 50)}, false, false, 20)); lipgloss.Width(got) != 20 {
+	if got := ansi.Strip(renderFileHeader(review.File{Path: strings.Repeat("x", 50)}, false, false, false, 20)); lipgloss.Width(got) != 20 {
 		t.Fatalf("narrow header width = %d", lipgloss.Width(got))
 	}
 }

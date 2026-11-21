@@ -35,6 +35,8 @@ type keyMap struct {
 	Delete      key.Binding
 	DeleteAll   key.Binding
 	Viewed      key.Binding
+	Expand      key.Binding
+	Collapse    key.Binding
 	Comments    key.Binding
 	Edit        key.Binding
 	Explorer    key.Binding
@@ -127,6 +129,8 @@ func defaultKeys(leader string) keyMap {
 		Delete:      bind("d d"),
 		DeleteAll:   bind("D D"),
 		Viewed:      bind("-"),
+		Expand:      bind("z o"),
+		Collapse:    bind("z c"),
 		Comments:    bind("t"),
 		Edit:        bind("e"),
 		Explorer:    bind(leader + " e"),
@@ -294,6 +298,7 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "delete every comment", keys: []key.Binding{k.DeleteAll}},
 			{desc: "details of the selected commit: author, message, changed files", keys: []key.Binding{k.CommitInfo}},
 			{desc: "mark file viewed until it changes", keys: []key.Binding{k.Viewed}},
+			{desc: "expand / collapse the file under cursor", keys: []key.Binding{k.Expand, k.Collapse}},
 			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
 			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
