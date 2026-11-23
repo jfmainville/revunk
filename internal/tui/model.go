@@ -149,6 +149,7 @@ type Model struct {
 	lines      [][]review.Line
 	tokens     [][][]token
 	viewed     map[string]bool
+	collapsed  map[string]bool
 	comments   []review.Comment
 	rendered   map[int][]string
 	rows       []row
@@ -197,18 +198,19 @@ type Model struct {
 
 func New(svc *review.Service, root, base string) Model {
 	return Model{
-		svc:      svc,
-		root:     root,
-		base:     base,
-		viewed:   map[string]bool{},
-		rendered: map[int][]string{},
-		anchor:   -1,
-		dragFrom: -1,
-		keys:     defaultKeys("space"),
-		focus:    focusFiles,
-		loading:  true,
-		every:    pollEvery,
-		pulls:    pullsState{details: map[string]review.PullRequest{}, markdown: map[string][]string{}},
+		svc:       svc,
+		root:      root,
+		base:      base,
+		viewed:    map[string]bool{},
+		collapsed: map[string]bool{},
+		rendered:  map[int][]string{},
+		anchor:    -1,
+		dragFrom:  -1,
+		keys:      defaultKeys("space"),
+		focus:     focusFiles,
+		loading:   true,
+		every:     pollEvery,
+		pulls:     pullsState{details: map[string]review.PullRequest{}, markdown: map[string][]string{}},
 	}
 }
 
@@ -695,6 +697,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.deleteAllComments()
 		case is(seq, k.Explorer):
 			m.toggleExplorer()
+		case is(seq, k.Fold):
+			m.toggleCollapsed()
 		case is(seq, k.OpenFile):
 			return m, m.openFile()
 		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
@@ -1296,6 +1300,18 @@ func (m *Model) openFile() tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg { return editedMsg{path: rel, err: err} })
 }
 
+func (m *Model) toggleCollapsed() {
+	p := m.currentPath()
+	if p == "" {
+		return
+	}
+	m.collapsed[p] = !m.collapsed[p]
+	if m.collapsed[p] {
+		m.cursor = slices.IndexFunc(m.rows, func(r row) bool { return r.kind == rowFile && r.file == m.fileCursor })
+	}
+	m.relayout()
+}
+
 func (m Model) currentPath() string {
 	if len(m.files) == 0 {
 		return ""
@@ -1740,7 +1756,7 @@ func (m *Model) layout() {
 		if m.editing && m.editor.target.ID == "" && m.editor.target.Path == f.Path && m.editor.target.FileLevel() {
 			m.addEditor(fi)
 		}
-		if m.viewed[f.Path] {
+		if m.viewed[f.Path] || m.collapsed[f.Path] {
 			continue
 		}
 		if len(m.lines[fi]) == 0 {
@@ -2176,7 +2192,8 @@ func (m Model) diffLines() []string {
 		}
 		switch r.kind {
 		case rowFile:
-			lines = append(lines, renderFileHeader(m.files[r.file], m.viewed[m.files[r.file].Path], cursor, width))
+			p := m.files[r.file].Path
+			lines = append(lines, renderFileHeader(m.files[r.file], m.viewed[p], m.viewed[p] || m.collapsed[p], cursor, width))
 		case rowHunk:
 			lines = append(lines, renderHunk(m.lines[r.file][r.line].Text, width, cursor))
 		case rowLine:
