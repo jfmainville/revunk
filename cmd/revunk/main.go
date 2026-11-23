@@ -162,7 +162,7 @@ func service(ctx context.Context, dir, base string) (*review.Service, *store.JSO
 	if err != nil {
 		return nil, nil, "", "", err
 	}
-	svc := review.NewService(git.Source{Dir: root, Base: base}, st, agent.Agent{Dir: root}, branch)
+	svc := review.NewService(git.Source{Dir: root, Base: base}, st, agent.New(root), branch)
 	svc.ReplyCommand, _ = os.Executable()
 	svc.CurrentBranch = func(ctx context.Context) (string, error) { return git.Branch(ctx, root) }
 	svc.Exists = func(path string) bool {

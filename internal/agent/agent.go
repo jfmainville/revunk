@@ -8,7 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/jfmainville/revunk/internal/review"
 )
+
+// New returns the agent for the multiplexer Revunk runs in, tuios when TUIOS_PANE_ID is set, else herdr.
+func New(dir string) review.Agent {
+	if os.Getenv("TUIOS_PANE_ID") != "" {
+		return Tuios{Dir: dir}
+	}
+	return Agent{Dir: dir}
+}
 
 type Agent struct {
 	Dir string
