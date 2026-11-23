@@ -697,10 +697,8 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.deleteAllComments()
 		case is(seq, k.Explorer):
 			m.toggleExplorer()
-		case is(seq, k.Expand):
-			m.setCollapsed(false)
-		case is(seq, k.Collapse):
-			m.setCollapsed(true)
+		case is(seq, k.Fold):
+			m.toggleCollapsed()
 		case is(seq, k.OpenFile):
 			return m, m.openFile()
 		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
@@ -1302,13 +1300,13 @@ func (m *Model) openFile() tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg { return editedMsg{path: rel, err: err} })
 }
 
-func (m *Model) setCollapsed(collapsed bool) {
+func (m *Model) toggleCollapsed() {
 	p := m.currentPath()
 	if p == "" {
 		return
 	}
-	m.collapsed[p] = collapsed
-	if collapsed {
+	m.collapsed[p] = !m.collapsed[p]
+	if m.collapsed[p] {
 		m.cursor = slices.IndexFunc(m.rows, func(r row) bool { return r.kind == rowFile && r.file == m.fileCursor })
 	}
 	m.relayout()

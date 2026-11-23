@@ -676,29 +676,29 @@ func TestOutdatedCommentIsShownUnderFileHeader(t *testing.T) {
 	}
 }
 
-func TestZcAndZoCollapseAndExpandTheActiveFile(t *testing.T) {
+func TestZzTogglesTheActiveFileFold(t *testing.T) {
 	m, _ := loaded(t)
 	m, _ = press(t, m, "j")
 	if !strings.Contains(screen(m), "func a() {}") {
 		t.Fatalf("file body not shown before collapse:\n%s", screen(m))
 	}
 
-	m, _ = press(t, m, "z", "c")
+	m, _ = press(t, m, "z", "z")
 	if out := screen(m); strings.Contains(out, "func a() {}") || !strings.Contains(out, iconCollapsed+" ") {
-		t.Fatalf("zc did not collapse the active file:\n%s", out)
+		t.Fatalf("zz did not collapse the active file:\n%s", out)
 	}
 
-	m, _ = press(t, m, "z", "o")
+	m, _ = press(t, m, "z", "z")
 	if out := screen(m); !strings.Contains(out, "func a() {}") {
-		t.Fatalf("zo did not expand the active file:\n%s", out)
+		t.Fatalf("zz did not expand the active file:\n%s", out)
 	}
 }
 
 func TestCollapseLeavesOtherFilesExpanded(t *testing.T) {
 	m, _ := loaded(t)
-	m, _ = press(t, m, "z", "c")
+	m, _ = press(t, m, "z", "z")
 	if strings.Contains(screen(m), "# Title") {
-		t.Fatalf("README.md body still shown after zc:\n%s", screen(m))
+		t.Fatalf("README.md body still shown after zz:\n%s", screen(m))
 	}
 
 	m, _ = press(t, m, "f")
@@ -710,7 +710,7 @@ func TestCollapseLeavesOtherFilesExpanded(t *testing.T) {
 func TestCollapseKeepsTheCursorOnTheFileHeader(t *testing.T) {
 	m, _ := loaded(t)
 	m, _ = press(t, m, "j", "l", "j", "j")
-	m, _ = press(t, m, "z", "c")
+	m, _ = press(t, m, "z", "z")
 	if got := m.rows[m.cursor]; got.kind != rowFile || got.file != m.fileCursor {
 		t.Fatalf("cursor on %+v, want the header of file %d", got, m.fileCursor)
 	}
@@ -718,7 +718,7 @@ func TestCollapseKeepsTheCursorOnTheFileHeader(t *testing.T) {
 
 func TestCollapseWithoutFilesDoesNothing(t *testing.T) {
 	m := newModel(t, fakeSource{}, &fakeStore{viewed: map[string]string{}})
-	m, _ = press(t, m, "z", "c")
+	m, _ = press(t, m, "z", "z")
 	if !strings.Contains(screen(m), "no changes") {
 		t.Fatalf("empty state changed:\n%s", screen(m))
 	}
