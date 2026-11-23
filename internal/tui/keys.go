@@ -128,7 +128,7 @@ func defaultKeys(leader string) keyMap {
 		Delete:      bind("d d"),
 		DeleteAll:   bind("D D"),
 		Viewed:      bind("-"),
-		Fold:        bind("z z"),
+		Fold:        bind("z a"),
 		Comments:    bind("t"),
 		Edit:        bind("e"),
 		Explorer:    bind(leader + " e"),
