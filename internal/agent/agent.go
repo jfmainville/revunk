@@ -12,10 +12,19 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
-// New returns the agent for the multiplexer Revunk runs in, tuios when TUIOS_PANE_ID is set, else herdr.
+var multiplexers = []struct {
+	env string
+	new func(dir string) review.Agent
+}{
+	{"TUIOS_PANE_ID", func(dir string) review.Agent { return Tuios{Dir: dir} }},
+	{"HERDR_PANE_ID", func(dir string) review.Agent { return Agent{Dir: dir} }},
+}
+
 func New(dir string) review.Agent {
-	if os.Getenv("TUIOS_PANE_ID") != "" {
-		return Tuios{Dir: dir}
+	for _, m := range multiplexers {
+		if os.Getenv(m.env) != "" {
+			return m.new(dir)
+		}
 	}
 	return Agent{Dir: dir}
 }
@@ -24,7 +33,13 @@ type Agent struct {
 	Dir string
 }
 
-var names = map[string]string{"claude": "Claude Code", "opencode": "opencode"}
+var names = map[string]string{
+	"agy": "Antigravity", "amp": "Amp", "claude": "Claude Code", "cline": "Cline", "codex": "Codex",
+	"copilot": "Copilot", "cursor": "Cursor", "devin": "Devin", "droid": "Droid", "gemini": "Gemini",
+	"grok": "Grok", "hermes": "Hermes", "kilo": "Kilo", "kimi": "Kimi", "kiro": "Kiro", "letta": "Letta",
+	"maki": "Maki", "mastracode": "Mastra Code", "muse": "Muse", "omp": "omp", "opencode": "opencode",
+	"pi": "pi", "qodercli": "Qoder", "qwen": "Qwen",
+}
 
 func (a Agent) Prompt(ctx context.Context, text string) (string, error) {
 	pane, name, err := a.session(ctx)
@@ -33,7 +48,7 @@ func (a Agent) Prompt(ctx context.Context, text string) (string, error) {
 	}
 	if pane == "" {
 		if os.Getenv("HERDR_PANE_ID") == "" {
-			return "", fmt.Errorf("no Claude Code or opencode session open in %s", a.Dir)
+			return "", fmt.Errorf("no agent session open in %s", a.Dir)
 		}
 		if pane, err = a.start(ctx); err != nil {
 			return "", err

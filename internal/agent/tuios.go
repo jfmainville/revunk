@@ -13,7 +13,13 @@ type Tuios struct {
 	Dir string
 }
 
-var tuiosNames = map[string]string{"claude-code": "Claude Code", "opencode": "opencode"}
+var tuiosNames = map[string]string{
+	"aider": "Aider", "amp": "Amp", "antigravity": "Antigravity", "claude-code": "Claude Code", "cline": "Cline",
+	"codex": "Codex", "copilot": "Copilot", "crush": "Crush", "cursor-agent": "Cursor", "devin": "Devin",
+	"droid": "Droid", "gemini-cli": "Gemini", "goose": "Goose", "grok": "Grok", "hermes": "Hermes",
+	"kilo": "Kilo", "kimi": "Kimi", "kiro": "Kiro", "letta": "Letta", "maki": "Maki", "omp": "omp",
+	"opencode": "opencode", "pi": "pi", "qoder": "Qoder", "qwen": "Qwen",
+}
 
 func (t Tuios) Prompt(ctx context.Context, text string) (string, error) {
 	window, name, err := t.session(ctx)

@@ -40,7 +40,7 @@ func prompt(t *testing.T) (string, error) {
 }
 
 func TestPromptSendsToFirstSessionInRepo(t *testing.T) {
-	log := fakeBinary(t, "herdr", listing(`{"agent":"codex","cwd":"/repo","pane_id":"p1"},
+	log := fakeBinary(t, "herdr", listing(`{"agent":"nano","cwd":"/repo","pane_id":"p1"},
 {"agent":"claude","cwd":"/repo-other","pane_id":"p2"},
 {"agent":"claude","cwd":"/repo","pane_id":"self"},
 {"agent":"opencode","cwd":"/repo/sub","pane_id":"p4"},
@@ -66,7 +66,7 @@ func TestPromptNamesClaudeCodeAndReportsPromptErrors(t *testing.T) {
 
 func TestPromptOutsideHerdrWithoutSessionFails(t *testing.T) {
 	fakeBinary(t, "herdr", listing(`{"agent":"claude","cwd":"/elsewhere","pane_id":"p1"}`))
-	if _, err := prompt(t); err == nil || !strings.Contains(err.Error(), "no Claude Code or opencode session open in /repo") {
+	if _, err := prompt(t); err == nil || !strings.Contains(err.Error(), "no agent session open in /repo") {
 		t.Fatalf("error = %v", err)
 	}
 }

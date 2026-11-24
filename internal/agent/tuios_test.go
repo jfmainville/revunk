@@ -23,7 +23,7 @@ func tuiosPrompt(t *testing.T) (string, error) {
 }
 
 func TestTuiosPromptQueuesToFirstClaudeInRepo(t *testing.T) {
-	log := fakeTuios(t, tuiosListing(`{"harness_id":"codex","cwd":"/repo","window_id":"w1"},
+	log := fakeTuios(t, tuiosListing(`{"harness_id":"nano","cwd":"/repo","window_id":"w1"},
 {"harness_id":"claude-code","cwd":"/repo-other","window_id":"w2"},
 {"harness_id":"claude-code","cwd":"/repo","window_id":"self"},
 {"harness_id":"opencode","cwd":"/repo/sub","window_id":"w4"},
@@ -81,18 +81,34 @@ func TestTuiosPromptReportsListErrors(t *testing.T) {
 
 func TestNewSelectsMultiplexerFromPaneEnvironment(t *testing.T) {
 	cases := map[string]struct {
-		tuios string
-		want  review.Agent
+		tuios, herdr string
+		want         review.Agent
 	}{
 		"tuios pane": {tuios: "w1", want: Tuios{Dir: "/repo"}},
-		"no pane":    {tuios: "", want: Agent{Dir: "/repo"}},
+		"herdr pane": {herdr: "p1", want: Agent{Dir: "/repo"}},
+		"both panes": {tuios: "w1", herdr: "p1", want: Tuios{Dir: "/repo"}},
+		"no pane":    {want: Agent{Dir: "/repo"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("TUIOS_PANE_ID", tc.tuios)
+			t.Setenv("HERDR_PANE_ID", tc.herdr)
 			if got := New("/repo"); got != tc.want {
 				t.Fatalf("New = %#v, want %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHarnessNamesCoverCommonAgents(t *testing.T) {
+	for id, want := range map[string]string{"codex": "Codex", "pi": "pi", "gemini": "Gemini", "cursor": "Cursor"} {
+		if names[id] != want {
+			t.Errorf("herdr names[%q] = %q, want %q", id, names[id], want)
+		}
+	}
+	for id, want := range map[string]string{"codex": "Codex", "pi": "pi", "gemini-cli": "Gemini", "cursor-agent": "Cursor"} {
+		if tuiosNames[id] != want {
+			t.Errorf("tuios names[%q] = %q, want %q", id, tuiosNames[id], want)
+		}
 	}
 }
