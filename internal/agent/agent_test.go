@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-func fakeHerdr(t *testing.T, body string) string {
+func fakeBinary(t *testing.T, name, body string) string {
 	t.Helper()
 	bin := t.TempDir()
 	log := filepath.Join(bin, "log")
 	script := "#!/bin/sh\necho \"$*\" >> " + log + "\n" + body + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
@@ -40,7 +40,7 @@ func prompt(t *testing.T) (string, error) {
 }
 
 func TestPromptSendsToFirstSessionInRepo(t *testing.T) {
-	log := fakeHerdr(t, listing(`{"agent":"codex","cwd":"/repo","pane_id":"p1"},
+	log := fakeBinary(t, "herdr", listing(`{"agent":"nano","cwd":"/repo","pane_id":"p1"},
 {"agent":"claude","cwd":"/repo-other","pane_id":"p2"},
 {"agent":"claude","cwd":"/repo","pane_id":"self"},
 {"agent":"opencode","cwd":"/repo/sub","pane_id":"p4"},
@@ -58,21 +58,21 @@ func TestPromptSendsToFirstSessionInRepo(t *testing.T) {
 }
 
 func TestPromptNamesClaudeCodeAndReportsPromptErrors(t *testing.T) {
-	fakeHerdr(t, listing(`{"agent":"claude","cwd":"/repo","pane_id":"p1"}`)+"\necho agent_blocked; exit 1")
+	fakeBinary(t, "herdr", listing(`{"agent":"claude","cwd":"/repo","pane_id":"p1"}`)+"\necho agent_blocked; exit 1")
 	if name, err := prompt(t); name != "Claude Code" || err == nil || !strings.Contains(err.Error(), "herdr agent prompt") || !strings.Contains(err.Error(), "agent_blocked") {
 		t.Fatalf("Prompt = %q, %v", name, err)
 	}
 }
 
 func TestPromptOutsideHerdrWithoutSessionFails(t *testing.T) {
-	fakeHerdr(t, listing(`{"agent":"claude","cwd":"/elsewhere","pane_id":"p1"}`))
-	if _, err := prompt(t); err == nil || !strings.Contains(err.Error(), "no Claude Code or opencode session open in /repo") {
+	fakeBinary(t, "herdr", listing(`{"agent":"claude","cwd":"/elsewhere","pane_id":"p1"}`))
+	if _, err := prompt(t); err == nil || !strings.Contains(err.Error(), "no agent session open in /repo") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
 func TestPromptReportsListErrors(t *testing.T) {
-	fakeHerdr(t, "printf 'not json'")
+	fakeBinary(t, "herdr", "printf 'not json'")
 	if _, err := prompt(t); err == nil || !strings.Contains(err.Error(), "read herdr agents") {
 		t.Fatalf("bad list error = %v", err)
 	}
@@ -83,7 +83,7 @@ func TestPromptReportsListErrors(t *testing.T) {
 }
 
 func TestPromptStartsNewPaneInsideHerdr(t *testing.T) {
-	log := fakeHerdr(t, listing("")+"\nif [ \"$2\" = split ]; then printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p9\"}}}'; fi")
+	log := fakeBinary(t, "herdr", listing("")+"\nif [ \"$2\" = split ]; then printf '{\"result\":{\"pane\":{\"pane_id\":\"w1:p9\"}}}'; fi")
 	t.Setenv("HERDR_PANE_ID", "w1:p1")
 
 	name, err := prompt(t)
@@ -105,7 +105,7 @@ func TestStartErrors(t *testing.T) {
 		"busy":             split + "if [ \"$2\" = start ]; then echo busy; exit 1; fi",
 	}
 	for want, body := range cases {
-		fakeHerdr(t, listing("")+"\n"+body)
+		fakeBinary(t, "herdr", listing("")+"\n"+body)
 		t.Setenv("HERDR_PANE_ID", "w1:p1")
 		if _, err := prompt(t); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s error = %v", want, err)

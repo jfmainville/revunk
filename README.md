@@ -7,7 +7,7 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 - Go 1.26 or later
 - A [Nerd Font](https://www.nerdfonts.com) version 3 or later set as the terminal font, since the icons are Nerd Font glyphs from GitHub's Octicons
 - `git`
-- [herdr](https://herdr.dev) with Claude Code or opencode, only to send comments with `S`
+- [herdr](https://herdr.dev) or `tuios` with Claude Code or opencode, only to send comments with `S`
 - The [GitHub CLI](https://cli.github.com), `gh`, signed in with `gh auth login`, only for the **Pull Request** tab
 
 ## Install
@@ -41,7 +41,7 @@ Run Revunk from inside a git repository. The **Agent** tab compares the current 
 
 Comments and viewed state are saved per branch in `.git/revunk.json`. When Revunk starts, it drops the comments and viewed state of branches that no longer exist locally, or whose upstream is gone after a `git fetch --prune`. The current branch, even a detached `HEAD`, is always kept.
 
-`S` sends the comments not sent yet to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its ID, file, lines, commit, the commented code, and the replies so far, and asks the agent to answer each one with `revunk reply <id> "<text>"`. `S` uses `herdr agent list` to pick the first Claude Code or opencode pane whose directory is inside the repository, skipping the pane Revunk runs in. With no such pane, it starts Claude Code in a new pane next to Revunk. It submits the text with `herdr agent prompt` and marks the comments sent. Comments stay drafts when sending fails.
+`S` sends the comments not sent yet to the Claude Code or opencode session open in this repository, and `y` copies the same text to the clipboard. The text lists each comment with its ID, file, lines, commit, the commented code, and the replies so far, and asks the agent to answer each one with `revunk reply <id> "<text>"`. `S` uses the multiplexer Revunk runs in: `tuios` when `TUIOS_PANE_ID` is set, otherwise `herdr`. It picks the first Claude Code or opencode pane whose directory is inside the repository, skipping the pane Revunk runs in, from `tuios list-agents --json` or `herdr agent list`. With no such pane, it starts Claude Code in a new pane next to Revunk. It submits the text with `herdr agent prompt`, or queues it with `tuios queue -w`, and marks the comments sent once the multiplexer accepts it. With `tuios`, a queued message the agent never takes shows in the Inbox instead. Comments stay drafts when sending fails.
 
 `gf` hands the pane to `$VISUAL`, else `$EDITOR`, else `nvim`, run as `<editor> +<line> <file>` from the repository root, and Revunk comes back and refreshes when the editor exits. On a removed line it opens the nearest line that still exists.
 
@@ -186,6 +186,6 @@ Coding agents answer comments with `revunk reply <id> <text>`, which the prompt 
 | `internal/review`          | Review and pull request domain types, diff line parsing, the `Source`, `Store`, `Host`, and `Agent` boundaries, and the `Service` that all clients use. It has no UI dependencies. |
 | `internal/provider/git`    | Local git provider implementing `review.Source` for the commits on the current branch                                                                                              |
 | `internal/provider/github` | GitHub provider through `gh`, implementing `review.Host` for pull requests, and `review.Source` and `review.Store` for a pull request's review diff                                |
-| `internal/agent`           | Sends prompts to a Claude Code or opencode session in a `herdr` pane, or starts one, implementing `review.Agent`                                                                   |
+| `internal/agent`           | Sends prompts to a Claude Code or opencode session in a `herdr` or `tuios` pane, or starts one, implementing `review.Agent`                                                        |
 | `internal/store`           | JSON file store implementing `review.Store`                                                                                                                                        |
 | `internal/tui`             | Bubble Tea presentation layer, with `chroma` for syntax highlighting, `glamour` for Markdown comments, and every default key binding in `keys.go`                                  |
