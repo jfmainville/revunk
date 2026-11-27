@@ -137,7 +137,6 @@ func loadConfig() (config.Config, string, error) {
 	return cfg, path, err
 }
 
-// pick returns the flag value when it is set, and the config value otherwise.
 func pick(flag, fromConfig string) string {
 	if flag != "" {
 		return flag

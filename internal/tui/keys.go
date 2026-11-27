@@ -195,7 +195,6 @@ func is(k string, b key.Binding) bool {
 	return b.Enabled() && slices.Contains(b.Keys(), k)
 }
 
-// override sets the keys of each configured binding, and an empty list disables it.
 func (k *keyMap) override(keys map[string][]string) error {
 	bindings := map[string]*key.Binding{}
 	collectBindings(reflect.ValueOf(k).Elem(), "", bindings)
@@ -213,7 +212,6 @@ func (k *keyMap) override(keys map[string][]string) error {
 	return nil
 }
 
-// collectBindings maps each binding's config name, such as next-focus or ops.inner-change, to it.
 func collectBindings(v reflect.Value, prefix string, out map[string]*key.Binding) {
 	t := v.Type()
 	for i := range t.NumField() {
@@ -227,7 +225,6 @@ func collectBindings(v reflect.Value, prefix string, out map[string]*key.Binding
 	}
 }
 
-// configName turns a field name into kebab case, so OpenURL becomes open-url.
 func configName(field string) string {
 	runes := []rune(field)
 	var b strings.Builder

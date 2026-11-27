@@ -12,14 +12,12 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config holds the settings of config.toml. An empty Base means the default branch.
 type Config struct {
 	Base   string              `toml:"base"`
 	Leader string              `toml:"leader"`
 	Keys   map[string][]string `toml:"keys"`
 }
 
-// Path returns the config file under $XDG_CONFIG_HOME, or under ~/.config when that is unset or relative.
 func Path() (string, error) {
 	dir := os.Getenv("XDG_CONFIG_HOME")
 	if !filepath.IsAbs(dir) {
@@ -32,7 +30,6 @@ func Path() (string, error) {
 	return filepath.Join(dir, "revunk", "config.toml"), nil
 }
 
-// Load reads the config at path. A missing file gives the defaults.
 func Load(path string) (Config, error) {
 	cfg := Config{Leader: "space"}
 	data, err := os.ReadFile(path)
