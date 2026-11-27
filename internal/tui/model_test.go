@@ -980,13 +980,23 @@ func TestSmallHelpers(t *testing.T) {
 }
 
 type fakeAgent struct {
+	panes   []review.AgentPane
+	listErr error
+	sent    []review.AgentPane
 	prompts []string
 	err     error
 }
 
-func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
-	a.prompts = append(a.prompts, text)
-	return "opencode", a.err
+func (a *fakeAgent) Panes(context.Context) ([]review.AgentPane, error) {
+	return a.panes, a.listErr
+}
+
+func (a *fakeAgent) Prompt(_ context.Context, pane review.AgentPane, text string) (string, error) {
+	a.sent, a.prompts = append(a.sent, pane), append(a.prompts, text)
+	if pane.Name == "" {
+		return "a new Claude Code pane", a.err
+	}
+	return pane.Name, a.err
 }
 
 func withComment(t *testing.T, agent review.Agent) Model {
@@ -998,19 +1008,19 @@ func withComment(t *testing.T, agent review.Agent) Model {
 }
 
 func TestSendCommentsPromptsTheAgent(t *testing.T) {
-	agent := &fakeAgent{}
+	agent := &fakeAgent{panes: []review.AgentPane{{ID: "w4", Name: "opencode"}}}
 	m := withComment(t, agent)
 
 	m, cmd := press(t, m, "S")
 	if !strings.Contains(screen(m), "sending 1 comments") {
 		t.Fatal("no sending notice")
 	}
-	m = run(t, m, cmd)
+	m = drainCmd(t, m, cmd)
 
-	if len(agent.prompts) != 1 || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
-		t.Fatalf("prompts = %q", agent.prompts)
+	if len(agent.prompts) != 1 || agent.sent[0].ID != "w4" || !strings.Contains(agent.prompts[0], "nit on a/main.go line 2") || !strings.Contains(agent.prompts[0], "rename") {
+		t.Fatalf("prompts = %q to %+v", agent.prompts, agent.sent)
 	}
-	if out := screen(m); !strings.Contains(out, "sent 1 comments to opencode, replies show under each one") || !strings.Contains(out, "L2 · sent") || len(m.comments) != 1 {
+	if out := screen(m); !strings.Contains(out, "sent 1 comments to opencode, replies show under each one") || !strings.Contains(out, "L2 · sent") || len(m.comments) != 1 || m.modal.open {
 		t.Fatalf("sent comment not kept and marked sent:\n%s", out)
 	}
 	if again, cmd := press(t, m, "S"); cmd != nil || !strings.Contains(screen(again), "no unsent comments to send") {
@@ -1019,9 +1029,15 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 
 	failing := withComment(t, &fakeAgent{err: errors.New("no Claude Code session open")})
 	failing, cmd = press(t, failing, "S")
-	failing = run(t, failing, cmd)
+	failing = drainCmd(t, failing, cmd)
 	if !strings.Contains(screen(failing), "no Claude Code session open") || len(failing.comments) != 1 {
 		t.Fatal("agent error not shown or comments dropped")
+	}
+
+	unlisted := withComment(t, &fakeAgent{listErr: errors.New("tuios down")})
+	unlisted, cmd = press(t, unlisted, "S")
+	if unlisted = drainCmd(t, unlisted, cmd); !strings.Contains(screen(unlisted), "tuios down") {
+		t.Fatal("list error not shown")
 	}
 
 	empty, _ := loaded(t)

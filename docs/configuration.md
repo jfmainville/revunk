@@ -20,6 +20,9 @@ leader = "space"
 # Color theme, one of the names listed in Themes.
 theme = "catppuccin"
 
+# Agent that receives sent comments, the name shown in the agent picker. Unset by default, which asks when several agents are open.
+# agent = "Claude Code"
+
 # Key bindings, each set to its default keys. An empty list disables a binding.
 [keys]
 quit = ["q"]
@@ -53,6 +56,7 @@ comments = ["t"]
 edit = ["e"]
 explorer = ["space e"]
 send = ["S"]
+agent = ["g a"]
 copy = ["y"]
 save = ["ctrl+s"]
 newline = ["enter"]
@@ -114,6 +118,7 @@ Each row is one setting. `Keybinding` is the field name in `keyMap` in `internal
 | `base`                   | -                 | Unset, so the default branch | Branch to compare against, the same as `-base`.                                                                      |
 | `leader`                 | -                 | `space`                      | Key that starts leader sequences, the same as `-leader`.                                                             |
 | `theme`                  | -                 | `catppuccin`                 | Color theme, one of the names in [Themes](#themes).                                                                  |
+| `agent`                  | -                 | Unset, so ask when needed    | Agent that receives sent comments. See [Default agent](#default-agent).                                              |
 | `keys.quit`              | `Quit`            | `q`                          | Quit Revunk.                                                                                                         |
 | `keys.force-quit`        | `ForceQuit`       | `ctrl+c`                     | Quit Revunk immediately.                                                                                             |
 | `keys.help`              | `Help`            | `?`                          | Show the help screen.                                                                                                |
@@ -144,7 +149,8 @@ Each row is one setting. `Keybinding` is the field name in `keyMap` in `internal
 | `keys.comments`          | `Comments`        | `t`                          | Show or hide the comments pane.                                                                                      |
 | `keys.edit`              | `Edit`            | `e`                          | Edit the comment under the cursor, when it is yours.                                                                 |
 | `keys.explorer`          | `Explorer`        | `space e`                    | Show or hide the commits and files panes. Its default follows `leader`, so change `leader` rather than this setting. |
-| `keys.send`              | `Send`            | `S`                          | Send unsent comments to the agent.                                                                                   |
+| `keys.send`              | `Send`            | `S`                          | Send unsent comments to the default agent.                                                                           |
+| `keys.agent`             | `Agent`           | `g a`                        | Pick the default agent for comments.                                                                                 |
 | `keys.copy`              | `Copy`            | `y`                          | Copy unsent comments to the clipboard.                                                                               |
 | `keys.save`              | `Save`            | `ctrl+s`                     | Save in the comment editor or a modal.                                                                               |
 | `keys.newline`           | `Newline`         | `enter`                      | Insert a newline in the comment editor.                                                                              |
@@ -219,6 +225,14 @@ Each row is one setting. `Keybinding` is the field name in `keyMap` in `internal
 | `rose-pine`        | Dark    |
 | `rose-pine-dawn`   | Light   |
 | `vesper`           | Dark    |
+
+## Default agent
+
+Revunk lists the agents open in the repository in the current herdr or tuios session when you send comments.
+
+- With `agent` set, comments go to the first open agent of that name, matched without case. When none is open, Revunk sends nothing and says so, and asks for another agent when others are open.
+- Without `agent`, one open agent receives the comments directly, and with none open Revunk starts a new Claude Code pane. Several open agents bring up a picker.
+- Picking an agent, from the send picker or with `keys.agent`, saves its name as `agent` in the config file. Revunk rewrites only that line, so comments and other settings stay as they are.
 
 ## Key bindings
 

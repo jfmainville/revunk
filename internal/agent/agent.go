@@ -31,8 +31,18 @@ func New(dir string) review.Agent {
 
 type noMultiplexer struct{}
 
-func (noMultiplexer) Prompt(context.Context, string) (string, error) {
-	return "", errors.New("no multiplexer found, run Revunk inside herdr or tuios")
+var errNoMultiplexer = errors.New("no multiplexer found, run Revunk inside herdr or tuios")
+
+func (noMultiplexer) Panes(context.Context) ([]review.AgentPane, error) {
+	return nil, errNoMultiplexer
+}
+
+func (noMultiplexer) Prompt(context.Context, review.AgentPane, string) (string, error) {
+	return "", errNoMultiplexer
+}
+
+func inRepo(cwd, dir string) bool {
+	return cwd == dir || strings.HasPrefix(cwd, dir+"/")
 }
 
 type Agent struct {
@@ -47,28 +57,25 @@ var names = map[string]string{
 	"pi": "pi", "qodercli": "Qoder", "qwen": "Qwen",
 }
 
-func (a Agent) Prompt(ctx context.Context, text string) (string, error) {
-	pane, name, err := a.session(ctx)
-	if err != nil {
-		return "", err
-	}
-	if pane == "" {
+func (a Agent) Prompt(ctx context.Context, pane review.AgentPane, text string) (string, error) {
+	if pane.ID == "" {
 		if os.Getenv("HERDR_PANE_ID") == "" {
 			return "", fmt.Errorf("no agent session open in %s", a.Dir)
 		}
-		if pane, err = a.start(ctx); err != nil {
+		id, err := a.start(ctx)
+		if err != nil {
 			return "", err
 		}
-		name = "a new Claude Code pane"
+		pane = review.AgentPane{ID: id, Name: "a new Claude Code pane"}
 	}
-	_, err = run(ctx, "agent", "prompt", pane, text)
-	return name, err
+	_, err := run(ctx, "agent", "prompt", pane.ID, text)
+	return pane.Name, err
 }
 
-func (a Agent) session(ctx context.Context) (string, string, error) {
+func (a Agent) Panes(ctx context.Context) ([]review.AgentPane, error) {
 	out, err := run(ctx, "agent", "list")
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	var list struct {
 		Result struct {
@@ -80,15 +87,15 @@ func (a Agent) session(ctx context.Context) (string, string, error) {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(out, &list); err != nil {
-		return "", "", fmt.Errorf("read herdr agents: %w", err)
+		return nil, fmt.Errorf("read herdr agents: %w", err)
 	}
+	var panes []review.AgentPane
 	for _, ag := range list.Result.Agents {
-		inRepo := ag.Cwd == a.Dir || strings.HasPrefix(ag.Cwd, a.Dir+"/")
-		if name, ok := names[ag.Agent]; ok && inRepo && ag.PaneID != os.Getenv("HERDR_PANE_ID") {
-			return ag.PaneID, name, nil
+		if name, ok := names[ag.Agent]; ok && inRepo(ag.Cwd, a.Dir) && ag.PaneID != os.Getenv("HERDR_PANE_ID") {
+			panes = append(panes, review.AgentPane{ID: ag.PaneID, Name: name})
 		}
 	}
-	return "", "", nil
+	return panes, nil
 }
 
 func (a Agent) start(ctx context.Context) (string, error) {

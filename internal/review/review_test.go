@@ -402,13 +402,20 @@ func TestDeleteAllCommentsClearsOnlyThisBranch(t *testing.T) {
 }
 
 type fakeAgent struct {
-	text   string
-	err    error
-	during func()
+	panes   []review.AgentPane
+	listErr error
+	pane    review.AgentPane
+	text    string
+	err     error
+	during  func()
 }
 
-func (a *fakeAgent) Prompt(_ context.Context, text string) (string, error) {
-	a.text = text
+func (a *fakeAgent) Panes(context.Context) ([]review.AgentPane, error) {
+	return a.panes, a.listErr
+}
+
+func (a *fakeAgent) Prompt(_ context.Context, pane review.AgentPane, text string) (string, error) {
+	a.pane, a.text = pane, text
 	if a.during != nil {
 		a.during()
 	}
@@ -475,18 +482,19 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	ctx := context.Background()
 	agent := &fakeAgent{}
 	svc := promptService(t, agent)
-	if name, err := svc.SendComments(ctx); err != nil || name != "opencode" || !strings.Contains(agent.text, "## 4. praise") {
-		t.Fatalf("SendComments = %q, %v, sent %q", name, err, agent.text)
+	pane := review.AgentPane{ID: "w4", Name: "opencode"}
+	if name, err := svc.SendComments(ctx, pane); err != nil || name != "opencode" || agent.pane != pane || !strings.Contains(agent.text, "## 4. praise") {
+		t.Fatalf("SendComments = %q, %v, sent %q to %+v", name, err, agent.text, agent.pane)
 	}
 	if left, _ := svc.Comments(ctx); len(left) != 4 || !left[0].Sent || !left[3].Sent {
 		t.Fatalf("sent comments not marked sent: %+v", left)
 	}
-	if _, err := svc.SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no unsent comments") {
+	if _, err := svc.SendComments(ctx, pane); err == nil || !strings.Contains(err.Error(), "no unsent comments") {
 		t.Fatalf("second send = %v", err)
 	}
 	agentErr := errors.New("blocked")
 	failing := promptService(t, &fakeAgent{err: agentErr})
-	if _, err := failing.SendComments(ctx); !errors.Is(err, agentErr) {
+	if _, err := failing.SendComments(ctx, pane); !errors.Is(err, agentErr) {
 		t.Fatalf("agent error = %v", err)
 	}
 	if left, _ := failing.Comments(ctx); len(left) != 4 || left[0].Sent {
@@ -497,7 +505,7 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	busy.during = func() {
 		_ = svc.AddComment(ctx, review.Comment{Kind: "issue", Path: "a.go", Body: "added while working"})
 	}
-	if _, err := svc.SendComments(ctx); err != nil {
+	if _, err := svc.SendComments(ctx, pane); err != nil {
 		t.Fatal(err)
 	}
 	if left, _ := svc.Comments(ctx); len(left) != 5 || left[4].Sent {
@@ -506,12 +514,52 @@ func TestSendCommentsPromptsTheAgent(t *testing.T) {
 	if _, err := svc.Prompt(ctx); err != nil {
 		t.Fatalf("unsent comment not offered again: %v", err)
 	}
-	if _, err := promptService(t, nil).SendComments(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
+	if _, err := promptService(t, nil).SendComments(ctx, pane); err == nil || !strings.Contains(err.Error(), "no coding agent") {
 		t.Fatalf("missing agent error = %v", err)
 	}
 	empty := &fakeAgent{}
-	if _, err := review.NewService(&fakeSource{}, newStore(t), empty, "x").SendComments(ctx); err == nil || empty.text != "" {
+	if _, err := review.NewService(&fakeSource{}, newStore(t), empty, "x").SendComments(ctx, pane); err == nil || empty.text != "" {
 		t.Fatalf("empty send = %v, sent %q", err, empty.text)
+	}
+}
+
+func TestAgentPanesListsTheAgentPanes(t *testing.T) {
+	ctx := context.Background()
+	panes := []review.AgentPane{{ID: "w1", Name: "Codex"}}
+	if got, err := promptService(t, &fakeAgent{panes: panes}).AgentPanes(ctx); err != nil || !reflect.DeepEqual(got, panes) {
+		t.Fatalf("AgentPanes = %+v, %v", got, err)
+	}
+	listErr := errors.New("tuios down")
+	if _, err := promptService(t, &fakeAgent{listErr: listErr}).AgentPanes(ctx); !errors.Is(err, listErr) {
+		t.Fatalf("list error = %v", err)
+	}
+	if _, err := promptService(t, nil).AgentPanes(ctx); err == nil || !strings.Contains(err.Error(), "no coding agent") {
+		t.Fatalf("missing agent error = %v", err)
+	}
+}
+
+func TestPreferredPane(t *testing.T) {
+	codex, claude, claude2 := review.AgentPane{ID: "w1", Name: "Codex"}, review.AgentPane{ID: "w2", Name: "Claude Code"}, review.AgentPane{ID: "w3", Name: "Claude Code"}
+	cases := map[string]struct {
+		panes     []review.AgentPane
+		preferred string
+		want      review.AgentPane
+		ok        bool
+	}{
+		"no pane starts a new agent":       {ok: true},
+		"one pane is used without asking":  {panes: []review.AgentPane{codex}, want: codex, ok: true},
+		"several panes ask":                {panes: []review.AgentPane{codex, claude}},
+		"preferred is matched by name":     {panes: []review.AgentPane{codex, claude, claude2}, preferred: "claude code", want: claude, ok: true},
+		"preferred not open asks":          {panes: []review.AgentPane{codex}, preferred: "Claude Code"},
+		"preferred not open with no panes": {preferred: "Claude Code"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, ok := review.PreferredPane(tc.panes, tc.preferred)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("PreferredPane = %+v, %v, want %+v, %v", got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 
