@@ -43,10 +43,10 @@ func (u Updater) Run(ctx context.Context, exe, version string, out io.Writer) er
 		return err
 	}
 	if filepath.Dir(exe) == "/usr/bin" {
-		return u.debPackage(ctx, exe, tag, latest, sums, out)
+		return u.debPackage(ctx, exe, tag, sums, out)
 	}
 	name := fmt.Sprintf("revunk_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
-	archive, err := u.verified(ctx, u.releaseURL(tag, name), name, sums)
+	archive, err := u.verified(ctx, tag, name, sums)
 	if err != nil {
 		return err
 	}
@@ -61,9 +61,10 @@ func (u Updater) Run(ctx context.Context, exe, version string, out io.Writer) er
 	return err
 }
 
-func (u Updater) debPackage(ctx context.Context, exe, tag, latest string, sums []byte, out io.Writer) error {
+func (u Updater) debPackage(ctx context.Context, exe, tag string, sums []byte, out io.Writer) error {
+	latest := strings.TrimPrefix(tag, "v")
 	name := fmt.Sprintf("revunk_%s_linux_%s.deb", latest, runtime.GOARCH)
-	deb, err := u.verified(ctx, u.releaseURL(tag, name), name, sums)
+	deb, err := u.verified(ctx, tag, name, sums)
 	if err != nil {
 		return err
 	}
@@ -116,12 +117,12 @@ func (u Updater) get(ctx context.Context, url string) ([]byte, error) {
 	return body, errors.Join(err, resp.Body.Close())
 }
 
-func (u Updater) verified(ctx context.Context, url, name string, sums []byte) ([]byte, error) {
+func (u Updater) verified(ctx context.Context, tag, name string, sums []byte) ([]byte, error) {
 	want, err := checksum(sums, name)
 	if err != nil {
 		return nil, err
 	}
-	data, err := u.get(ctx, url)
+	data, err := u.get(ctx, u.releaseURL(tag, name))
 	if err != nil {
 		return nil, err
 	}
