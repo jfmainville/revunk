@@ -25,7 +25,6 @@ type Updater struct {
 	DownloadURL string
 }
 
-// Binaries under /usr/bin are managed by apt, so Run downloads the matching .deb instead.
 func (u Updater) Run(ctx context.Context, exe, version string, out io.Writer) error {
 	if version == "dev" {
 		return errors.New("development builds cannot be upgraded, install a release instead")
