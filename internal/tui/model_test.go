@@ -835,6 +835,11 @@ func TestHelpOverlayAndQuit(t *testing.T) {
 	}
 }
 
+func rgbCode(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
 func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	lines := review.ParseLines("@@ -1 +1 @@\n+func a() { return \"x\" } // note")
 	tokens := highlight(lexerFor("main.go"), lines)
@@ -845,10 +850,10 @@ func TestHighlightColorsSyntaxAndFallsBack(t *testing.T) {
 	for _, tk := range tokens[1] {
 		colors[strings.TrimSpace(tk.text)] = ansi.Strip(tk.style.Render("x")) + tk.style.Render("x")
 	}
-	if !strings.Contains(colors["func"], "235;175;57") {
-		t.Fatalf("keyword not amber: %q", colors["func"])
+	if !strings.Contains(colors["func"], rgbCode(colorPrimary)) {
+		t.Fatalf("keyword not the accent: %q", colors["func"])
 	}
-	if !strings.Contains(colors[`"x"`], "174;199;108") {
+	if !strings.Contains(colors[`"x"`], rgbCode(colorAdd)) {
 		t.Fatalf("string not green: %q", colors[`"x"`])
 	}
 	plain := highlight(lexerFor("notes.unknownext"), review.ParseLines("@@ -1 +1 @@\n+just\ttext"))
@@ -2158,7 +2163,7 @@ func TestMatchesAreHighlighted(t *testing.T) {
 	m, _ := loaded(t)
 	m, _ = press(t, m, "/")
 	m = typeText(t, m, "old")
-	hl := "48;2;235;175;57"
+	hl := "48;2;" + rgbCode(colorPrimary)
 	found := false
 	for _, l := range m.diffLines() {
 		if strings.Contains(ansi.Strip(l), "func old") && strings.Contains(l, hl) {
@@ -2726,10 +2731,10 @@ func TestDraggingStaysInTheClickedFile(t *testing.T) {
 
 func TestSelectedLinesShareTheVisualColor(t *testing.T) {
 	l := review.Line{Kind: review.LineAdded, New: 1, Text: "x"}
-	if out := renderLine(l, plainTokens([]review.Line{l})[0], 40, 0, true, true); !strings.Contains(out, "48;2;24;68;58") || strings.Contains(out, "48;2;50;38;24") {
+	if out := renderLine(l, plainTokens([]review.Line{l})[0], 40, 0, true, true); !strings.Contains(out, "48;2;"+rgbCode(colorVisual)) || strings.Contains(out, "48;2;"+rgbCode(colorCursorline)) {
 		t.Fatalf("the cursor line inside a selection should use the visual color: %q", out)
 	}
-	if out := renderLine(l, plainTokens([]review.Line{l})[0], 40, 0, true, false); !strings.Contains(out, "48;2;50;38;24") {
+	if out := renderLine(l, plainTokens([]review.Line{l})[0], 40, 0, true, false); !strings.Contains(out, "48;2;"+rgbCode(colorCursorline)) {
 		t.Fatalf("the cursor line outside a selection should keep the cursor color: %q", out)
 	}
 }
