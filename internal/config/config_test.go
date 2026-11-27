@@ -52,6 +52,7 @@ func TestLoadReadsSettings(t *testing.T) {
 base = "develop"
 leader = ","
 theme = "dracula"
+agent = "Codex"
 
 [keys]
 quit = ["q", "ctrl+q"]
@@ -67,7 +68,7 @@ next-focus = []
 		"next-focus":       {},
 		"ops.inner-change": {"c i p"},
 	}
-	if cfg.Base != "develop" || cfg.Leader != "," || cfg.Theme != "dracula" || !reflect.DeepEqual(cfg.Keys, want) {
+	if cfg.Base != "develop" || cfg.Leader != "," || cfg.Theme != "dracula" || cfg.Agent != "Codex" || !reflect.DeepEqual(cfg.Keys, want) {
 		t.Fatalf("Load() = %+v", cfg)
 	}
 }
@@ -102,5 +103,59 @@ func TestLoadRejectsInvalidFile(t *testing.T) {
 				t.Fatalf("Load() error = %v, want it to mention %q and %s", err, tc.want, path)
 			}
 		})
+	}
+}
+
+func TestSetAgentCreatesTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "revunk", "config.toml")
+	if err := SetAgent(path, "Claude Code"); err != nil {
+		t.Fatalf("SetAgent() error = %v", err)
+	}
+	if cfg, err := Load(path); err != nil || cfg.Agent != "Claude Code" {
+		t.Fatalf("Load() = %+v, %v", cfg, err)
+	}
+}
+
+func TestSetAgentKeepsTheRestOfTheFile(t *testing.T) {
+	cases := map[string]struct {
+		content, want string
+	}{
+		"inserted before tables": {
+			"# my config\ntheme = \"nord\"\n\n[keys]\nquit = [\"x\"]\n",
+			"agent = \"Say \\\"hi\\\"\"\n# my config\ntheme = \"nord\"\n\n[keys]\nquit = [\"x\"]\n",
+		},
+		"replaced in place": {
+			"theme = \"nord\"\n  agent = \"Codex\" # old\n[keys]\n",
+			"theme = \"nord\"\nagent = \"Say \\\"hi\\\"\"\n[keys]\n",
+		},
+		"table key left alone": {
+			"[keys]\nagent = [\"g a\"]\n",
+			"agent = \"Say \\\"hi\\\"\"\n[keys]\nagent = [\"g a\"]\n",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := writeConfig(t, tc.content)
+			if err := SetAgent(path, `Say "hi"`); err != nil {
+				t.Fatalf("SetAgent() error = %v", err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil || string(got) != tc.want {
+				t.Fatalf("file = %q, %v, want %q", got, err, tc.want)
+			}
+			if cfg, err := Load(path); err != nil || cfg.Agent != `Say "hi"` {
+				t.Fatalf("Load() = %+v, %v", cfg, err)
+			}
+		})
+	}
+}
+
+func TestSetAgentReportsErrors(t *testing.T) {
+	if err := SetAgent(t.TempDir(), "Codex"); err == nil {
+		t.Fatal("SetAgent() on a directory should fail to read")
+	}
+	file := writeConfig(t, "")
+	if err := SetAgent(filepath.Join(file, "config.toml"), "Codex"); err == nil {
+		t.Fatal("SetAgent() under a file should fail")
 	}
 }

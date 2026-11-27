@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/jfmainville/revunk/internal/review"
 )
 
 type Tuios struct {
@@ -21,23 +23,19 @@ var tuiosNames = map[string]string{
 	"opencode": "opencode", "pi": "pi", "qoder": "Qoder", "qwen": "Qwen",
 }
 
-func (t Tuios) Prompt(ctx context.Context, text string) (string, error) {
-	window, name, err := t.session(ctx)
-	if err != nil {
-		return "", err
-	}
-	if window == "" {
-		_, err = tuiosRun(ctx, "start-agent", "claude", "--cwd", t.Dir, "--prompt", text)
+func (t Tuios) Prompt(ctx context.Context, pane review.AgentPane, text string) (string, error) {
+	if pane.ID == "" {
+		_, err := tuiosRun(ctx, "start-agent", "claude", "--cwd", t.Dir, "--prompt", text)
 		return "a new Claude Code pane", err
 	}
-	_, err = tuiosRun(ctx, "queue", "-w", window, text)
-	return name, err
+	_, err := tuiosRun(ctx, "queue", "-w", pane.ID, text)
+	return pane.Name, err
 }
 
-func (t Tuios) session(ctx context.Context) (string, string, error) {
+func (t Tuios) Panes(ctx context.Context) ([]review.AgentPane, error) {
 	out, err := tuiosRun(ctx, "list-agents", "--json")
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	var list struct {
 		Agents []struct {
@@ -47,15 +45,15 @@ func (t Tuios) session(ctx context.Context) (string, string, error) {
 		} `json:"agents"`
 	}
 	if err := json.Unmarshal(out, &list); err != nil {
-		return "", "", fmt.Errorf("read tuios agents: %w", err)
+		return nil, fmt.Errorf("read tuios agents: %w", err)
 	}
+	var panes []review.AgentPane
 	for _, ag := range list.Agents {
-		inRepo := ag.Cwd == t.Dir || strings.HasPrefix(ag.Cwd, t.Dir+"/")
-		if name, ok := tuiosNames[ag.HarnessID]; ok && inRepo && ag.WindowID != os.Getenv("TUIOS_PANE_ID") {
-			return ag.WindowID, name, nil
+		if name, ok := tuiosNames[ag.HarnessID]; ok && inRepo(ag.Cwd, t.Dir) && ag.WindowID != os.Getenv("TUIOS_PANE_ID") {
+			panes = append(panes, review.AgentPane{ID: ag.WindowID, Name: name})
 		}
 	}
-	return "", "", nil
+	return panes, nil
 }
 
 func tuiosRun(ctx context.Context, args ...string) ([]byte, error) {

@@ -109,6 +109,7 @@ const (
 	modalActions
 	modalClose
 	modalCreate
+	modalAgents
 )
 
 type modalState struct {
@@ -134,6 +135,8 @@ type modalState struct {
 	cursor   int
 	loading  bool
 	failed   error
+	panes    []review.AgentPane
+	send     bool
 }
 
 type drop struct {
@@ -1071,8 +1074,11 @@ func (m Model) modalHints() []hint {
 	if m.modal.picker() {
 		return m.keys.pickerHints(m.modal.normal)
 	}
-	if m.modal.kind == modalActions {
+	switch m.modal.kind {
+	case modalActions:
 		return m.keys.actionsHints(m.modal.normal)
+	case modalAgents:
+		return m.keys.agentHints()
 	}
 	return m.keys.modalHints(m.modal.parts() > 1, len(m.modal.drops) > 0, m.modal.mode())
 }
@@ -1213,6 +1219,8 @@ func (m Model) updateModal(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.modal = modalState{}
 	case d.kind == modalActions:
 		return m.updateActions(msg)
+	case d.kind == modalAgents:
+		return m.updateAgents(msg)
 	case is(key, k.Save):
 		return m.saveModal()
 	case is(key, k.NextFocus), is(key, k.PrevFocus):
@@ -1885,6 +1893,18 @@ func (m Model) renderModal(background string) string {
 		}
 		if len(matches) == 0 {
 			lines = append(lines, " "+dimStyle.Render("no action matches"))
+		}
+	}
+	if d.kind == modalAgents {
+		for i, p := range d.panes {
+			style, mark := dimStyle, "  "
+			if strings.EqualFold(p.Name, m.agent) {
+				mark = iconCheck + " "
+			}
+			if i == d.cursor {
+				style = lipgloss.NewStyle().Background(colorPrimary).Foreground(colorOnPrimary)
+			}
+			lines = append(lines, " "+style.Render(mark+p.Name+" · "+p.ID))
 		}
 	}
 	if d.titled {

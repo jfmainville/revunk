@@ -43,6 +43,7 @@ type keyMap struct {
 	Edit        key.Binding
 	Explorer    key.Binding
 	Send        key.Binding
+	Agent       key.Binding
 	Copy        key.Binding
 	Save        key.Binding
 	Newline     key.Binding
@@ -136,6 +137,7 @@ func defaultKeys(leader string) keyMap {
 		Edit:        bind("e"),
 		Explorer:    bind(leader + " e"),
 		Send:        bind("S"),
+		Agent:       bind("g a"),
 		Copy:        bind("y"),
 		Save:        bind("ctrl+s"),
 		Newline:     bind("enter"),
@@ -342,7 +344,8 @@ func (k keyMap) helpSections() []helpSection {
 			{desc: "details of the selected commit: author, message, changed files", keys: []key.Binding{k.CommitInfo}},
 			{desc: "mark file viewed until it changes", keys: []key.Binding{k.Viewed}},
 			{desc: "expand / collapse the file under cursor", keys: []key.Binding{k.Fold}},
-			{desc: "send unsent comments to the agent", keys: []key.Binding{k.Send}},
+			{desc: "send unsent comments to the default agent, picking one when several are open", keys: []key.Binding{k.Send}},
+			{desc: "change the default agent for comments", keys: []key.Binding{k.Agent}},
 			{desc: "copy unsent comments", keys: []key.Binding{k.Copy}},
 			{desc: "open the file at the cursor in $EDITOR", keys: []key.Binding{k.OpenFile}},
 			{desc: "edit the reviewed pull request, in a review diff", keys: []key.Binding{k.EditPR}},
@@ -486,6 +489,10 @@ func (k keyMap) searchListHints(normal bool, act hint) []hint {
 
 func (k keyMap) actionsHints(normal bool) []hint {
 	return k.searchListHints(normal, hint{desc: "run", keys: []key.Binding{k.Open}})
+}
+
+func (k keyMap) agentHints() []hint {
+	return []hint{{desc: "move", keys: []key.Binding{k.PickDown, k.PickUp}}, {desc: "pick", keys: []key.Binding{k.Open}}, {desc: "cancel", keys: []key.Binding{k.Cancel}}}
 }
 
 func (k keyMap) pickerHints(normal bool) []hint {

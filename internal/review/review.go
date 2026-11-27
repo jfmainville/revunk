@@ -275,8 +275,33 @@ type Host interface {
 	Merge(ctx context.Context, pr PullRequest, method MergeMethod, message MergeMessage) error
 }
 
+type AgentPane struct {
+	ID   string
+	Name string
+}
+
 type Agent interface {
-	Prompt(ctx context.Context, text string) (string, error)
+	Panes(ctx context.Context) ([]AgentPane, error)
+	// Prompt sends text to pane, or starts a new agent when pane has no ID, and returns the agent's name.
+	Prompt(ctx context.Context, pane AgentPane, text string) (string, error)
+}
+
+// PreferredPane returns the pane to send to without asking, or false when preferred is not open or several panes are open without one.
+func PreferredPane(panes []AgentPane, preferred string) (AgentPane, bool) {
+	if preferred != "" {
+		i := slices.IndexFunc(panes, func(p AgentPane) bool { return strings.EqualFold(p.Name, preferred) })
+		if i < 0 {
+			return AgentPane{}, false
+		}
+		return panes[i], true
+	}
+	switch len(panes) {
+	case 0:
+		return AgentPane{}, true
+	case 1:
+		return panes[0], true
+	}
+	return AgentPane{}, false
 }
 
 type Service struct {
@@ -570,15 +595,24 @@ func commented(files []File, c Comment) []string {
 	return code
 }
 
-func (s *Service) SendComments(ctx context.Context) (string, error) {
+var errNoAgent = errors.New("no coding agent is configured")
+
+func (s *Service) AgentPanes(ctx context.Context) ([]AgentPane, error) {
 	if s.agent == nil {
-		return "", errors.New("no coding agent is configured")
+		return nil, errNoAgent
+	}
+	return s.agent.Panes(ctx)
+}
+
+func (s *Service) SendComments(ctx context.Context, pane AgentPane) (string, error) {
+	if s.agent == nil {
+		return "", errNoAgent
 	}
 	text, sent, err := s.prompt(ctx)
 	if err != nil {
 		return "", err
 	}
-	name, err := s.agent.Prompt(ctx, text)
+	name, err := s.agent.Prompt(ctx, pane, text)
 	if err != nil {
 		return name, err
 	}

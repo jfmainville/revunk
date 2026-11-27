@@ -191,6 +191,8 @@ type Model struct {
 	diffGen    int
 	pr         review.PullRequest
 	modal      modalState
+	agent      string
+	saveAgent  func(string) error
 	every      time.Duration
 	failures   int
 	blurred    bool
@@ -412,6 +414,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pickerMsg:
 		m.modal.applyPicker(msg)
 		return m, nil
+	case panesMsg:
+		return m, m.applyPanes(msg)
 	case pullsMsg:
 		return m, m.applyPulls(msg)
 	case detailMsg:
@@ -709,6 +713,9 @@ func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.openFile()
 		case is(seq, k.WindowLeft), is(seq, k.WindowDown), is(seq, k.WindowUp), is(seq, k.WindowRight):
 			m.focus = m.window(seq)
+		case is(seq, k.Agent):
+			m.notice = "looking for agents…"
+			return m, m.listPanes(false)
 		case is(seq, k.EditPR) && m.pr.Number > 0:
 			return m, m.openModal(modalEdit, m.pr)
 		case m.host == nil || m.pr.Number > 0:
@@ -1654,11 +1661,16 @@ func (m *Model) sendComments() tea.Cmd {
 		m.warning = "no unsent comments to send"
 		return nil
 	}
+	m.notice = fmt.Sprintf("sending %d comments…", m.unsent())
+	return m.listPanes(true)
+}
+
+func (m *Model) sendTo(pane review.AgentPane) tea.Cmd {
 	svc, n := m.svc, m.unsent()
 	m.notice = fmt.Sprintf("sending %d comments…", n)
 	return func() tea.Msg {
 		ctx := context.Background()
-		agent, err := svc.SendComments(ctx)
+		agent, err := svc.SendComments(ctx, pane)
 		if err != nil {
 			return commentsMsg{err: err}
 		}

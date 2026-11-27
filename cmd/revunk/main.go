@@ -107,6 +107,7 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
+		model = model.WithAgent(cfg.Agent, func(name string) error { return config.SetAgent(path, name) })
 		_, err = tea.NewProgram(model).Run()
 		return err
 	case "reply":
