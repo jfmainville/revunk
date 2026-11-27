@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,6 +21,7 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 	"github.com/jfmainville/revunk/internal/store"
 	"github.com/jfmainville/revunk/internal/tui"
+	"github.com/jfmainville/revunk/internal/upgrade"
 )
 
 var version = "dev"
@@ -30,6 +32,7 @@ Reviews the commits on the current git branch against its base branch.
 
 Commands:
   tui                  Launch the terminal review interface (default)
+  upgrade              Replace this binary with the latest GitHub release
 
 Flags:
   -base     Branch to compare against (default: config base, else origin's default branch, else main)
@@ -123,6 +126,21 @@ func run(args []string) error {
 		}
 		fmt.Println("replied to", flags.Arg(1))
 		return nil
+	case "upgrade":
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		exe, err = filepath.EvalSymlinks(exe)
+		if err != nil {
+			return err
+		}
+		up := upgrade.Updater{
+			HTTP:        http.DefaultClient,
+			APIURL:      "https://api.github.com/repos/jfmainville/revunk",
+			DownloadURL: "https://github.com/jfmainville/revunk",
+		}
+		return up.Run(context.Background(), exe, version, os.Stdout)
 	case "help":
 		fmt.Print(usage)
 		return nil

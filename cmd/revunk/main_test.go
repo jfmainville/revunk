@@ -259,6 +259,15 @@ func TestRunVersionPrintsTheStampedVersion(t *testing.T) {
 	}
 }
 
+func TestRunUpgradeRefusesDevelopmentBuildsBeforeDownloading(t *testing.T) {
+	orig := version
+	t.Cleanup(func() { version = orig })
+	version = "dev"
+	if err := run([]string{"upgrade"}); err == nil || !strings.Contains(err.Error(), "development builds") {
+		t.Fatalf("error = %v, want a development build refusal", err)
+	}
+}
+
 func stdout(t *testing.T, f func() error) string {
 	t.Helper()
 	r, w, err := os.Pipe()
