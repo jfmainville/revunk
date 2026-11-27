@@ -17,7 +17,7 @@ The file below sets every parameter to its default value, so it works as a refer
 # Key that starts leader sequences, the same as -leader.
 leader = "space"
 
-# Color theme, one of herdr's built-in themes except terminal.
+# Color theme, one of the names listed in Themes.
 theme = "catppuccin"
 
 # Key bindings, each set to its default keys. An empty list disables a binding.
@@ -113,7 +113,7 @@ Each row is one setting. `Keybinding` is the field name in `keyMap` in `internal
 | ------------------------ | ----------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `base`                   | -                 | Unset, so the default branch | Branch to compare against, the same as `-base`.                                                                      |
 | `leader`                 | -                 | `space`                      | Key that starts leader sequences, the same as `-leader`.                                                             |
-| `theme`                  | -                 | `catppuccin`                 | Color theme, one of herdr's built-in themes such as `dracula`, `nord`, or `gruvbox-light`, except `terminal`.        |
+| `theme`                  | -                 | `catppuccin`                 | Color theme, one of the names in [Themes](#themes).                                                                  |
 | `keys.quit`              | `Quit`            | `q`                          | Quit Revunk.                                                                                                         |
 | `keys.force-quit`        | `ForceQuit`       | `ctrl+c`                     | Quit Revunk immediately.                                                                                             |
 | `keys.help`              | `Help`            | `?`                          | Show the help screen.                                                                                                |
@@ -195,6 +195,30 @@ Each row is one setting. `Keybinding` is the field name in `keyMap` in `internal
 | `keys.window-down`       | `WindowDown`      | `ctrl+w j`                   | Focus the pane below.                                                                                                |
 | `keys.window-up`         | `WindowUp`        | `ctrl+w k`                   | Focus the pane above.                                                                                                |
 | `keys.window-right`      | `WindowRight`     | `ctrl+w l`                   | Focus the pane to the right.                                                                                         |
+
+## Themes
+
+`theme` takes one of the names below, the same names as herdr's `[theme] name` setting. Revunk accepts only these names, and an unknown name stops `revunk` when the interface starts. `terminal` is not available because it uses the host terminal's own ANSI colors.
+
+| Theme              | Variant |
+| ------------------ | ------- |
+| `catppuccin`       | Dark    |
+| `catppuccin-latte` | Light   |
+| `tokyo-night`      | Dark    |
+| `tokyo-night-day`  | Light   |
+| `dracula`          | Dark    |
+| `nord`             | Dark    |
+| `gruvbox`          | Dark    |
+| `gruvbox-light`    | Light   |
+| `one-dark`         | Dark    |
+| `one-light`        | Light   |
+| `solarized`        | Dark    |
+| `solarized-light`  | Light   |
+| `kanagawa`         | Dark    |
+| `kanagawa-lotus`   | Light   |
+| `rose-pine`        | Dark    |
+| `rose-pine-dawn`   | Light   |
+| `vesper`           | Dark    |
 
 ## Key bindings
 
