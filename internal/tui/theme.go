@@ -9,7 +9,6 @@ import (
 	"github.com/alecthomas/chroma/v2"
 )
 
-// palette holds the herdr theme tokens that Revunk uses.
 type palette struct {
 	accent, panel, activeRow, selection, surfaceDim, overlay, text, subtext, mauve, green, red, teal, peach color.RGBA
 }
@@ -50,7 +49,6 @@ func rgb(v uint32) color.RGBA {
 	return color.RGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 255}
 }
 
-// WithTheme applies a herdr built-in theme by name, so call it before rendering.
 func (m Model) WithTheme(name string) (Model, error) {
 	p, ok := themes[name]
 	if !ok {
@@ -106,7 +104,6 @@ func hex(c color.RGBA) string {
 	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
 }
 
-// mix returns the color t of the way from a to b, used for diff tints.
 func mix(a, b color.RGBA, t float64) color.RGBA {
 	lerp := func(x, y uint8) uint8 {
 		return uint8(math.Round(float64(x) + (float64(y)-float64(x))*t))
@@ -114,7 +111,7 @@ func mix(a, b color.RGBA, t float64) color.RGBA {
 	return color.RGBA{R: lerp(a.R, b.R), G: lerp(a.G, b.G), B: lerp(a.B, b.B), A: 255}
 }
 
-// themes are herdr's built-in palettes, except terminal, whose ANSI colors have no fixed RGB values.
+// terminal is left out because its ANSI colors have no fixed RGB values to blend.
 var themes = map[string]palette{
 	"catppuccin": {
 		accent:     rgb(0x89b4fa),
