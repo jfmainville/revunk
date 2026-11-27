@@ -17,7 +17,7 @@ Format, vet, and test must all pass before every commit. CI runs the same checks
 
 - `internal/review` holds the domain types, the `Source`, `Store`, `Host`, and `Agent` interfaces, and `Service`. It never imports UI, provider, or storage packages.
 - `internal/provider/<name>` implements `review.Source` for one change source: `git` for the local branch, and `github` for pull requests through `gh`, which also implements `review.Host` and the `review.Store` comments of a pull request's review.
-- `internal/agent` implements `review.Agent` through `herdr` and `tuios`, and `agent.New` picks one at startup from `TUIOS_PANE_ID`.
+- `internal/agent` implements `review.Agent` through `herdr` and `tuios`, and `agent.New` picks one at startup from `TUIOS_PANE_ID` or `HERDR_PANE_ID`, and errors when sending if neither is set.
 - `internal/store` implements `review.Store`.
 - `internal/tui` is the only package that imports Charm libraries (`bubbletea`, `bubbles`, `lipgloss`).
 - Every key binding lives in `defaultKeys()` in `internal/tui/keys.go`, with the help screen and footer hints. Match keys with `is(key, m.keys.X)`, never by comparing key strings.

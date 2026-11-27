@@ -87,7 +87,7 @@ func TestNewSelectsMultiplexerFromPaneEnvironment(t *testing.T) {
 		"tuios pane": {tuios: "w1", want: Tuios{Dir: "/repo"}},
 		"herdr pane": {herdr: "p1", want: Agent{Dir: "/repo"}},
 		"both panes": {tuios: "w1", herdr: "p1", want: Tuios{Dir: "/repo"}},
-		"no pane":    {want: Agent{Dir: "/repo"}},
+		"no pane":    {want: noMultiplexer{}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -110,5 +110,13 @@ func TestHarnessNamesCoverCommonAgents(t *testing.T) {
 		if tuiosNames[id] != want {
 			t.Errorf("tuios names[%q] = %q, want %q", id, tuiosNames[id], want)
 		}
+	}
+}
+
+func TestNoMultiplexerPromptReturnsError(t *testing.T) {
+	t.Setenv("TUIOS_PANE_ID", "")
+	t.Setenv("HERDR_PANE_ID", "")
+	if _, err := New("/repo").Prompt(context.Background(), "fix it"); err == nil || !strings.Contains(err.Error(), "no multiplexer found") {
+		t.Fatalf("Prompt error = %v", err)
 	}
 }

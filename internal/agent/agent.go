@@ -26,7 +26,13 @@ func New(dir string) review.Agent {
 			return m.new(dir)
 		}
 	}
-	return Agent{Dir: dir}
+	return noMultiplexer{}
+}
+
+type noMultiplexer struct{}
+
+func (noMultiplexer) Prompt(context.Context, string) (string, error) {
+	return "", errors.New("no multiplexer found, run Revunk inside herdr or tuios")
 }
 
 type Agent struct {
