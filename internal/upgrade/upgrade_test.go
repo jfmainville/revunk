@@ -191,6 +191,35 @@ func TestRunFailsWithoutReplacingBinary(t *testing.T) {
 	}
 }
 
+func TestRunSuggestsSudoWhenDirectoryIsReadOnly(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to read-only directories")
+	}
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "revunk")
+	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Error(err)
+		}
+	})
+	var out strings.Builder
+
+	err := server(t, release(t, tarball(t, "revunk", []byte("new binary")))).Run(context.Background(), exe, "1.1.0", &out)
+
+	if err == nil || !strings.Contains(err.Error(), "rerun with sudo") {
+		t.Fatalf("error = %v, want a sudo hint", err)
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "old binary" {
+		t.Fatalf("binary = %q, want it unchanged", got)
+	}
+}
+
 func TestRunDownloadsDebianPackageForUsrBinInstalls(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	var out strings.Builder

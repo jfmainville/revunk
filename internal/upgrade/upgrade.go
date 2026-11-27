@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -165,6 +166,9 @@ func binary(archive []byte) ([]byte, error) {
 
 func replace(exe string, bin []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(exe), ".revunk-upgrade-*")
+	if errors.Is(err, fs.ErrPermission) {
+		return fmt.Errorf("cannot write to %s, rerun with sudo: %w", filepath.Dir(exe), err)
+	}
 	if err != nil {
 		return fmt.Errorf("create temporary file beside %s: %w", exe, err)
 	}
