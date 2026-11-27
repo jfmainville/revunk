@@ -42,7 +42,7 @@ func TestLoadMissingFileGivesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Leader != "space" || cfg.Base != "" || cfg.Keys != nil {
+	if cfg.Leader != "space" || cfg.Theme != "catppuccin" || cfg.Base != "" || cfg.Keys != nil {
 		t.Fatalf("Load() = %+v, want defaults", cfg)
 	}
 }
@@ -51,6 +51,7 @@ func TestLoadReadsSettings(t *testing.T) {
 	path := writeConfig(t, `
 base = "develop"
 leader = ","
+theme = "dracula"
 
 [keys]
 quit = ["q", "ctrl+q"]
@@ -66,7 +67,7 @@ next-focus = []
 		"next-focus":       {},
 		"ops.inner-change": {"c i p"},
 	}
-	if cfg.Base != "develop" || cfg.Leader != "," || !reflect.DeepEqual(cfg.Keys, want) {
+	if cfg.Base != "develop" || cfg.Leader != "," || cfg.Theme != "dracula" || !reflect.DeepEqual(cfg.Keys, want) {
 		t.Fatalf("Load() = %+v", cfg)
 	}
 }

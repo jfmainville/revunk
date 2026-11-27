@@ -15,6 +15,7 @@ import (
 type Config struct {
 	Base   string              `toml:"base"`
 	Leader string              `toml:"leader"`
+	Theme  string              `toml:"theme"`
 	Keys   map[string][]string `toml:"keys"`
 }
 
@@ -31,7 +32,7 @@ func Path() (string, error) {
 }
 
 func Load(path string) (Config, error) {
-	cfg := Config{Leader: "space"}
+	cfg := Config{Leader: "space", Theme: "catppuccin"}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return cfg, nil
