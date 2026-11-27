@@ -40,7 +40,6 @@ func archiveName() string {
 	return fmt.Sprintf("revunk_1.2.0_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 }
 
-// release returns the files of a GitHub release tagged v1.2.0, keyed by request path.
 func release(t *testing.T, archive []byte) map[string][]byte {
 	t.Helper()
 	deb := []byte("debian package")
@@ -68,7 +67,9 @@ func server(t *testing.T, files map[string][]byte) Updater {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write(body)
+		if _, err := w.Write(body); err != nil {
+			t.Error(err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	return Updater{HTTP: srv.Client(), APIURL: srv.URL + "/api", DownloadURL: srv.URL}

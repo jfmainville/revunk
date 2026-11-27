@@ -1,4 +1,3 @@
-// Package upgrade replaces the installed revunk binary with the latest GitHub release.
 package upgrade
 
 import (
@@ -19,14 +18,12 @@ import (
 	"strings"
 )
 
-// Updater downloads releases from GitHub. APIURL and DownloadURL are overridden in tests.
 type Updater struct {
 	HTTP        *http.Client
 	APIURL      string
 	DownloadURL string
 }
 
-// Run replaces exe with the latest release when its tag differs from version.
 // Binaries under /usr/bin are managed by apt, so Run downloads the matching .deb instead.
 func (u Updater) Run(ctx context.Context, exe, version string, out io.Writer) error {
 	if version == "dev" {
@@ -38,8 +35,8 @@ func (u Updater) Run(ctx context.Context, exe, version string, out io.Writer) er
 	}
 	latest := strings.TrimPrefix(tag, "v")
 	if latest == version {
-		fmt.Fprintf(out, "revunk %s is up to date\n", version)
-		return nil
+		_, err = fmt.Fprintf(out, "revunk %s is up to date\n", version)
+		return err
 	}
 	sums, err := u.get(ctx, u.releaseURL(tag, "checksums.txt"))
 	if err != nil {
@@ -60,8 +57,8 @@ func (u Updater) Run(ctx context.Context, exe, version string, out io.Writer) er
 	if err := replace(exe, bin); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "upgraded revunk from %s to %s\n", version, latest)
-	return nil
+	_, err = fmt.Fprintf(out, "upgraded revunk from %s to %s\n", version, latest)
+	return err
 }
 
 func (u Updater) debPackage(ctx context.Context, exe, tag, latest string, sums []byte, out io.Writer) error {
@@ -78,8 +75,8 @@ func (u Updater) debPackage(ctx context.Context, exe, tag, latest string, sums [
 	if err := os.WriteFile(path, deb, 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "%s is installed from a Debian package, so it cannot be replaced.\nDownloaded and verified revunk %s.\nUpgrade with: sudo apt install %s\n", exe, latest, path)
-	return nil
+	_, err = fmt.Fprintf(out, "%s is installed from a Debian package, so it cannot be replaced.\nDownloaded and verified revunk %s.\nUpgrade with: sudo apt install %s\n", exe, latest, path)
+	return err
 }
 
 func (u Updater) latestTag(ctx context.Context) (string, error) {
@@ -112,11 +109,11 @@ func (u Updater) get(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get %s: %w", url, err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get %s: %s", url, resp.Status)
+		return nil, errors.Join(fmt.Errorf("get %s: %s", url, resp.Status), resp.Body.Close())
 	}
-	return io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	return body, errors.Join(err, resp.Body.Close())
 }
 
 func (u Updater) verified(ctx context.Context, url, name string, sums []byte) ([]byte, error) {
@@ -135,7 +132,6 @@ func (u Updater) verified(ctx context.Context, url, name string, sums []byte) ([
 	return data, nil
 }
 
-// checksum returns the SHA-256 listed for name in a checksums.txt file.
 func checksum(sums []byte, name string) (string, error) {
 	for line := range strings.Lines(string(sums)) {
 		fields := strings.Fields(line)
@@ -146,7 +142,6 @@ func checksum(sums []byte, name string) (string, error) {
 	return "", fmt.Errorf("no checksum for %s", name)
 }
 
-// binary returns the revunk executable stored in a release archive.
 func binary(archive []byte) ([]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
@@ -167,22 +162,21 @@ func binary(archive []byte) ([]byte, error) {
 	}
 }
 
-// replace writes bin to a temporary file beside exe and renames it over exe, so the swap is atomic.
 func replace(exe string, bin []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(exe), ".revunk-upgrade-*")
 	if err != nil {
 		return fmt.Errorf("create temporary file beside %s: %w", exe, err)
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(bin); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write %s: %w", tmp.Name(), err)
+	_, err = tmp.Write(bin)
+	err = errors.Join(err, tmp.Close())
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0o755)
 	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("write %s: %w", tmp.Name(), err)
+	if err == nil {
+		err = os.Rename(tmp.Name(), exe)
 	}
-	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
-		return err
+	if err != nil {
+		return errors.Join(fmt.Errorf("replace %s: %w", exe, err), os.Remove(tmp.Name()))
 	}
-	return os.Rename(tmp.Name(), exe)
+	return nil
 }
