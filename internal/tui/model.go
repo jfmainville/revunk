@@ -219,6 +219,12 @@ func (m Model) WithLeader(leader string) Model {
 	return m
 }
 
+// WithKeys applies configured key bindings over the current ones, so call it after WithLeader.
+func (m Model) WithKeys(keys map[string][]string) (Model, error) {
+	err := m.keys.override(keys)
+	return m, err
+}
+
 func (m Model) Init() tea.Cmd {
 	svc := m.svc
 	return func() tea.Msg {
