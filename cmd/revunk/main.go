@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -136,7 +137,7 @@ func run(args []string) error {
 			return err
 		}
 		up := upgrade.Updater{
-			HTTP:        http.DefaultClient,
+			HTTP:        &http.Client{Timeout: 5 * time.Minute},
 			APIURL:      "https://api.github.com/repos/jfmainville/revunk",
 			DownloadURL: "https://github.com/jfmainville/revunk",
 		}
