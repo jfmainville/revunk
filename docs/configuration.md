@@ -17,6 +17,9 @@ The file below sets every parameter to its default value, so it works as a refer
 # Key that starts leader sequences, the same as -leader.
 leader = "space"
 
+# Color theme, one of herdr's built-in themes except terminal.
+theme = "catppuccin"
+
 # Key bindings, each set to its default keys. An empty list disables a binding.
 [keys]
 quit = ["q"]
@@ -110,6 +113,7 @@ Each row is one setting. `Keybinding` is the field name in `keyMap` in `internal
 | ------------------------ | ----------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `base`                   | -                 | Unset, so the default branch | Branch to compare against, the same as `-base`.                                                                      |
 | `leader`                 | -                 | `space`                      | Key that starts leader sequences, the same as `-leader`.                                                             |
+| `theme`                  | -                 | `catppuccin`                 | Color theme, one of herdr's built-in themes such as `dracula`, `nord`, or `gruvbox-light`, except `terminal`.        |
 | `keys.quit`              | `Quit`            | `q`                          | Quit Revunk.                                                                                                         |
 | `keys.force-quit`        | `ForceQuit`       | `ctrl+c`                     | Quit Revunk immediately.                                                                                             |
 | `keys.help`              | `Help`            | `?`                          | Show the help screen.                                                                                                |
@@ -200,7 +204,7 @@ The keys of a binding replace its defaults, so `quit = ["q", "ctrl+q"]` keeps `q
 
 ## Errors
 
-Revunk stops with an error naming the file when the config is invalid. This covers a syntax error, an unknown setting, a value of the wrong type, an empty `base` or `leader`, and an empty key string. `revunk` and `revunk reply` both check the file. An unknown key binding name stops `revunk` when the interface starts, and `revunk reply` does not apply key bindings.
+Revunk stops with an error naming the file when the config is invalid. This covers a syntax error, an unknown setting, a value of the wrong type, an empty `base` or `leader`, and an empty key string. `revunk` and `revunk reply` both check the file. An unknown `theme` or key binding name stops `revunk` when the interface starts, and `revunk reply` does not apply them.
 
 ## Compatibility
 
