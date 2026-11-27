@@ -45,7 +45,7 @@ Choose the simplest solution that fully meets the requirement.
 
 ## Docs
 
-- `README.md` covers what Revunk is, its requirements, commands, keys, CLI usage, and project layout. Don't update it on every change. Edit it only when the user asks, or when a change makes one of its lines false, and then change only that line.
+- `README.md` covers what Revunk is, its requirements, commands, keys, CLI usage, and project layout. Never edit it unless the user asks, and then change only what they asked for.
 - Put longer technical docs (architecture, design decisions) in `docs/`, short and focused on what the code can't show.
 - Document only what exists. No roadmaps, placeholders, or "not implemented yet" notes.
 - Format Markdown with `npx prettier --write`.
