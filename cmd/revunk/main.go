@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/jfmainville/revunk/internal/agent"
+	"github.com/jfmainville/revunk/internal/config"
 	"github.com/jfmainville/revunk/internal/provider/git"
 	"github.com/jfmainville/revunk/internal/provider/github"
 	"github.com/jfmainville/revunk/internal/review"
@@ -31,9 +32,9 @@ Commands:
   tui                  Launch the terminal review interface (default)
 
 Flags:
-  -base     Branch to compare against (default: origin's default branch, else main)
+  -base     Branch to compare against (default: config base, else origin's default branch, else main)
   -cleanup  Delete .git/revunk.json, every saved comment and viewed file, then exit
-  -leader   Key that starts leader sequences, such as <leader> e for the explorer (default: space)
+  -leader   Key that starts leader sequences, such as <leader> e for the explorer (default: config leader, else space)
   -version  Print the version, then exit
 `
 
@@ -49,7 +50,7 @@ func run(args []string) error {
 	flags.Usage = func() { fmt.Fprint(flags.Output(), usage) }
 	base := flags.String("base", "", "")
 	cleanup := flags.Bool("cleanup", false, "")
-	leader := flags.String("leader", "space", "")
+	leader := flags.String("leader", "", "")
 	showVersion := flags.Bool("version", false, "")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -86,18 +87,30 @@ func run(args []string) error {
 	}
 	switch command {
 	case "tui":
-		model, err := setup(context.Background(), ".", *base)
+		cfg, path, err := loadConfig()
 		if err != nil {
 			return err
 		}
-		_, err = tea.NewProgram(model.WithLeader(*leader)).Run()
+		model, err := setup(context.Background(), ".", pick(*base, cfg.Base))
+		if err != nil {
+			return err
+		}
+		model, err = model.WithLeader(pick(*leader, cfg.Leader)).WithKeys(cfg.Keys)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		_, err = tea.NewProgram(model).Run()
 		return err
 	case "reply":
 		if flags.NArg() < 3 {
 			return errors.New("usage: revunk reply <id> <text>")
 		}
+		cfg, _, err := loadConfig()
+		if err != nil {
+			return err
+		}
 		ctx := context.Background()
-		svc, _, _, _, err := service(ctx, ".", *base)
+		svc, _, _, _, err := service(ctx, ".", pick(*base, cfg.Base))
 		if err != nil {
 			return err
 		}
@@ -113,6 +126,22 @@ func run(args []string) error {
 		fmt.Fprint(os.Stderr, usage)
 		return fmt.Errorf("unknown command %q", command)
 	}
+}
+
+func loadConfig() (config.Config, string, error) {
+	path, err := config.Path()
+	if err != nil {
+		return config.Config{}, "", err
+	}
+	cfg, err := config.Load(path)
+	return cfg, path, err
+}
+
+func pick(flag, fromConfig string) string {
+	if flag != "" {
+		return flag
+	}
+	return fromConfig
 }
 
 func setup(ctx context.Context, dir, base string) (tui.Model, error) {

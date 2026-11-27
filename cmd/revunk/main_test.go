@@ -42,9 +42,42 @@ func TestRunRejectsUnknownCommandAndBadFlags(t *testing.T) {
 }
 
 func TestRunTUIFailsOutsideGitRepository(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Chdir(t.TempDir())
 	if err := run(nil); err == nil || !strings.Contains(err.Error(), "git repository") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunReportsInvalidConfig(t *testing.T) {
+	for name, content := range map[string]string{
+		"invalid setting":     "leader = \"\"\n",
+		"unknown key binding": "[keys]\nnope = [\"x\"]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			if err := os.Mkdir(filepath.Join(xdg, "revunk"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(xdg, "revunk", "config.toml")
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(gitRepo(t))
+			if err := run(nil); err == nil || !strings.Contains(err.Error(), path) {
+				t.Fatalf("error = %v, want it to name %s", err, path)
+			}
+		})
+	}
+}
+
+func TestPickPrefersFlagOverConfig(t *testing.T) {
+	if got := pick("flag", "config"); got != "flag" {
+		t.Errorf("pick(flag set) = %q, want flag", got)
+	}
+	if got := pick("", "config"); got != "config" {
+		t.Errorf("pick(flag empty) = %q, want config", got)
 	}
 }
 

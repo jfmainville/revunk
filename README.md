@@ -178,6 +178,10 @@ Coding agents answer comments with `revunk reply <id> <text>`, which the prompt 
 
 `-version` prints the release version, such as `revunk 1.4.0`, or `revunk dev` for a binary built from source.
 
+## Configuration
+
+Revunk reads `config.toml` from `~/.config/revunk/`, or from `$XDG_CONFIG_HOME/revunk/` when that is set, to set the base branch, the leader key, and key bindings. Flags override it. The [configuration guide](docs/configuration.md) has a sample file and the rules.
+
 ## Project layout
 
 | Package                    | Responsibility                                                                                                                                                                     |

@@ -10,6 +10,54 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
+func TestConfigNameIsKebabCase(t *testing.T) {
+	for field, want := range map[string]string{"OpenURL": "open-url", "EditPR": "edit-pr", "NextFocus": "next-focus", "InnerChange": "inner-change"} {
+		if got := configName(field); got != want {
+			t.Errorf("configName(%q) = %q, want %q", field, got, want)
+		}
+	}
+}
+
+func TestOverrideReplacesKeysAndDisablesOnEmptyList(t *testing.T) {
+	k := defaultKeys("space")
+	if err := k.override(map[string][]string{"next-focus": {"ctrl+right"}, "quit": {}}); err != nil {
+		t.Fatalf("override() error = %v", err)
+	}
+	if !is("ctrl+right", k.NextFocus) || is("tab", k.NextFocus) {
+		t.Fatal("override should replace the default keys")
+	}
+	if is("q", k.Quit) || k.Quit.Enabled() {
+		t.Fatal("an empty list should disable the binding")
+	}
+}
+
+func TestOverrideReachesOperatorKeys(t *testing.T) {
+	k := defaultKeys("space")
+	if err := k.override(map[string][]string{"ops.inner-change": {"c p"}}); err != nil {
+		t.Fatalf("override() error = %v", err)
+	}
+	if !is("c p", k.Ops.InnerChange) || is("c i w", k.Ops.InnerChange) {
+		t.Fatal("override should reach operator bindings")
+	}
+}
+
+func TestOverrideRejectsUnknownBinding(t *testing.T) {
+	k := defaultKeys("space")
+	if err := k.override(map[string][]string{"nope": {"x"}}); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("override() error = %v, want unknown binding nope", err)
+	}
+}
+
+func TestWithKeysAppliesOverridesToModel(t *testing.T) {
+	m, err := New(nil, ".", "main").WithKeys(map[string][]string{"quit": {"x"}})
+	if err != nil || !is("x", m.keys.Quit) || is("q", m.keys.Quit) {
+		t.Fatalf("WithKeys() = %v, quit keys %v", err, m.keys.Quit.Keys())
+	}
+	if _, err := New(nil, ".", "main").WithKeys(map[string][]string{"nope": {"x"}}); err == nil {
+		t.Fatal("WithKeys() should reject an unknown binding")
+	}
+}
+
 func TestIsMatchesOnlyEnabledBindings(t *testing.T) {
 	b := bind("j", "down")
 	if !is("j", b) || !is("down", b) || is("k", b) {

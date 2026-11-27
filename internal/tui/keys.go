@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/key"
 )
@@ -190,6 +193,48 @@ func defaultKeys(leader string) keyMap {
 
 func is(k string, b key.Binding) bool {
 	return b.Enabled() && slices.Contains(b.Keys(), k)
+}
+
+func (k *keyMap) override(keys map[string][]string) error {
+	bindings := map[string]*key.Binding{}
+	collectBindings(reflect.ValueOf(k).Elem(), "", bindings)
+	for _, name := range slices.Sorted(maps.Keys(keys)) {
+		b, ok := bindings[name]
+		if !ok {
+			return fmt.Errorf("unknown key binding %q", name)
+		}
+		if len(keys[name]) == 0 {
+			b.SetEnabled(false)
+			continue
+		}
+		b.SetKeys(keys[name]...)
+	}
+	return nil
+}
+
+func collectBindings(v reflect.Value, prefix string, out map[string]*key.Binding) {
+	t := v.Type()
+	for i := range t.NumField() {
+		field := v.Field(i)
+		name := prefix + configName(t.Field(i).Name)
+		if b, ok := field.Addr().Interface().(*key.Binding); ok {
+			out[name] = b
+			continue
+		}
+		collectBindings(field, name+".", out)
+	}
+}
+
+func configName(field string) string {
+	runes := []rune(field)
+	var b strings.Builder
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(runes[i-1]) || (i+1 < len(runes) && unicode.IsLower(runes[i+1]))) {
+			b.WriteByte('-')
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
 }
 
 func (k keyMap) all() []key.Binding {
