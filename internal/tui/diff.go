@@ -15,48 +15,6 @@ import (
 	"github.com/jfmainville/revunk/internal/review"
 )
 
-var (
-	colorPrimary    = lipgloss.Color("#ebaf39")
-	colorForeground = lipgloss.Color("#e7e0d7")
-	colorPanel      = lipgloss.Color("#221a16")
-	colorRule       = lipgloss.Color("#41352f")
-	colorDim        = lipgloss.Color("#c0ad9f")
-	colorOnPrimary  = lipgloss.Color("#201308")
-	colorAdd        = lipgloss.Color("#aec76c")
-	colorDel        = lipgloss.Color("#f6987b")
-	colorThread     = lipgloss.Color("#7dc9b6")
-	colorCursorline = lipgloss.Color("#322618")
-	colorVisual     = lipgloss.Color("#18443a")
-	colorAddBg      = lipgloss.Color("#292519")
-	colorDelBg      = lipgloss.Color("#34231d")
-	colorAddWord    = lipgloss.Color("#46512a")
-	colorDelWord    = lipgloss.Color("#633629")
-	colorError      = lipgloss.Color("#fdae95")
-	colorNote       = lipgloss.Color("#8fb8de")
-	colorIssue      = lipgloss.Color("#e5534b")
-	colorMerged     = lipgloss.Color("#b98ee0")
-
-	dimStyle     = lipgloss.NewStyle().Foreground(colorDim)
-	primaryStyle = lipgloss.NewStyle().Foreground(colorPrimary)
-	errorStyle   = lipgloss.NewStyle().Foreground(colorError)
-
-	syntax = chroma.MustNewStyle("revunk", chroma.StyleEntries{
-		chroma.Text:              "#e7e0d7",
-		chroma.Keyword:           "#ebaf39",
-		chroma.KeywordType:       "#ebaf39",
-		chroma.NameBuiltin:       "#ebaf39",
-		chroma.NameTag:           "#ebaf39",
-		chroma.NameDecorator:     "#7dc9b6",
-		chroma.Comment:           "italic #c0ad9f",
-		chroma.LiteralString:     "#aec76c",
-		chroma.LiteralNumber:     "#c5a3cd",
-		chroma.GenericHeading:    "bold #ebaf39",
-		chroma.GenericSubheading: "bold #ebaf39",
-		chroma.GenericStrong:     "bold #e7e0d7",
-		chroma.GenericEmph:       "italic #e7e0d7",
-	})
-)
-
 const (
 	gutterWidth = 9
 	lineGutter  = 10
@@ -416,7 +374,7 @@ func lineLabel(c review.Comment) string {
 }
 
 func renderMarkdown(body string, width int) []string {
-	r, err := glamour.NewTermRenderer(glamour.WithStandardStyle("dark"), glamour.WithWordWrap(width))
+	r, err := glamour.NewTermRenderer(glamour.WithStyles(markdownConfig), glamour.WithWordWrap(width))
 	if err == nil {
 		if out, err := r.Render(body); err == nil {
 			body = out

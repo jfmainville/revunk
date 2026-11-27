@@ -1466,22 +1466,24 @@ func checkClass(state string) int {
 	return 1
 }
 
-var checkIcons = []struct {
+type checkIcon struct {
 	icon  string
 	color lipgloss.Style
-}{
-	{"✓", lipgloss.NewStyle().Foreground(colorAdd)},
-	{"●", lipgloss.NewStyle().Foreground(colorPrimary)},
-	{"✗", lipgloss.NewStyle().Foreground(colorDel)},
-	{"○", dimStyle},
+}
+
+func checkIcons() []checkIcon {
+	return []checkIcon{
+		{"✓", lipgloss.NewStyle().Foreground(colorAdd)},
+		{"●", lipgloss.NewStyle().Foreground(colorPrimary)},
+		{"✗", lipgloss.NewStyle().Foreground(colorDel)},
+		{"○", dimStyle},
+	}
 }
 
 type prState struct {
 	icon  string
 	color color.Color
 }
-
-var prStates = map[string]prState{"OPEN": {iconPullRequest, colorAdd}, "DRAFT": {iconDraft, colorDim}, "MERGED": {iconMerge, colorMerged}, "CLOSED": {iconClosed, colorIssue}}
 
 func stateName(pr review.PullRequest) string {
 	if pr.Draft && pr.State == "OPEN" {
@@ -1491,8 +1493,15 @@ func stateName(pr review.PullRequest) string {
 }
 
 func stateOf(state string) prState {
-	if s, ok := prStates[state]; ok {
-		return s
+	switch state {
+	case "OPEN":
+		return prState{iconPullRequest, colorAdd}
+	case "DRAFT":
+		return prState{iconDraft, colorDim}
+	case "MERGED":
+		return prState{iconMerge, colorMerged}
+	case "CLOSED":
+		return prState{iconClosed, colorIssue}
 	}
 	return prState{iconPullRequest, colorDim}
 }
@@ -1507,7 +1516,7 @@ func checksIcon(checks []review.Check) string {
 			worst = max(worst, class)
 		}
 	}
-	return checkIcons[worst].color.Render(checkIcons[worst].icon)
+	return checkIcons()[worst].color.Render(checkIcons()[worst].icon)
 }
 
 func age(t time.Time) string {
@@ -1666,19 +1675,19 @@ func (m Model) detailLines(pr review.PullRequest, width int) ([]string, []int) {
 			field("labels", strings.Join(pr.Labels, ", ")),
 			"",
 		)
-		summary := make([]int, len(checkIcons))
+		summary := make([]int, len(checkIcons()))
 		for _, c := range pr.Checks {
 			summary[checkClass(c.State)]++
 		}
 		var parts []string
 		for i, n := range summary {
 			if n > 0 {
-				parts = append(parts, checkIcons[i].color.Render(fmt.Sprintf("%s %d", checkIcons[i].icon, n)))
+				parts = append(parts, checkIcons()[i].color.Render(fmt.Sprintf("%s %d", checkIcons()[i].icon, n)))
 			}
 		}
 		lines = append(lines, field("checks", strings.Join(parts, "  ")))
 		for _, c := range pr.Checks {
-			ic := checkIcons[checkClass(c.State)]
+			ic := checkIcons()[checkClass(c.State)]
 			lines = append(lines, "   "+ic.color.Render(ic.icon)+" "+c.Name+dimStyle.Render(" "+strings.ToLower(c.State)))
 		}
 		lines = append(lines, "", " "+dimStyle.Render("description"))

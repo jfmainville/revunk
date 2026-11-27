@@ -99,6 +99,10 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
+		model, err = model.WithTheme(cfg.Theme)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		_, err = tea.NewProgram(model).Run()
 		return err
 	case "reply":
