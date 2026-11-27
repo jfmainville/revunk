@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"math"
 
+	"charm.land/glamour/v2/ansi"
+	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 )
@@ -38,7 +40,8 @@ var (
 	primaryStyle lipgloss.Style
 	errorStyle   lipgloss.Style
 
-	syntax *chroma.Style
+	syntax         *chroma.Style
+	markdownConfig ansi.StyleConfig
 )
 
 func init() {
@@ -98,6 +101,43 @@ func applyTheme(p palette) {
 		chroma.GenericStrong:     "bold " + hex(p.text),
 		chroma.GenericEmph:       "italic " + hex(p.text),
 	})
+	markdownConfig = glamourStyle(p)
+}
+
+func glamourStyle(p palette) ansi.StyleConfig {
+	cfg := styles.DarkStyleConfig
+	fg := func(c color.RGBA) *string {
+		s := hex(c)
+		return &s
+	}
+	cfg.Document.Color = fg(p.text)
+	cfg.Heading.Color = fg(p.accent)
+	cfg.H1.Color = fg(p.panel)
+	cfg.H1.BackgroundColor = fg(p.accent)
+	cfg.H6.Color = fg(p.subtext)
+	cfg.BlockQuote.Color = fg(p.overlay)
+	cfg.Link.Color = fg(p.teal)
+	cfg.LinkText.Color = fg(p.accent)
+	cfg.Code.Color = fg(p.peach)
+	cfg.Code.BackgroundColor = fg(p.activeRow)
+	cfg.HorizontalRule.Color = fg(p.overlay)
+
+	// The dark style shares its Chroma pointer, so copy it before recoloring.
+	codeTheme := *cfg.CodeBlock.Chroma
+	codeTheme.Text.Color = fg(p.text)
+	codeTheme.Error.Color = fg(p.red)
+	codeTheme.Comment.Color = fg(p.overlay)
+	codeTheme.Keyword.Color = fg(p.accent)
+	codeTheme.KeywordType.Color = fg(p.accent)
+	codeTheme.NameBuiltin.Color = fg(p.accent)
+	codeTheme.NameDecorator.Color = fg(p.teal)
+	codeTheme.LiteralString.Color = fg(p.green)
+	codeTheme.LiteralNumber.Color = fg(p.mauve)
+	codeTheme.NameFunction.Color = fg(p.teal)
+	codeTheme.Name.Color = fg(p.text)
+	codeTheme.Punctuation.Color = fg(p.text)
+	cfg.CodeBlock.Chroma = &codeTheme
+	return cfg
 }
 
 func hex(c color.RGBA) string {

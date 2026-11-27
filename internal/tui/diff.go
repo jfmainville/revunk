@@ -374,7 +374,7 @@ func lineLabel(c review.Comment) string {
 }
 
 func renderMarkdown(body string, width int) []string {
-	r, err := glamour.NewTermRenderer(glamour.WithStandardStyle("dark"), glamour.WithWordWrap(width))
+	r, err := glamour.NewTermRenderer(glamour.WithStyles(markdownConfig), glamour.WithWordWrap(width))
 	if err == nil {
 		if out, err := r.Render(body); err == nil {
 			body = out

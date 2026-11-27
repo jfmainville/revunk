@@ -3,6 +3,8 @@ package tui
 import (
 	"image/color"
 	"testing"
+
+	"charm.land/glamour/v2/styles"
 )
 
 func TestWithThemeAppliesPalette(t *testing.T) {
@@ -48,6 +50,25 @@ func TestRgbUnpacksHex(t *testing.T) {
 func TestHexFormatsLowercase(t *testing.T) {
 	if got := hex(color.RGBA{R: 0x0a, G: 0x0b, B: 0xff, A: 255}); got != "#0a0bff" {
 		t.Fatalf("hex() = %q", got)
+	}
+}
+
+func TestGlamourStyleFollowsPalette(t *testing.T) {
+	p := themes["dracula"]
+	cfg := glamourStyle(p)
+	if *cfg.Heading.Color != hex(p.accent) || *cfg.Document.Color != hex(p.text) {
+		t.Fatalf("headings and text should use the palette, got heading %q, text %q", *cfg.Heading.Color, *cfg.Document.Color)
+	}
+	if *cfg.CodeBlock.Chroma.Keyword.Color != hex(p.accent) {
+		t.Fatalf("code keywords should use the accent, got %q", *cfg.CodeBlock.Chroma.Keyword.Color)
+	}
+}
+
+func TestGlamourStyleLeavesSharedDarkStyleAlone(t *testing.T) {
+	before := *styles.DarkStyleConfig.CodeBlock.Chroma.Keyword.Color
+	glamourStyle(themes["dracula"])
+	if *styles.DarkStyleConfig.CodeBlock.Chroma.Keyword.Color != before {
+		t.Fatal("recoloring should not change glamour's shared dark style")
 	}
 }
 
