@@ -14,6 +14,8 @@ Revunk is a pull request review tool with a Bubble Tea terminal interface. It re
 
 Each [GitHub release](https://github.com/jfmainville/revunk/releases) has `revunk` for Linux and macOS on `amd64` and `arm64`, as `.tar.gz` archives and `.deb` packages for Linux. Install a `.deb` with `sudo apt install ./revunk_<version>_linux_<arch>.deb`.
 
+Run `revunk upgrade` to replace the binary with the latest release. The download is verified against `checksums.txt` before the binary is replaced. A `revunk` installed under `/usr/bin` from a `.deb` cannot be replaced, so the command downloads and verifies the matching `.deb` and prints the `sudo apt install` command to run.
+
 ## Commands
 
 | Task        | Command                                     |
